@@ -1,4 +1,5 @@
 export type WorkflowStatus = 'not-started' | 'in-progress' | 'completed' | 'risk';
+export type RunStatus = 'idle' | 'running' | 'paused' | 'review' | 'completed' | 'failed' | 'aborted';
 
 export type StageId =
   | 'exploration'

@@ -1,48 +1,61 @@
-import { NavLink } from 'react-router-dom';
+import { History, Radio, Settings2, Workflow } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { routeMeta } from '../../data/routeData';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
-const processTabs = [
-  { label: '流程总览', to: '/workflow' },
-  { label: '文献采集', to: '/literature' },
-  { label: '论文写作', to: '/writing' },
-  { label: '结论验证', to: '/validation' },
-];
+const statusLabelMap: Record<string, string> = {
+  pending: '待启动',
+  running: '运行中',
+  paused: '已暂停',
+  review: '待评审',
+  completed: '已完成',
+  failed: '失败',
+  aborted: '已终止',
+};
 
 export default function TopBar() {
-  const searchQuery = useWorkspaceStore((state) => state.searchQuery);
-  const setSearchQuery = useWorkspaceStore((state) => state.setSearchQuery);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const currentStage = useWorkspaceStore((state) => state.currentStage);
+  const isWebSocketConnected = useWorkspaceStore((state) => state.isWebSocketConnected);
+  const route = routeMeta.find((item) => item.path === location.pathname);
 
   return (
     <header className="topbar">
-      <div className="topbar-brandline">SCHOLARMIND 研究流程</div>
+      <div className="topbar-main">
+        <div className="topbar-path">
+          <span>{route?.section === 'workflow' ? '研究阶段' : '工作区'}</span>
+          <span className="topbar-divider-dot" />
+          <span>{route?.title ?? 'ScholarMind'}</span>
+        </div>
+        <div className="topbar-title">{currentTask?.title ?? route?.title ?? 'ScholarMind'}</div>
+        <div className="topbar-subline">
+          <span className="topbar-status">
+            <Radio size={12} />
+            {statusLabelMap[currentTask?.status ?? 'pending'] ?? '待启动'}
+          </span>
+          <span className="topbar-divider" />
+          <span>{currentTask?.current_module ?? '未选择任务'}</span>
+          <span className="topbar-divider" />
+          <span>{route?.section === 'workflow' ? route.title : currentStage}</span>
+        </div>
+      </div>
 
-      <nav className="topbar-tabs">
-        {processTabs.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            className={({ isActive }) => `topbar-tab${isActive ? ' active' : ''}`}
-          >
-            {tab.label}
-          </NavLink>
-        ))}
-      </nav>
-
-      <div className="topbar-right">
-        <label className="topbar-search">
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="搜索研究节点、文献或草稿..."
-            type="text"
-          />
-        </label>
-        <NavLink className={({ isActive }) => `topbar-pill${isActive ? ' active' : ''}`} to="/history">
-          历史记录
-        </NavLink>
-        <NavLink className={({ isActive }) => `topbar-pill${isActive ? ' active' : ''}`} to="/workspace">
-          主工作台
-        </NavLink>
+      <div className="topbar-tools">
+        <button className="topbar-icon-button" onClick={() => navigate('/workflow')} type="button" aria-label="研究流程">
+          <Workflow size={16} />
+        </button>
+        <button className="topbar-icon-button" onClick={() => navigate('/history')} type="button" aria-label="历史任务">
+          <History size={16} />
+        </button>
+        <button className="topbar-icon-button" onClick={() => navigate('/settings')} type="button" aria-label="设置">
+          <Settings2 size={16} />
+        </button>
+        <div className="current-indicator">
+          <span className={`connection-dot${isWebSocketConnected ? ' live' : ''}`} />
+          <span>{isWebSocketConnected ? '实时同步已连接' : '实时同步未连接'}</span>
+        </div>
       </div>
     </header>
   );

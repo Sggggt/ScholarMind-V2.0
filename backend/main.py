@@ -37,7 +37,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -56,6 +56,11 @@ if os.path.exists(STATIC_DIR):
     # SPA fallback: 所有非 /api 路由返回 index.html
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
+        # 拦截不存在的 API 路由，防止前端误解析 HTML 为 JSON
+        if full_path.startswith("api/"):
+            from fastapi import HTTPException
+            raise HTTPException(404, "API endpoint not found")
+            
         # 如果是静态文件（favicon等），直接返回
         static_file = os.path.join(STATIC_DIR, full_path)
         if os.path.isfile(static_file):

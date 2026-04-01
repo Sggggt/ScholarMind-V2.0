@@ -1,56 +1,123 @@
 import { useEffect } from 'react';
-import { EditorialPage, ProcessStepper, RunLogStream, SectionBlock } from '../components/ui/Primitives';
+import { useNavigate } from 'react-router-dom';
+import { Pause, Play, Square } from 'lucide-react';
+import { EditorialPage, ProcessStepper, RunLogStream, SectionBlock, StatusBadge } from '../components/ui/Primitives';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
+const runStatusLabelMap = {
+  idle: '待命',
+  running: '正在研究',
+  paused: '已暂停',
+  review: '待人工评审',
+  completed: '已完成',
+  failed: '执行失败',
+  aborted: '已终止',
+} as const;
+
 export default function AgentRunPage() {
+  const navigate = useNavigate();
   const runSteps = useWorkspaceStore((state) => state.runSteps);
   const runLogs = useWorkspaceStore((state) => state.runLogs);
   const runProgress = useWorkspaceStore((state) => state.runProgress);
   const runStatus = useWorkspaceStore((state) => state.runStatus);
-  const startRun = useWorkspaceStore((state) => state.startRun);
-  const tickRun = useWorkspaceStore((state) => state.tickRun);
+  const isTaskLoading = useWorkspaceStore((state) => state.isTaskLoading);
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const pauseCurrentTask = useWorkspaceStore((state) => state.pauseCurrentTask);
+  const resumeCurrentTask = useWorkspaceStore((state) => state.resumeCurrentTask);
+  const abortCurrentTask = useWorkspaceStore((state) => state.abortCurrentTask);
+  const refreshCurrentTask = useWorkspaceStore((state) => state.refreshCurrentTask);
+  const refreshLogs = useWorkspaceStore((state) => state.refreshLogs);
+  const taskError = useWorkspaceStore((state) => state.taskError);
 
   useEffect(() => {
-    if (runStatus !== 'running') return;
-
-    const timer = window.setInterval(() => {
-      tickRun();
-    }, 900);
-
-    return () => window.clearInterval(timer);
-  }, [runStatus, tickRun]);
+    void Promise.all([refreshCurrentTask(), refreshLogs()]);
+  }, [refreshCurrentTask, refreshLogs]);
 
   return (
     <EditorialPage
-      eyebrow="智能体运行"
-      title="让多步骤执行和实时日志保持可读，而不是失控滚动"
-      description="运行页重点展示进度、子任务状态、警告与异常，同时尽量保持界面安静。状态更新需要流动，但不应像终端噪声一样压过主要信息。"
+      eyebrow="Live Orchestration"
+      title="实时查看多阶段研究任务的执行状态"
+      description="这一页直接映射后端 orchestrator 的真实运行过程。左侧是模块阶段，右侧是日志流，顶部是当前任务总状态。"
       actions={
-        <button className="button-primary" onClick={startRun} type="button">
-          启动运行
-        </button>
+        runProgress >= 100 || runStatus === 'completed' ? (
+          <button className="button-primary" onClick={() => navigate('/results')} type="button">
+            查看结果分析
+          </button>
+        ) : (
+          <StatusBadge
+            status={runStatus === 'failed' || runStatus === 'aborted' ? 'risk' : 'in-progress'}
+            label={runStatusLabelMap[runStatus]}
+          />
+        )
       }
     >
-      <SectionBlock title="运行进度" description="流式状态更新保持克制和可读。">
-        <div className="figure-header">
-          <div>
-            <div className="kicker">执行状态</div>
-            <div className="section-title">当前完成度 {runProgress}%</div>
+      <div className="cockpit-canvas">
+        <div className="stack">
+          <SectionBlock
+            title={currentTask?.title ?? '当前暂无活动任务'}
+            description={currentTask?.topic ?? '回到工作台创建研究任务后，这里会同步真实运行信息。'}
+          >
+            <div className="progress-container-modern">
+              <div className="progress-header">
+                <span className="progress-percent">{runProgress}%</span>
+                <span className="tiny muted">{runStatusLabelMap[runStatus]}</span>
+              </div>
+              <div className="progress-track-modern">
+                <div className="progress-fill-modern" style={{ width: `${runProgress}%` }} />
+              </div>
+            </div>
+
+            <div className="control-button-group">
+              {runStatus === 'running' ? (
+                <button className="control-btn" onClick={() => void pauseCurrentTask()} disabled={isTaskLoading} type="button">
+                  <Pause size={14} />
+                  暂停
+                </button>
+              ) : null}
+              {runStatus === 'paused' ? (
+                <button className="control-btn primary" onClick={() => void resumeCurrentTask()} disabled={isTaskLoading} type="button">
+                  <Play size={14} />
+                  恢复
+                </button>
+              ) : null}
+              {runStatus !== 'completed' && runStatus !== 'aborted' ? (
+                <button
+                  className="control-btn danger"
+                  onClick={() => {
+                    if (window.confirm('确认终止当前任务吗？')) {
+                      void abortCurrentTask();
+                    }
+                  }}
+                  disabled={isTaskLoading}
+                  type="button"
+                >
+                  <Square size={14} />
+                  终止
+                </button>
+              ) : null}
+            </div>
+          </SectionBlock>
+
+          <SectionBlock title="阶段推进" description="每个模块节点都来自当前任务的模块进度状态。">
+            <ProcessStepper items={runSteps} />
+          </SectionBlock>
+        </div>
+
+        <SectionBlock title="实时日志流" description="保留低干扰的终端感，但信息仍以可扫描为第一优先级。">
+          <div className="terminal-glass">
+            <div className="terminal-header-academic">
+              <div className="dot-group">
+                <div className="dot red" />
+                <div className="dot yellow" />
+                <div className="dot green" />
+              </div>
+              <div className="terminal-title">ScholarMind Trace Stream</div>
+            </div>
+            <div className="terminal-body-academic">
+              {runLogs.length ? <RunLogStream logs={runLogs} /> : <div className="terminal-placeholder">等待 orchestrator 输出日志...</div>}
+            </div>
           </div>
-          <div className="status-badge status-in-progress">{runStatus === 'completed' ? '已完成' : '运行中'}</div>
-        </div>
-        <div className="progress-track" style={{ marginTop: 18 }}>
-          <div className="progress-fill" style={{ width: `${runProgress}%` }} />
-        </div>
-      </SectionBlock>
-
-      <div className="grid-two">
-        <SectionBlock title="子任务状态" description="每个子任务都清楚显示当前阶段，但不过度堆叠细节。">
-          <ProcessStepper items={runSteps} />
-        </SectionBlock>
-
-        <SectionBlock title="运行日志" description="警告保持可见，同时日志整体仍然像文档一样可读。">
-          <RunLogStream logs={runLogs} />
+          {taskError ? <div className="inline-error-fixed">{taskError}</div> : null}
         </SectionBlock>
       </div>
     </EditorialPage>

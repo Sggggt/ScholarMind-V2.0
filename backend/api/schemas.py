@@ -1,41 +1,59 @@
-"""Pydantic 请求/响应模型 — 与前端类型完全对齐"""
+"""Pydantic request and response models shared with the frontend."""
 
-from typing import Optional, List
-from datetime import datetime
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
 MODULE_NAMES = {
     0: "初始化",
-    1: "文献调研", 2: "选题开题", 3: "Idea打分",
-    4: "代码生成", 5: "实验设计", 6: "Agent实验",
-    7: "结果分析", 8: "论文写作", 9: "评审打分",
+    1: "文献调研",
+    2: "选题开题",
+    3: "Idea打分",
+    4: "代码生成",
+    5: "实验设计",
+    6: "Agent实验",
+    7: "结果分析",
+    8: "论文写作",
+    9: "评审打分",
 }
 
 
 def module_int_to_id(n: int) -> str:
-    """0-9 → 'M1'-'M9' (0 → 'M1')"""
     return f"M{max(n, 1)}"
 
 
-# ── 请求 ──────────────────────────────────────────────
-
 class TaskCreateRequest(BaseModel):
-    topic: str = Field(..., description="研究主题详细描述")
-    description: str = Field("", description="补充描述")
-    config: dict = Field(default_factory=dict, description="自定义配置覆盖")
+    topic: str = Field(..., description="Research topic")
+    description: str = Field("", description="Extra description")
+    config: dict = Field(default_factory=dict, description="Task-scoped configuration")
 
 
 class TaskReviewRequest(BaseModel):
     action: str = Field(..., description="approve / reject / revise")
-    comment: str = Field("", description="人工反馈意见")
+    comment: str = Field("", description="Human review comment")
 
 
-# ── 模块进度 ──────────────────────────────────────────
+class RuntimeSettingsRequest(BaseModel):
+    llm_provider: str = Field("openai", description="Runtime LLM provider id")
+    api_key: str = Field("", description="Provider API key")
+    model: str = Field("gpt-4o", description="Provider model name")
+    provider_base_url: str = Field("https://api.openai.com/v1", description="Provider base URL")
+    search_provider: str = Field("brave", description="Preferred search provider")
+
+
+class RuntimeSettingsResponse(BaseModel):
+    llm_provider: str
+    api_key: str
+    model: str
+    provider_base_url: str
+    search_provider: str
+    env_path: str
+
 
 class ModuleProgress(BaseModel):
-    module_id: str  # M1-M9
-    status: str     # waiting / running / completed / failed / skipped
+    module_id: str
+    status: str
     percent: float = 0
     step: str = ""
     message: str = ""
@@ -43,35 +61,29 @@ class ModuleProgress(BaseModel):
     finished_at: Optional[str] = None
 
 
-# ── 任务响应 (对齐前端 Task 类型) ─────────────────────
-
 class TaskResponse(BaseModel):
     id: str
     title: str
     topic: str
     description: str = ""
     status: str
-    current_module: Optional[str] = None  # "M1"-"M9"
-    modules: List[ModuleProgress] = []
+    current_module: Optional[str] = None
+    modules: list[ModuleProgress] = []
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
     output_url: Optional[str] = None
 
 
-# ── 日志 (对齐前端 LogEntry) ─────────────────────────
-
 class LogEntryResponse(BaseModel):
     id: str
     task_id: str
-    module_id: Optional[str] = None  # "M1"-"M9"
+    module_id: Optional[str] = None
     level: str = "info"
     message: str = ""
     timestamp: str
     metadata: Optional[dict] = None
 
-
-# ── 评审结果 (对齐前端 ReviewResult) ─────────────────
 
 class ReviewDimension(BaseModel):
     name: str
@@ -83,27 +95,23 @@ class ReviewDimension(BaseModel):
 class ReviewResultResponse(BaseModel):
     task_id: str
     overall_score: float
-    decision: str  # accept / weak_accept / weak_reject / reject
-    dimensions: List[ReviewDimension] = []
+    decision: str
+    dimensions: list[ReviewDimension] = []
     summary: str = ""
     created_at: str = ""
 
-
-# ── 产出物 (对齐前端 TaskOutput) ─────────────────────
 
 class TaskOutputResponse(BaseModel):
     paper_url: Optional[str] = None
     code_url: Optional[str] = None
     data_url: Optional[str] = None
-    figures: List[str] = []
+    figures: list[str] = []
 
-
-# ── WebSocket 消息 (module 用字符串) ─────────────────
 
 class WSMessage(BaseModel):
-    type: str  # progress / result / need_review / error / completed
+    type: str
     task_id: str
-    module: str = "M1"  # "M1"-"M9"
+    module: str = "M1"
     step: str = ""
     percent: float = 0
     message: str = ""

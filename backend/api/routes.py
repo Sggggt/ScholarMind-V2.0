@@ -4,14 +4,19 @@ from typing import Optional, List
 import asyncio
 import os
 import json
+import mimetypes
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import config
 from db.database import get_db
 from db.models import Task, TraceLog, TaskOutput
 from api.schemas import (
+    RuntimeSettingsRequest,
+    RuntimeSettingsResponse,
     TaskCreateRequest, TaskReviewRequest,
     TaskResponse, ModuleProgress, LogEntryResponse,
     TaskOutputResponse, ReviewResultResponse, ReviewDimension,
@@ -99,6 +104,73 @@ def _log_to_response(log: TraceLog) -> dict:
     }
 
 
+def _get_task_workspace(task_id: str) -> Path:
+    import config as cfg
+
+    workspace = (cfg.WORKSPACE_DIR / task_id).resolve()
+    if not workspace.exists():
+        raise HTTPException(404, "任务工作区不存在")
+    return workspace
+
+
+def _resolve_workspace_path(task_id: str, relative_path: str, require_exists: bool = True) -> tuple[Path, Path]:
+    workspace = _get_task_workspace(task_id)
+    target = (workspace / relative_path).resolve()
+    if workspace != target and workspace not in target.parents:
+        raise HTTPException(400, "非法路径")
+    if require_exists and not target.exists():
+        raise HTTPException(404, "文件不存在")
+    return workspace, target
+
+
+def _detect_content_type(path: Path) -> str:
+    if path.suffix == ".json":
+        return "application/json"
+    if path.suffix == ".md":
+        return "text/markdown"
+    if path.suffix in {".txt", ".tex", ".bib", ".py", ".js", ".ts", ".tsx", ".jsx", ".yaml", ".yml"}:
+        return "text/plain"
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or "application/octet-stream"
+
+
+def _infer_module_name(path: Path) -> str:
+    if path.parts and path.parts[0] == "paper":
+        return "M8"
+    stem = path.parts[0] if path.parts else path.name
+    if stem.startswith("m") and "_" in stem:
+        return stem.split("_", 1)[0].upper()
+    if stem.startswith("project"):
+        return "M4"
+    return "unknown"
+
+
+def _find_repo_root(workspace: Path) -> Optional[Path]:
+    candidates = sorted(
+        path for path in workspace.iterdir()
+        if path.is_dir() and path.name.startswith("project")
+    )
+    return candidates[0] if candidates else None
+
+
+def _build_repo_tree(root: Path, current: Path) -> dict:
+    relative = current.relative_to(root).as_posix() if current != root else ""
+    if current.is_dir():
+        children = sorted(current.iterdir(), key=lambda item: (item.is_file(), item.name.lower()))
+        return {
+            "name": current.name,
+            "path": relative,
+            "kind": "folder",
+            "children": [_build_repo_tree(root, child) for child in children],
+        }
+
+    return {
+        "name": current.name,
+        "path": relative,
+        "kind": "file",
+    }
+
+
 # ── 任务 CRUD ─────────────────────────────────────────
 
 @router.post("/tasks")
@@ -119,6 +191,16 @@ async def create_task(req: TaskCreateRequest, db: AsyncSession = Depends(get_db)
     asyncio.create_task(_run_pipeline(orch, task.id))
 
     return _task_to_response(task)
+
+
+@router.get("/settings/runtime")
+async def get_runtime_settings():
+    return config.get_runtime_settings()
+
+
+@router.put("/settings/runtime")
+async def update_runtime_settings(req: RuntimeSettingsRequest):
+    return config.save_runtime_settings(req.model_dump())
 
 
 async def _run_pipeline(orch: PipelineOrchestrator, task_id: str):
@@ -338,6 +420,91 @@ async def get_outputs(task_id: str, db: AsyncSession = Depends(get_db)):
         "data_url": None,
         "figures": figures,
     }
+
+
+@router.get("/tasks/{task_id}/artifacts")
+async def get_artifacts(task_id: str):
+    workspace = _get_task_workspace(task_id)
+    artifacts = []
+
+    for path in sorted(workspace.rglob("*")):
+        if not path.is_file():
+            continue
+
+        relative = path.relative_to(workspace)
+        content_type = _detect_content_type(path)
+        url = f"/api/files/{task_id}/{relative.as_posix()}" if not content_type.startswith("application/json") else None
+
+        artifacts.append({
+            "path": relative.as_posix(),
+            "name": path.name,
+            "module": _infer_module_name(relative),
+            "content_type": content_type,
+            "size": path.stat().st_size,
+            "url": url,
+        })
+
+    return artifacts
+
+
+@router.get("/tasks/{task_id}/artifact-content")
+async def get_artifact_content(task_id: str, path: str = Query(...)):
+    workspace, target = _resolve_workspace_path(task_id, path)
+
+    if target.is_dir():
+        raise HTTPException(400, "路径指向目录，不能直接读取")
+
+    if target.suffix.lower() not in {".json", ".md", ".txt", ".tex", ".bib"}:
+        raise HTTPException(400, "当前接口仅支持文本和 JSON 产物")
+
+    content_type = _detect_content_type(target)
+    text = target.read_text(encoding="utf-8", errors="replace")
+    content = json.loads(text) if target.suffix.lower() == ".json" else text
+
+    return {
+        "path": target.relative_to(workspace).as_posix(),
+        "content_type": content_type,
+        "content": content,
+    }
+
+
+@router.get("/tasks/{task_id}/repo/tree")
+async def get_repo_tree(task_id: str):
+    workspace = _get_task_workspace(task_id)
+    repo_root = _find_repo_root(workspace)
+    if not repo_root:
+        return []
+    return [_build_repo_tree(repo_root, repo_root)]
+
+
+@router.get("/tasks/{task_id}/repo/file")
+async def get_repo_file(task_id: str, path: str = Query(...)):
+    workspace = _get_task_workspace(task_id)
+    repo_root = _find_repo_root(workspace)
+    if not repo_root:
+        raise HTTPException(404, "代码仓库尚未生成")
+
+    normalized_path = path.strip().lstrip("/")
+    _, target = _resolve_workspace_path(
+        task_id,
+        repo_root.name if not normalized_path else f"{repo_root.name}/{normalized_path}",
+    )
+
+    if target.is_dir():
+        raise HTTPException(400, "路径指向目录，不能直接读取")
+
+    return {
+        "path": target.relative_to(repo_root).as_posix(),
+        "content": target.read_text(encoding="utf-8", errors="replace"),
+        "language": target.suffix.lstrip(".").lower() or "text",
+    }
+
+
+@router.get("/tasks/{task_id}/review-report")
+async def get_review_report(task_id: str):
+    _, target = _resolve_workspace_path(task_id, "m9_review_report.json")
+    with open(target, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ── 文件服务 ──────────────────────────────────────────

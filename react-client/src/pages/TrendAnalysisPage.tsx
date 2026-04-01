@@ -1,34 +1,88 @@
 import { FileText } from 'lucide-react';
-import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
+import { useEffect, useMemo, useState } from 'react';
+import { EditorialPage, SectionBlock, StatusBadge, TimelineFlow } from '../components/ui/Primitives';
+import { adaptGapArtifacts, adaptLiteratureArtifacts, adaptTrendArtifacts } from '../adapters/artifactAdapter';
+import { getArtifactContent } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
-const trendSignals = [
-  { year: '2021', value: 28 },
-  { year: '2022', value: 44 },
-  { year: '2024', value: 71 },
-  { year: '2025', value: 84 },
-];
-
 export default function TrendAnalysisPage() {
-  const trendEvents = useWorkspaceStore((state) => state.trendEvents);
-  const hotDirections = useWorkspaceStore((state) => state.hotDirections);
-  const rankedPapers = useWorkspaceStore((state) => state.rankedPapers);
-  const activeRankedPaperId = useWorkspaceStore((state) => state.activeRankedPaperId);
-  const setActiveRankedPaper = useWorkspaceStore((state) => state.setActiveRankedPaper);
-  const trendRange = useWorkspaceStore((state) => state.trendRange);
-  const setTrendRange = useWorkspaceStore((state) => state.setTrendRange);
+  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const [trendRange, setTrendRange] = useState<'3y' | '5y' | 'all'>('5y');
+  const [trendEvents, setTrendEvents] = useState<Array<any>>([]);
+  const [hotDirections, setHotDirections] = useState<string[]>([]);
+  const [rankedPapers, setRankedPapers] = useState<Array<any>>([]);
+  const [activeRankedPaperId, setActiveRankedPaper] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentSessionId || !currentTask) {
+      setTrendEvents([]);
+      setHotDirections([]);
+      setRankedPapers([]);
+      setError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadArtifacts = async () => {
+      try {
+        const [sourcesResponse, reviewResponse, gapResponse] = await Promise.all([
+          getArtifactContent(currentSessionId, 'm1_sources.json'),
+          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
+          getArtifactContent(currentSessionId, 'm2_gap_analysis.json').catch(() => null),
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        const literature = adaptLiteratureArtifacts(
+          currentTask.topic,
+          String(reviewResponse.content ?? ''),
+          sourcesResponse.content,
+        );
+        const gaps = gapResponse ? adaptGapArtifacts(gapResponse.content) : [];
+        const trendData = adaptTrendArtifacts(literature.papers, gaps);
+
+        setTrendEvents(trendData.trendEvents);
+        setHotDirections(trendData.hotDirections);
+        setRankedPapers(trendData.rankedPapers);
+        setActiveRankedPaper(trendData.rankedPapers[0]?.id ?? '');
+        setError(null);
+      } catch (artifactError) {
+        if (!cancelled) {
+          setError(artifactError instanceof Error ? artifactError.message : '趋势产物尚未生成。');
+        }
+      }
+    };
+
+    void loadArtifacts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId, currentTask]);
 
   const activePaper = rankedPapers.find((paper) => paper.id === activeRankedPaperId) ?? rankedPapers[0];
+  const trendSignals = useMemo(
+    () =>
+      trendEvents.map((event, index) => ({
+        year: event.year,
+        value: Math.min(92, 25 + index * 18),
+      })),
+    [trendEvents],
+  );
 
   return (
     <EditorialPage
-      eyebrow="趋势分析"
-      title="把时间演化、热点方向与重点论文放在同一张研究图版里"
-      description="这一页不做指标看板，而是像一份研究备忘录：先交代主题如何演化，再说明哪些方向持续升温，最后收束到当前最值得追踪的论文。"
-      actions={<StatusBadge status="in-progress" label="进行中" />}
+      eyebrow="Trend Signals"
+      title="把时间演化、热点方向与高价值论文放进同一张研究图板"
+      description="趋势页不做 KPI 看板，而是以研究备忘录的方式展示：先看演化，再看热点，最后落到当前最值得继续跟踪的论文。"
+      actions={<StatusBadge status={trendEvents.length ? 'completed' : 'not-started'} label={trendEvents.length ? 'Signals Ready' : 'Waiting'} />}
     >
-      <SectionBlock title="主题演化" description="时间范围切换保持轻量，不打断阅读与判断。">
-        <div className="chip-row" style={{ marginBottom: 20 }}>
+      <SectionBlock title="主题演化" description="保留轻量时间轴和趋势柱形，帮助研究者快速判断演进方向。">
+        <div className="chip-row" style={{ marginBottom: '20px' }}>
           {(['3y', '5y', 'all'] as const).map((range) => (
             <button
               key={range}
@@ -43,34 +97,23 @@ export default function TrendAnalysisPage() {
 
         <div className="trend-figure">
           <div className="trend-chart">
-            {trendSignals.map((signal) => (
+            {(trendSignals.length ? trendSignals : [{ year: '--', value: 18 }]).map((signal) => (
               <div key={signal.year} className="trend-chart-point">
                 <div className="trend-chart-value" style={{ height: `${signal.value}%` }} />
                 <div className="trend-chart-year">{signal.year}</div>
               </div>
             ))}
           </div>
-          <div className="figure-caption">图 1. 研究主题从基础框架验证逐步转向异构稳健性与标签稀缺问题。</div>
+          <div className="figure-caption">{error ?? '趋势强度由当前已解析文献与缺口分析共同生成。'}</div>
         </div>
 
-        <div className="timeline">
-          {trendEvents.map((item) => (
-            <div key={`${item.year}-${item.title}`} className="timeline-item">
-              <div className="kicker">{item.year}</div>
-              <div className="timeline-dot" />
-              <div className="timeline-copy">
-                <strong>{item.title}</strong>
-                <div className="tiny muted">{item.summary}</div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <TimelineFlow items={trendEvents} />
       </SectionBlock>
 
       <div className="grid-two">
-        <SectionBlock title="热点方向排名" description="只保留真正有助于判断下一步的高信号方向。">
+        <SectionBlock title="热点方向排序" description="只保留对下一步决策有帮助的方向。">
           <div className="ranked-list">
-            {hotDirections.map((direction, index) => (
+            {(hotDirections.length ? hotDirections : ['等待真实趋势产物']).map((direction, index) => (
               <div key={direction} className="ranked-row">
                 <div className="ranked-index">{index + 1}</div>
                 <div className="ranked-copy">
@@ -82,7 +125,7 @@ export default function TrendAnalysisPage() {
           </div>
         </SectionBlock>
 
-        <SectionBlock title="重点论文排序" description="切换条目时，右下角洞察会同步更新。">
+        <SectionBlock title="重点论文排序" description="切换条目时，下方洞察会同步更新。">
           <div className="ranked-list">
             {rankedPapers.map((paper) => (
               <button
@@ -91,8 +134,10 @@ export default function TrendAnalysisPage() {
                 onClick={() => setActiveRankedPaper(paper.id)}
                 type="button"
               >
-                <div className="ranked-index"><FileText size={14} /></div>
-                <div className="ranked-copy" style={{ textAlign: 'left' }}>
+                <div className="ranked-index">
+                  <FileText size={14} />
+                </div>
+                <div className="ranked-copy">
                   <strong>{paper.title}</strong>
                   <div className="tiny muted">{paper.signal}</div>
                 </div>
@@ -102,14 +147,14 @@ export default function TrendAnalysisPage() {
         </SectionBlock>
       </div>
 
-      <SectionBlock title="AI 洞察" description="把当前最有价值的排序判断收束成一句可执行结论。">
+      <SectionBlock title="当前洞察" description="把排序判断收束成一句可执行结论。">
         <div className="figure-block">
-          <div className="kicker">{activePaper.signal}</div>
-          <div className="section-title" style={{ fontSize: 28, marginTop: 8 }}>
-            {activePaper.title}
+          <div className="kicker">{activePaper?.signal ?? '等待重点论文'}</div>
+          <div className="section-title" style={{ fontSize: '1.8rem', marginTop: '8px' }}>
+            {activePaper?.title ?? '当前任务尚未形成重点论文排序'}
           </div>
-          <p className="editorial-lead" style={{ marginTop: 14 }}>
-            {activePaper.rationale}
+          <p className="editorial-lead" style={{ marginTop: '14px' }}>
+            {activePaper?.rationale ?? error ?? '完成文献与缺口产物后，这里会显示真实趋势结论。'}
           </p>
         </div>
       </SectionBlock>

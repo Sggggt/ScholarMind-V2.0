@@ -1,106 +1,137 @@
-import { EditorialPage } from '../components/ui/Primitives';
+import { useEffect, useState } from 'react';
+import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
+import { adaptExplorationArtifacts, adaptLiteratureArtifacts } from '../adapters/artifactAdapter';
+import { getArtifactContent } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
+const emptyExploration = {
+  topic: '',
+  summary: '',
+  keywords: [] as string[],
+  directions: [] as string[],
+  authors: [] as string[],
+  institutions: [] as string[],
+  insight: '',
+};
+
 export default function DomainExplorationPage() {
-  const exploration = useWorkspaceStore((state) => state.exploration);
-  const updateTopic = useWorkspaceStore((state) => state.updateTopic);
+  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const [exploration, setExploration] = useState(emptyExploration);
+
+  useEffect(() => {
+    if (!currentTask) {
+      setExploration(emptyExploration);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadExploration = async () => {
+      try {
+        const [sourcesResponse, reviewResponse] = await Promise.all([
+          getArtifactContent(currentSessionId, 'm1_sources.json'),
+          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        const literature = adaptLiteratureArtifacts(
+          currentTask.topic,
+          String(reviewResponse.content ?? ''),
+          sourcesResponse.content,
+        );
+        setExploration(
+          adaptExplorationArtifacts(
+            currentTask.topic,
+            currentTask.description,
+            String(reviewResponse.content ?? ''),
+            literature.papers,
+          ),
+        );
+      } catch {
+        if (!cancelled) {
+          setExploration({
+            topic: currentTask.topic,
+            summary: currentTask.description || '任务已创建，等待真实探索产物同步。',
+            keywords: currentTask.topic.split(/\s+/).filter(Boolean).slice(0, 6),
+            directions: [],
+            authors: [],
+            institutions: [],
+            insight: '当前阶段尚未读取到可用的探索产物。',
+          });
+        }
+      }
+    };
+
+    void loadExploration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId, currentTask]);
 
   return (
     <EditorialPage
-      eyebrow="领域探索"
-      title="先定义主题框架，再推进到文献、提取与趋势阶段"
-      description="这一页负责建立整个研究会话的主题边界、关键词体系与方向判断。结构尽量保持连续，避免把同一组思考切碎成很多小卡片。"
+      eyebrow="Exploration"
+      title="先建立研究边界，再进入文献与实验链条"
+      description="领域探索页负责把任务主题压缩成可操作的问题空间：主题摘要、关键词、代表方向、主要作者与机构，都在这里形成初始地图。"
+      actions={<StatusBadge status={exploration.topic ? 'completed' : 'not-started'} label={exploration.topic ? 'Ready' : 'No Task'} />}
     >
-      <div className="exploration-layout">
-        <div className="exploration-main">
-          <section className="editorial-strip">
-            <div className="editorial-strip-header">
-              <div>
-                <div className="kicker">主题框架</div>
-                <h2 className="section-title">研究问题与检索边界</h2>
-              </div>
-            </div>
+      <SectionBlock title="研究主题" description="这里是系统对当前任务的第一层聚焦。">
+        <div className="editorial-lead">{exploration.topic || '尚未创建研究任务。'}</div>
+      </SectionBlock>
 
-            <label className="editorial-input-block">
-              <span className="editorial-input-label">研究主题</span>
-              <input
-                className="text-input"
-                value={exploration.topic}
-                onChange={(event) => updateTopic(event.target.value)}
-              />
-            </label>
+      <div className="grid-two">
+        <SectionBlock title="任务摘要" description="摘要来自文献综述与任务描述的合并视图。">
+          <p className="page-description">{exploration.summary || '等待真实探索结论。'}</p>
+        </SectionBlock>
+        <SectionBlock title="关键洞察" description="保留一条面向下一步行动的结论。">
+          <p className="page-description">{exploration.insight || '等待洞察生成。'}</p>
+        </SectionBlock>
+      </div>
 
-            <p className="editorial-lead">{exploration.summary}</p>
-          </section>
-
-          <section className="editorial-strip">
-            <div className="exploration-columns">
-              <div>
-                <div className="kicker">关键词体系</div>
-                <div className="chip-row exploration-chip-row">
-                  {exploration.keywords.map((keyword) => (
-                    <span key={keyword} className="chip active">
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="kicker">方向判断</div>
-                <div className="ruled-list">
-                  {exploration.directions.map((direction) => (
-                    <div key={direction} className="ruled-list-item">
-                      {direction}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="editorial-strip">
-            <div className="exploration-columns">
-              <div>
-                <div className="kicker">代表作者</div>
-                <div className="name-cloud">
-                  {exploration.authors.map((author) => (
-                    <span key={author} className="annotation-pill">
-                      {author}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="kicker">代表机构</div>
-                <div className="name-cloud">
-                  {exploration.institutions.map((institution) => (
-                    <span key={institution} className="annotation-pill">
-                      {institution}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="editorial-strip insight-strip">
-            <div className="kicker">AI 洞察</div>
-            <p className="editorial-lead">{exploration.insight}</p>
-          </section>
-        </div>
-
-        <aside className="exploration-rail">
-          <div className="annotation-panel-shell">
-            <div className="kicker">研究提示</div>
-            <div className="stack">
-              <div className="tiny muted">优先保持关键词、方向和代表作者在同一语义框架内。</div>
-              <div className="tiny muted">这一页的输出将直接进入文献采集页的检索条件。</div>
-              <div className="tiny muted">洞察结论应尽量服务于下一步缺口判断，而不是停留在概览层。</div>
-            </div>
+      <div className="grid-two">
+        <SectionBlock title="关键词簇" description="帮助后续检索和结果过滤。">
+          <div className="chip-row">
+            {(exploration.keywords.length ? exploration.keywords : ['等待关键词']).map((keyword) => (
+              <span key={keyword} className="chip active">
+                {keyword}
+              </span>
+            ))}
           </div>
-        </aside>
+        </SectionBlock>
+        <SectionBlock title="代表方向" description="优先展示当前任务最值得继续跟进的方向。">
+          <div className="ruled-list">
+            {(exploration.directions.length ? exploration.directions : ['等待方向提炼']).map((direction) => (
+              <div key={direction} className="ruled-list-item">
+                {direction}
+              </div>
+            ))}
+          </div>
+        </SectionBlock>
+      </div>
+
+      <div className="grid-two">
+        <SectionBlock title="代表作者" description="这些名字来自当前已解析的文献列表。">
+          <div className="name-cloud">
+            {(exploration.authors.length ? exploration.authors : ['等待作者线索']).map((author) => (
+              <span key={author} className="annotation-pill">
+                {author}
+              </span>
+            ))}
+          </div>
+        </SectionBlock>
+        <SectionBlock title="代表机构" description="用机构分布感知当前证据主要来自哪里。">
+          <div className="name-cloud">
+            {(exploration.institutions.length ? exploration.institutions : ['等待机构线索']).map((institution) => (
+              <span key={institution} className="annotation-pill">
+                {institution}
+              </span>
+            ))}
+          </div>
+        </SectionBlock>
       </div>
     </EditorialPage>
   );

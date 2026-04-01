@@ -1,171 +1,257 @@
-import { Send } from 'lucide-react';
+import {
+  ArrowUpRight,
+  BookOpen,
+  Bot,
+  FolderOpen,
+  Paperclip,
+  SendHorizonal,
+  Settings2,
+  Sparkles,
+  Target,
+} from 'lucide-react';
 import type { FormEvent } from 'react';
-import { startTransition, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AppLogo from '../components/ui/AppLogo';
+import {
+  clearWorkingDirectoryPreference,
+  getDesktopSettings,
+  saveWorkingDirectoryPreference,
+} from '../services/preferences';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+
+const promptSuggestions = [
+  {
+    title: '多中心医学影像',
+    detail: '联邦学习的跨域泛化与标签噪声问题',
+  },
+  {
+    title: 'AI for Science',
+    detail: '大语言模型在科学发现中的关键局限性评估',
+  },
+  {
+    title: '可解释视觉模型',
+    detail: '面向自动驾驶的 Transformer 结构创新',
+  },
+];
+
+const runStatusLabelMap = {
+  idle: '尚未启动',
+  running: '运行中',
+  paused: '已暂停',
+  review: '待评审',
+  completed: '已完成',
+  failed: '失败',
+  aborted: '已终止',
+} as const;
 
 export default function MainChatWorkspacePage() {
   const navigate = useNavigate();
   const chatMessages = useWorkspaceStore((state) => state.chatMessages);
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const stages = useWorkspaceStore((state) => state.stages);
+  const runStatus = useWorkspaceStore((state) => state.runStatus);
+  const runProgress = useWorkspaceStore((state) => state.runProgress);
+  const isSubmittingTask = useWorkspaceStore((state) => state.isSubmittingTask);
+  const taskError = useWorkspaceStore((state) => state.taskError);
   const addChatMessage = useWorkspaceStore((state) => state.addChatMessage);
-  const openStage = useWorkspaceStore((state) => state.openStage);
+  const showToast = useWorkspaceStore((state) => state.showToast);
   const [draft, setDraft] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [workingDirectoryPath, setWorkingDirectoryPath] = useState(
+    () => getDesktopSettings().workingDirectoryPath,
+  );
+  const threadEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [chatMessages]);
 
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(e.target.value);
-
-    // Auto-resize logic constrained to approx 300px max
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 300)}px`;
-    }
+  const persistWorkingDirectory = (path: string) => {
+    setWorkingDirectoryPath(path);
+    saveWorkingDirectoryPreference(path, 'Local Repo');
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (draft.trim()) {
-        const fakeEvent = { preventDefault: () => {} } as FormEvent<HTMLFormElement>;
-        handleSubmit(fakeEvent);
-      }
-    }
+  const handleSuggestionClick = (topic: string) => {
+    setDraft(topic);
+    showToast('示例主题已载入，发送后即可创建真实任务。');
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!draft.trim()) return;
-
-    startTransition(() => {
-      addChatMessage(draft.trim());
-      setDraft('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto'; // Reset height
-      }
-    });
+    if (!draft.trim()) {
+      return;
+    }
+    if (draft.trim().length < 5) {
+      showToast('研究主题过短，请补充更多目标或约束。');
+      return;
+    }
+    await addChatMessage(draft);
+    setDraft('');
   };
+
+  const completedStages = stages.filter((stage) => stage.status === 'completed').length;
 
   return (
-    <div className="workspace-main-page">
-      <section className="workspace-intro">
-        <div className="workspace-intro-main">
-          <div className="workspace-intro-eyebrow">主工作台</div>
-          <h1 className="workspace-intro-title serif">研究主控台保持对话，但不丢掉流程。</h1>
-          <p className="workspace-intro-copy">
-            工作台中心以连续消息流组织问题、总结和跳转动作。每条回复都可以直接推进到下游模块，让对话始终保持控制中心的角色。
+    <div className="workspace-chat-page">
+      <div className="workspace-chat-header">
+        <AppLogo compact subtitle="Digital Research Atelier" />
+        <div className="workspace-chat-header-copy">
+          <div className="hero-eyebrow">Claude-like Research Console</div>
+          <h1 className="workspace-chat-title">以对话为核心组织整个 ScholarMind 研究流程</h1>
+          <p className="workspace-chat-copy">
+            主界面只保留任务、上下文和输入框。真正重要的信息跟随会话自然展开，而不是堆在仪表盘卡片里。
           </p>
-          <div className="workspace-tag-row">
-            <span className="workspace-tag">底部固定输入区</span>
-            <span className="workspace-tag">长文本与结构化总结</span>
-            <span className="workspace-tag">下游模块快捷入口</span>
-          </div>
         </div>
-      </section>
+      </div>
 
-      <div className="workspace-grid">
-        <div className="workspace-thread">
-          {chatMessages.map((message, index) =>
-            message.role === 'assistant' ? (
-              <section key={message.id} className={`assistant-sheet${index > 1 ? ' secondary' : ''}`}>
-                <p className="assistant-sheet-copy">{message.content}</p>
-                {index === 0 ? (
-                  <>
-                    <div className="workspace-chip-row">
-                      <span className="workspace-chip">联邦学习</span>
-                      <span className="workspace-chip">医学影像</span>
-                      <span className="workspace-chip">跨域泛化</span>
-                    </div>
-                    <div className="assistant-sheet-source">
-                      引用来源：《自然·医学》2024 · MICCAI 2025
-                    </div>
-                  </>
-                ) : null}
-                {message.quickActions?.length ? (
-                  <div className="workspace-action-row">
-                    {message.quickActions.map((action) => (
-                      <button
-                        key={action.label}
-                        className="workspace-action-button"
-                        onClick={() => {
-                          if (action.stageId) {
-                            openStage(action.stageId);
-                          }
-                          navigate(action.path);
-                        }}
-                        type="button"
-                      >
-                        {action.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </section>
-            ) : (
-              <div key={message.id} className="user-bubble">
-                {message.content}
-              </div>
-            ),
-          )}
-
-          <form
-            className="workspace-composer"
-            onSubmit={handleSubmit}
-          >
-            <textarea
-              ref={textareaRef}
-              className="workspace-composer-textarea"
-              value={draft}
-              onChange={handleInput}
-              onKeyDown={handleKeyDown}
-              rows={1}
-              placeholder="继续追问、要求结构化总结，或直接让系统推进到某个研究阶段……"
-            />
-            <div className="workspace-composer-footer">
-              <div className="workspace-chip-row">
-                <span className="workspace-chip">联网检索</span>
-                <span className="workspace-chip">结构化摘要</span>
-                <span className="workspace-chip">实验草案</span>
-              </div>
-              <button className="workspace-send" type="submit">
-                <Send size={15} />
-                发送
-              </button>
-            </div>
-          </form>
-          <div ref={messagesEndRef} style={{ height: 1, marginTop: -1 }} />
+      <div className="workspace-task-ribbon">
+        <div className="workspace-task-line">
+          <span className="kicker">当前任务</span>
+          <strong>{currentTask?.title ?? '尚未创建研究任务'}</strong>
         </div>
+        <div className="workspace-task-line">
+          <span className="kicker">状态</span>
+          <strong>{runStatusLabelMap[runStatus]}</strong>
+        </div>
+        <div className="workspace-task-line">
+          <span className="kicker">已完成阶段</span>
+          <strong>{completedStages}/12</strong>
+        </div>
+        <div className="workspace-task-line">
+          <span className="kicker">总进度</span>
+          <strong>{runProgress}%</strong>
+        </div>
+      </div>
 
-        <aside className="workspace-rail">
-          <div className="workspace-context-box">
-            <div className="workspace-rail-label">当前上下文</div>
-            <div className="workspace-rail-chip-row">
-              <span className="workspace-mini-chip">会话连续性</span>
-              <span className="workspace-mini-chip">趋势洞察</span>
-              <span className="workspace-mini-chip">缺口决策</span>
-            </div>
-          </div>
+      {!currentTask && chatMessages.length <= 1 ? (
+        <div className="workspace-suggestion-row">
+          {promptSuggestions.map((item) => (
+            <button
+              key={item.title}
+              className="workspace-suggestion-chip"
+              onClick={() => handleSuggestionClick(`${item.title}：${item.detail}`)}
+              type="button"
+            >
+              <Sparkles size={15} />
+              <span>{item.title}</span>
+              <small>{item.detail}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-          <div className="workspace-rail-block">
-            <h3 className="workspace-rail-title serif">下游动作</h3>
-            <p className="workspace-rail-copy">对话中出现的结论可直接推进到后续模块。</p>
-            <div className="workspace-rail-actions">
-              <button className="workspace-action-button" onClick={() => navigate('/literature')} type="button">
-                进入文献采集
-              </button>
-              <button className="workspace-action-button" onClick={() => navigate('/gaps')} type="button">
-                查看研究缺口
-              </button>
-              <button className="workspace-action-button" onClick={() => navigate('/experiment')} type="button">
-                生成实验设计
+      <div className="workspace-shortcuts">
+        <button className="workspace-shortcut-button" onClick={() => navigate('/workflow')} type="button">
+          <Target size={15} />
+          研究流程
+        </button>
+        <button className="workspace-shortcut-button" onClick={() => navigate('/literature')} type="button">
+          <BookOpen size={15} />
+          文献综述
+        </button>
+        <button className="workspace-shortcut-button" onClick={() => navigate('/repository')} type="button">
+          <FolderOpen size={15} />
+          代码仓库
+        </button>
+        <button className="workspace-shortcut-button" onClick={() => navigate('/agent-run')} type="button">
+          <Bot size={15} />
+          Agent 运行
+        </button>
+        <button className="workspace-shortcut-button" onClick={() => navigate('/settings')} type="button">
+          <Settings2 size={15} />
+          设置
+        </button>
+      </div>
+
+      <div className="claude-thread">
+        {chatMessages.map((message) => (
+          <div key={message.id} className={`claude-message ${message.role}`}>
+            <div className="claude-message-meta">
+              <span className="claude-message-role">
+                {message.role === 'assistant' ? 'ScholarMind' : 'You'}
+              </span>
+              <span className="tiny muted">{message.timestamp}</span>
+            </div>
+            <div className="claude-message-body">{message.content}</div>
+            {message.quickActions?.length ? (
+              <div className="claude-message-actions">
+                {message.quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    className="workspace-shortcut-button"
+                    onClick={() => navigate(action.path)}
+                    type="button"
+                  >
+                    <ArrowUpRight size={14} />
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+        {taskError ? <div className="error-alert-academic">{taskError}</div> : null}
+        <div ref={threadEndRef} />
+      </div>
+
+      <div className="input-bay-container claude-composer-wrap">
+        <form className="claude-composer" onSubmit={handleSubmit}>
+          <textarea
+            className="claude-composer-textarea"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void handleSubmit(event as unknown as FormEvent<HTMLFormElement>);
+              }
+            }}
+            placeholder="描述研究主题、目标、约束，或说明你希望系统优先产出的结果。"
+            rows={1}
+          />
+          <div className="claude-composer-footer">
+            <div className="claude-composer-tools">
+              <button
+                className={`workspace-shortcut-button${showAdvanced ? ' active' : ''}`}
+                onClick={() => setShowAdvanced((value) => !value)}
+                type="button"
+              >
+                <Paperclip size={14} />
+                工作区配置
               </button>
             </div>
+            <button className="claude-send-button" disabled={isSubmittingTask || !draft.trim()} type="submit">
+              {isSubmittingTask ? <div className="spinner-academic" /> : <SendHorizonal size={16} />}
+              发送
+            </button>
           </div>
-        </aside>
+        </form>
+
+        {showAdvanced ? (
+          <div className="advanced-config-panel animate-slide-up">
+            <div className="config-row">
+              <label>工作目录</label>
+              <input
+                className="academic-input"
+                value={workingDirectoryPath}
+                onChange={(event) => persistWorkingDirectory(event.target.value)}
+                placeholder="C:\\Study\\HY Competition\\Project\\ScholarMind"
+              />
+              <button
+                className="button-ghost"
+                onClick={() => {
+                  setWorkingDirectoryPath('');
+                  clearWorkingDirectoryPreference();
+                }}
+                type="button"
+              >
+                清除
+              </button>
+            </div>
+            <div className="tiny muted">设置工作目录后，后端会优先在该位置生成仓库、论文和实验产物。</div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

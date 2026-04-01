@@ -1,21 +1,17 @@
-import { ArrowRight, Check, ChevronRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronRight } from 'lucide-react';
 import type { PropsWithChildren, ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { routeMeta } from '../../data/routeData';
 import type { RunLog, RunStep, WorkflowStage, WorkflowStatus } from '../../types/app';
 
 const statusLabelMap: Record<WorkflowStatus, string> = {
-  'not-started': '未开始',
+  'not-started': '待开始',
   'in-progress': '进行中',
   completed: '已完成',
   risk: '风险',
 };
 
-export function StatusBadge({
-  status,
-  label,
-}: {
-  status: WorkflowStatus;
-  label?: string;
-}) {
+export function StatusBadge({ status, label }: { status: WorkflowStatus; label?: string }) {
   return <span className={`status-badge status-${status}`}>{label ?? statusLabelMap[status]}</span>;
 }
 
@@ -31,17 +27,30 @@ export function EditorialPage({
   description: string;
   actions?: ReactNode;
 }>) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const route = routeMeta.find((item) => item.path === location.pathname);
+  const isStagePage = !!route && route.section === 'workflow' && route.id !== 'workflow';
+
   return (
-    <div className="canvas editorial-page">
-      <header className="page-hero">
-        <div>
-          <div className="eyebrow">{eyebrow}</div>
-          <h1 className="page-title">{title}</h1>
-          <p className="page-description">{description}</p>
+    <div className="canvas editorial-page" aria-label={title}>
+      <div className="page-hero">
+        <div className="page-head">
+          <div>
+            {isStagePage ? (
+              <button className="crumb-button" onClick={() => navigate('/workflow')} type="button">
+                <ArrowLeft size={14} />
+                返回流程
+              </button>
+            ) : null}
+            <div className="eyebrow">{eyebrow}</div>
+          </div>
+          {actions ? <div className="page-actions">{actions}</div> : null}
         </div>
-        {actions ? <div className="hero-actions">{actions}</div> : null}
-      </header>
-      {children}
+        <h1 className="page-title">{title}</h1>
+        <div className="page-intro">{description}</div>
+      </div>
+      <div className="page-body">{children}</div>
     </div>
   );
 }
@@ -60,13 +69,15 @@ export function SectionBlock({
 }>) {
   return (
     <section className={`section-block${muted ? ' muted' : ''}`}>
-      <div className="section-header">
-        <div>
-          <h2 className="section-title">{title}</h2>
-          {description ? <div className="section-copy">{description}</div> : null}
+      {(title || description || action) && (
+        <div className="section-header">
+          <div>
+            {title ? <h2 className="section-title">{title}</h2> : null}
+            {description ? <div className="section-copy">{description}</div> : null}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
+      )}
       {children}
     </section>
   );
@@ -184,16 +195,12 @@ export function ResearchTable({
   );
 }
 
-export function ProcessStepper({
-  items,
-}: {
-  items: Array<WorkflowStage | RunStep>;
-}) {
+export function ProcessStepper({ items }: { items: Array<WorkflowStage | RunStep> }) {
   return (
     <div className="stepper-list">
       {items.map((item, index) => (
         <div key={item.id} className="stepper-item">
-          <div className="stepper-index">{index + 1}</div>
+          <div className="stepper-index">{String(index + 1).padStart(2, '0')}</div>
           <div className="stepper-copy">
             <div className="space-between">
               <strong>{'label' in item ? item.label : item.title}</strong>
@@ -234,11 +241,8 @@ export function RunLogStream({ logs }: { logs: RunLog[] }) {
       {logs.map((log) => (
         <div key={log.id} className={`log-entry${log.level === 'info' ? '' : ` ${log.level}`}`}>
           <div className="space-between">
-            <strong>{log.timestamp}</strong>
-            <StatusBadge
-              status={log.level === 'warning' ? 'risk' : log.level === 'risk' ? 'risk' : 'in-progress'}
-              label={log.level === 'info' ? '日志' : log.level === 'warning' ? '警告' : '风险'}
-            />
+            <span className="tiny muted">{log.timestamp}</span>
+            <span className="tiny muted">{log.level.toUpperCase()}</span>
           </div>
           <div className="tiny">{log.message}</div>
         </div>
@@ -247,13 +251,7 @@ export function RunLogStream({ logs }: { logs: RunLog[] }) {
   );
 }
 
-export function AnnotationPanel({
-  title,
-  items,
-}: {
-  title: string;
-  items: string[];
-}) {
+export function AnnotationPanel({ title, items }: { title: string; items: string[] }) {
   return (
     <aside className="annotation-panel">
       <div className="annotation-panel-shell">

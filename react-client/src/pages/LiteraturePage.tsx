@@ -1,59 +1,123 @@
-import { useDeferredValue, useEffect, useMemo } from 'react';
+import { ArrowRight, Bot } from 'lucide-react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   EditorialPage,
   ResearchTable,
+  SectionBlock,
   SourceToggleGroup,
   StatusBadge,
 } from '../components/ui/Primitives';
+import { adaptLiteratureArtifacts } from '../adapters/artifactAdapter';
+import { getArtifactContent } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
-const sourceOptions = ['arXiv', 'PubMed', 'Crossref', 'Semantic Scholar'];
+type LiteraturePaper = {
+  id: string;
+  title: string;
+  source: string;
+  year: number;
+  authors: string;
+  focus: string;
+  status: string;
+  citations: number;
+  abstract: string;
+};
 
 export default function LiteraturePage() {
   const navigate = useNavigate();
-  const selectedSources = useWorkspaceStore((state) => state.selectedSources);
-  const toggleSource = useWorkspaceStore((state) => state.toggleSource);
-  const literatureFilters = useWorkspaceStore((state) => state.literatureFilters);
-  const updateLiteratureFilters = useWorkspaceStore((state) => state.updateLiteratureFilters);
-  const papers = useWorkspaceStore((state) => state.papers);
-  const collectionProgress = useWorkspaceStore((state) => state.collectionProgress);
-  const isCollecting = useWorkspaceStore((state) => state.isCollecting);
-  const startCollection = useWorkspaceStore((state) => state.startCollection);
-  const setCollectionProgress = useWorkspaceStore((state) => state.setCollectionProgress);
-  const finishCollection = useWorkspaceStore((state) => state.finishCollection);
-  const selectPaper = useWorkspaceStore((state) => state.selectPaper);
+  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const setActivePaper = useWorkspaceStore((state) => state.setActivePaper);
+  const [summary, setSummary] = useState('');
+  const [availableSources, setAvailableSources] = useState<string[]>([]);
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  const [literatureFilters, setLiteratureFilters] = useState({
+    topic: currentTask?.topic ?? '',
+    keywords: currentTask?.topic ?? '',
+    yearStart: new Date().getFullYear() - 5,
+    yearEnd: new Date().getFullYear(),
+  });
+  const [papers, setPapers] = useState<LiteraturePaper[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const deferredKeywords = useDeferredValue(literatureFilters.keywords);
 
   useEffect(() => {
-    if (!isCollecting) return;
+    if (!currentSessionId || !currentTask) {
+      setSummary('');
+      setAvailableSources([]);
+      setSelectedSources([]);
+      setPapers([]);
+      setError(null);
+      return;
+    }
 
-    const timer = window.setInterval(() => {
-      const next = useWorkspaceStore.getState().collectionProgress + 16;
-      if (next >= 100) {
-        finishCollection();
-        window.clearInterval(timer);
-        return;
+    let cancelled = false;
+
+    const loadArtifacts = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const [sourcesResponse, reviewResponse] = await Promise.all([
+          getArtifactContent(currentSessionId, 'm1_sources.json'),
+          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
+        ]);
+        if (cancelled) {
+          return;
+        }
+
+        const adapted = adaptLiteratureArtifacts(
+          currentTask.topic,
+          String(reviewResponse.content ?? ''),
+          sourcesResponse.content,
+        );
+
+        setSummary(adapted.summary);
+        setPapers(adapted.papers);
+        setAvailableSources(adapted.selectedSources);
+        setSelectedSources(adapted.selectedSources);
+        setLiteratureFilters(adapted.filters);
+      } catch (artifactError) {
+        if (!cancelled) {
+          setError(artifactError instanceof Error ? artifactError.message : '文献产物尚未生成。');
+          setSummary('');
+          setPapers([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
-      setCollectionProgress(next);
-    }, 420);
+    };
 
-    return () => window.clearInterval(timer);
-  }, [finishCollection, isCollecting, setCollectionProgress]);
+    void loadArtifacts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId, currentTask]);
 
   const filteredRows = useMemo(() => {
     const query = deferredKeywords.toLowerCase();
+
     return papers.filter(
       (paper) =>
-        paper.title.toLowerCase().includes(query) ||
-        paper.focus.toLowerCase().includes(query) ||
-        paper.source.toLowerCase().includes(query),
+        (!selectedSources.length || selectedSources.includes(paper.source)) &&
+        (paper.title.toLowerCase().includes(query) ||
+          paper.focus.toLowerCase().includes(query) ||
+          paper.source.toLowerCase().includes(query)),
     );
-  }, [deferredKeywords, papers]);
+  }, [deferredKeywords, papers, selectedSources]);
 
   const sourceDistribution = useMemo(() => {
     const total = papers.length || 1;
-    return sourceOptions.map((source) => {
+    const sources = selectedSources.length
+      ? selectedSources
+      : Array.from(new Set(papers.map((paper) => paper.source)));
+
+    return sources.map((source) => {
       const count = papers.filter((paper) => paper.source === source).length;
       return {
         source,
@@ -61,94 +125,116 @@ export default function LiteraturePage() {
         ratio: Math.round((count / total) * 100),
       };
     });
-  }, [papers]);
+  }, [papers, selectedSources]);
+
+  const m1Module = currentTask?.modules.find((module) => module.module_id === 'M1');
+  const collectionProgress = Math.round(m1Module?.percent ?? 0);
+  const isCollecting = m1Module?.status === 'running';
 
   return (
     <EditorialPage
-      eyebrow="文献采集"
-      title="把数据源选择、检索条件、采集进度和论文表收拢到一个工作面"
-      description="这一页应像研究记录单，而不是堆满控件的后台页。筛选、进度和来源结构都应该服务于最后那张论文表。"
+      eyebrow="Literature Review"
+      title="把检索条件、进度、来源结构与论文表收拢到一个研究工作面"
+      description="这不是后台管理页，而是一张正在被持续充实的文献工作台。研究者需要先看来源，再看分布，最后落到可操作的论文表。"
       actions={
-        <button className="button-primary" onClick={startCollection} type="button">
-          开始采集
+        <button
+          className="button-primary"
+          onClick={() => navigate(currentSessionId ? '/agent-run' : '/workspace')}
+          type="button"
+        >
+          <Bot size={14} />
+          {currentSessionId ? '查看实时运行' : '前往工作台'}
         </button>
       }
     >
-      <section className="literature-controls">
-        <div className="literature-controls-top">
+      <SectionBlock
+        title="检索面板"
+        description="当前来源开关、主题与年份范围都只服务于最后那张论文表。"
+        action={<StatusBadge status={isCollecting ? 'in-progress' : papers.length ? 'completed' : 'not-started'} />}
+      >
+        <div className="stack">
           <div>
-            <div className="kicker">数据源</div>
+            <div className="kicker">数据来源</div>
             <SourceToggleGroup
-              sources={sourceOptions}
+              sources={availableSources.length ? availableSources : ['等待真实来源']}
               selectedSources={selectedSources}
-              onToggle={toggleSource}
+              onToggle={(source) =>
+                setSelectedSources((current) =>
+                  current.includes(source) ? current.filter((item) => item !== source) : [...current, source],
+                )
+              }
             />
           </div>
-          <StatusBadge status={isCollecting ? 'in-progress' : 'completed'} />
-        </div>
 
-        <div className="literature-filter-grid">
-          <label>
-            <div className="kicker">研究主题</div>
-            <input
-              className="text-input"
-              value={literatureFilters.topic}
-              onChange={(event) => updateLiteratureFilters({ topic: event.target.value })}
-            />
-          </label>
-          <label>
-            <div className="kicker">关键词</div>
-            <input
-              className="text-input"
-              value={literatureFilters.keywords}
-              onChange={(event) => updateLiteratureFilters({ keywords: event.target.value })}
-            />
-          </label>
-          <label>
-            <div className="kicker">年份范围</div>
-            <div className="toolbar-row">
+          <div className="field-grid">
+            <label className="form-row">
+              <span className="form-label">研究主题</span>
               <input
                 className="text-input"
-                value={literatureFilters.yearStart}
-                onChange={(event) =>
-                  updateLiteratureFilters({ yearStart: Number(event.target.value) || 2020 })
-                }
+                value={literatureFilters.topic}
+                onChange={(event) => setLiteratureFilters((current) => ({ ...current, topic: event.target.value }))}
+                type="text"
               />
+            </label>
+            <label className="form-row">
+              <span className="form-label">关键词</span>
               <input
                 className="text-input"
-                value={literatureFilters.yearEnd}
+                value={literatureFilters.keywords}
                 onChange={(event) =>
-                  updateLiteratureFilters({ yearEnd: Number(event.target.value) || 2025 })
+                  setLiteratureFilters((current) => ({ ...current, keywords: event.target.value }))
                 }
+                type="text"
               />
-            </div>
-          </label>
+            </label>
+            <label className="form-row">
+              <span className="form-label">年份范围</span>
+              <div className="toolbar-row">
+                <input
+                  className="text-input"
+                  value={literatureFilters.yearStart}
+                  onChange={(event) =>
+                    setLiteratureFilters((current) => ({
+                      ...current,
+                      yearStart: Number(event.target.value) || current.yearStart,
+                    }))
+                  }
+                  type="number"
+                />
+                <input
+                  className="text-input"
+                  value={literatureFilters.yearEnd}
+                  onChange={(event) =>
+                    setLiteratureFilters((current) => ({
+                      ...current,
+                      yearEnd: Number(event.target.value) || current.yearEnd,
+                    }))
+                  }
+                  type="number"
+                />
+              </div>
+            </label>
+          </div>
         </div>
-      </section>
+      </SectionBlock>
 
-      <section className="literature-overview">
-        <div className="figure-block">
-          <div className="figure-header">
-            <div>
-              <div className="kicker">采集进度</div>
-              <h2 className="section-title">当前采集状态</h2>
+      <div className="grid-two">
+        <SectionBlock title="综述摘要" description="直接展示当前任务从 M1 产物整理出的核心综述。">
+          <div className="page-description">
+            {isLoading ? '正在加载真实文献产物...' : summary || error || '当前任务还没有生成文献综述。'}
+          </div>
+        </SectionBlock>
+        <SectionBlock title="采集状态" description="进度来自真实模块状态，而不是前端模拟。">
+          <div className="progress-container-modern">
+            <div className="progress-header">
+              <span className="progress-percent">{collectionProgress}%</span>
+              <span className="tiny muted">{isCollecting ? 'M1 运行中' : '等待更新'}</span>
             </div>
-            <div className="figure-metric">{collectionProgress}%</div>
-          </div>
-          <div className="progress-track literature-progress-track">
-            <div className="progress-fill" style={{ width: `${collectionProgress}%` }} />
-          </div>
-          <div className="figure-caption">进度条与状态保持在同一视线内，避免割裂的状态卡片。</div>
-        </div>
-
-        <div className="figure-block">
-          <div className="figure-header">
-            <div>
-              <div className="kicker">来源分布</div>
-              <h2 className="section-title">论文来源结构</h2>
+            <div className="progress-track-modern">
+              <div className="progress-fill-modern" style={{ width: `${collectionProgress}%` }} />
             </div>
           </div>
-          <div className="distribution-chart">
+          <div className="distribution-chart" style={{ marginTop: '18px' }}>
             {sourceDistribution.map((item) => (
               <div key={item.source} className="distribution-row">
                 <div className="distribution-label">{item.source}</div>
@@ -161,18 +247,14 @@ export default function LiteraturePage() {
               </div>
             ))}
           </div>
-          <div className="figure-caption">来源分布保持低噪声，只回答“目前证据主要来自哪里”。</div>
-        </div>
-      </section>
+        </SectionBlock>
+      </div>
 
-      <section className="editorial-table-section">
-        <div className="section-header">
-          <div>
-            <h2 className="section-title">论文表</h2>
-            <div className="section-copy">主阅读面以论文表为核心，所有动作都从这里继续推进到信息提取。</div>
-          </div>
-        </div>
-
+      <SectionBlock
+        title="论文清单"
+        description="所有后续动作都从这张表继续推进到信息提取。"
+        action={<StatusBadge status={filteredRows.length ? 'completed' : 'not-started'} label={`${filteredRows.length} 篇`} />}
+      >
         <ResearchTable
           columns={[
             { key: 'title', label: '论文' },
@@ -209,18 +291,19 @@ export default function LiteraturePage() {
                 <button
                   className="button-primary"
                   onClick={() => {
-                    selectPaper(paper.id);
+                    setActivePaper(paper.id);
                     navigate('/extraction');
                   }}
                   type="button"
                 >
+                  <ArrowRight size={14} />
                   进入提取
                 </button>
               </div>
             ),
           }))}
         />
-      </section>
+      </SectionBlock>
     </EditorialPage>
   );
 }

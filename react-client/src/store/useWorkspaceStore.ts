@@ -1,437 +1,507 @@
 import { create } from 'zustand';
-import { initialStages } from '../data/routeData';
+import { adaptLogs, adaptWsMessageToRunLog } from '../adapters/logAdapter';
 import {
-  experimentDesign,
-  experimentResults,
-  explorationState,
-  extractionRelations,
-  extractionSections,
-  hotDirections,
-  ideaCandidates,
-  initialChatMessages,
-  initialRunLogs,
-  literatureFilters,
-  paperRecords,
-  rankedPapers,
-  recentSessions,
-  repositoryFiles,
-  researchGaps,
-  runSteps,
-  trendEvents,
-  userProfile,
-  validationClaims,
-  writingSections,
-} from '../data/researchData';
-import type {
-  ChatMessage,
-  ChatQuickAction,
-  ExperimentDesignState,
-  ExperimentResult,
-  ExtractionSection,
-  LiteratureFilters,
-  PaperRecord,
-  RecentSession,
-  RelationNode,
-  ResearchGap,
-  RunLog,
-  RunStep,
-  StageId,
-  TrendEvent,
-  ValidationClaim,
-  WorkflowStage,
-  WorkflowStatus,
-  WritingSection,
-} from '../types/app';
+  adaptTaskStatusToRunStatus,
+  adaptTaskToRunProgress,
+  adaptTaskToRunSteps,
+  adaptTaskToStages,
+  buildIdleRunSteps,
+  buildIdleStages,
+  inferCurrentStage,
+} from '../adapters/stageAdapter';
+import {
+  adaptTaskToSession,
+  buildDraftChatMessages,
+  buildTaskCompletedMessage,
+  buildTaskCreatedMessage,
+  buildTaskSelectedMessage,
+} from '../adapters/taskAdapter';
+import type { BackendTaskResponse, BackendWsMessage } from '../types/backend';
+import type { ChatMessage, RecentSession, RunLog, RunStatus, RunStep, StageId, WorkflowStage } from '../types/app';
+import {
+  abortTask,
+  createTask,
+  deleteTask,
+  getTask,
+  getTaskLogs,
+  getTasks,
+  pauseTask,
+  resumeTask,
+} from '../services/api';
+import { buildTaskConfigOverrides, buildTaskDescription } from '../services/preferences';
 
 interface WorkspaceState {
   isAuthenticated: boolean;
+  isInitializing: boolean;
+  isSubmittingTask: boolean;
+  isTaskLoading: boolean;
+  isLogsLoading: boolean;
+  isWebSocketConnected: boolean;
+  taskError: string | null;
+  toastMessage: string | null;
   currentSessionId: string;
   currentStage: StageId;
+  currentTask: BackendTaskResponse | null;
   stages: WorkflowStage[];
   sessions: RecentSession[];
-  searchQuery: string;
   chatMessages: ChatMessage[];
-  exploration: typeof explorationState;
-  selectedSources: string[];
-  literatureFilters: LiteratureFilters;
-  collectionProgress: number;
-  isCollecting: boolean;
-  papers: PaperRecord[];
-  activePaperId: string;
-  extractionSections: ExtractionSection[];
-  extractionRelations: RelationNode[];
-  activeExtractionSectionId: string;
-  trendRange: '3y' | '5y' | 'all';
-  trendEvents: TrendEvent[];
-  hotDirections: string[];
-  rankedPapers: typeof rankedPapers;
-  activeRankedPaperId: string;
-  researchGaps: ResearchGap[];
-  activeGapId: string;
-  ideas: typeof ideaCandidates;
-  selectedIdeaId: string;
-  repositoryFiles: typeof repositoryFiles;
-  activeRepositoryFileId: string;
-  experimentDesign: ExperimentDesignState;
+  chatMessagesBySession: Record<string, ChatMessage[]>;
+  tasksById: Record<string, BackendTaskResponse>;
   runSteps: RunStep[];
   runLogs: RunLog[];
+  runLogsBySession: Record<string, RunLog[]>;
   runProgress: number;
-  runStatus: 'idle' | 'running' | 'completed';
-  results: ExperimentResult[];
-  activeResultId: string;
-  writingSections: WritingSection[];
-  activeWritingSectionId: string;
-  validationClaims: ValidationClaim[];
-  resolvedClaimIds: string[];
-  user: typeof userProfile;
+  runStatus: RunStatus;
+  activePaperId: string;
+  selectedIdeaIds: string[];
   login: (email: string) => void;
   logout: () => void;
-  setSearchQuery: (query: string) => void;
+  showToast: (message: string) => void;
+  clearToast: () => void;
+  setWebSocketStatus: (connected: boolean) => void;
+  initializeWorkspaceData: () => Promise<void>;
+  refreshTask: (taskId: string) => Promise<void>;
+  refreshCurrentTask: () => Promise<void>;
+  refreshLogs: (taskId?: string) => Promise<void>;
+  pauseCurrentTask: () => Promise<void>;
+  resumeCurrentTask: () => Promise<void>;
+  abortCurrentTask: () => Promise<void>;
+  submitWorkspacePrompt: (topic: string) => Promise<void>;
+  handleWsMessage: (message: BackendWsMessage) => void;
   openStage: (stageId: StageId) => void;
-  setStageStatus: (stageId: StageId, status: WorkflowStatus) => void;
-  addChatMessage: (content: string) => void;
-  updateTopic: (topic: string) => void;
-  toggleSource: (source: string) => void;
-  updateLiteratureFilters: (patch: Partial<LiteratureFilters>) => void;
-  startCollection: () => void;
-  setCollectionProgress: (progress: number) => void;
-  finishCollection: () => void;
-  selectPaper: (paperId: string) => void;
-  setExtractionSection: (sectionId: string) => void;
-  setTrendRange: (range: '3y' | '5y' | 'all') => void;
-  setActiveRankedPaper: (paperId: string) => void;
-  setActiveGap: (gapId: string) => void;
-  promoteGapToIdeas: (gapId: string) => void;
-  selectIdea: (ideaId: string) => void;
-  setRepositoryFile: (fileId: string) => void;
-  updateExperimentDesign: (patch: Partial<ExperimentDesignState>) => void;
-  saveExperimentDesign: () => void;
-  startRun: () => void;
-  tickRun: () => void;
-  setResult: (resultId: string) => void;
-  setWritingSection: (sectionId: string) => void;
-  updateWritingContent: (sectionId: string, content: string) => void;
-  toggleResolvedClaim: (claimId: string) => void;
-  selectSession: (sessionId: string) => void;
+  addChatMessage: (content: string) => Promise<void>;
+  selectSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   createSession: () => void;
+  setActivePaper: (paperId: string) => void;
+  setSelectedIdeas: (ideaIds: string[]) => void;
 }
 
-const stageOrder: StageId[] = initialStages.map((stage) => stage.id);
+const draftChatMessages = buildDraftChatMessages();
+const idleStages = buildIdleStages();
+const idleRunSteps = buildIdleRunSteps();
+let toastTimer: number | null = null;
 
-const nextStatusMap = (
-  stages: WorkflowStage[],
-  stageId: StageId,
-  status: WorkflowStatus,
-): WorkflowStage[] => {
-  const stageIndex = stageOrder.indexOf(stageId);
+function resetToastTimer() {
+  if (toastTimer !== null) {
+    window.clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+}
 
-  return stages.map((stage, index) => {
-    if (stage.id === stageId) {
-      return { ...stage, status };
-    }
-
-    if (status === 'completed' && index === stageIndex + 1 && stage.status === 'not-started') {
-      return { ...stage, status: 'in-progress' };
-    }
-
-    return stage;
-  });
-};
-
-const inferQuickActions = (content: string): ChatQuickAction[] => {
-  const normalized = content.toLowerCase();
-
-  if (normalized.includes('experiment') || content.includes('实验')) {
-    return [
-      { label: '打开实验设计', path: '/experiment', stageId: 'experiment' },
-      { label: '查看资料库', path: '/repository', stageId: 'repository' },
-      { label: '准备智能体运行', path: '/agent-run', stageId: 'agent-run' },
-    ];
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
   }
 
-  if (
-    normalized.includes('gap') ||
-    normalized.includes('weakness') ||
-    content.includes('缺口') ||
-    content.includes('问题')
-  ) {
-    return [
-      { label: '查看研究缺口', path: '/gaps', stageId: 'gaps' },
-      { label: '生成候选想法', path: '/ideas', stageId: 'ideas' },
-      { label: '返回趋势分析', path: '/trends', stageId: 'trends' },
-    ];
-  }
+  return '请求失败，请稍后重试。';
+}
 
-  return [
-    { label: '进入领域探索', path: '/exploration', stageId: 'exploration' },
-    { label: '开始文献采集', path: '/literature', stageId: 'literature' },
-    { label: '开始论文写作', path: '/writing', stageId: 'writing' },
-  ];
-};
+function upsertSession(sessions: RecentSession[], nextSession: RecentSession) {
+  const filtered = sessions.filter((session) => session.id !== nextSession.id);
+  return [nextSession, ...filtered];
+}
+
+function applyTaskView(state: WorkspaceState, task: BackendTaskResponse) {
+  const chatMessages = state.chatMessagesBySession[task.id] ?? [buildTaskSelectedMessage(task)];
+  const runLogs = state.runLogsBySession[task.id] ?? [];
+
+  return {
+    currentTask: task,
+    currentStage: inferCurrentStage(task),
+    stages: adaptTaskToStages(task),
+    runSteps: adaptTaskToRunSteps(task),
+    runProgress: adaptTaskToRunProgress(task),
+    runStatus: adaptTaskStatusToRunStatus(task.status),
+    chatMessages,
+    runLogs,
+  };
+}
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isAuthenticated: false,
-  currentSessionId: recentSessions[0].id,
-  currentStage: 'trends',
-  stages: initialStages,
-  sessions: recentSessions,
-  searchQuery: '',
-  chatMessages: initialChatMessages,
-  exploration: explorationState,
-  selectedSources: ['arXiv', 'PubMed', 'Crossref', 'Semantic Scholar'],
-  literatureFilters,
-  collectionProgress: 74,
-  isCollecting: false,
-  papers: paperRecords,
-  activePaperId: paperRecords[0].id,
-  extractionSections,
-  extractionRelations,
-  activeExtractionSectionId: extractionSections[0].id,
-  trendRange: '5y',
-  trendEvents,
-  hotDirections,
-  rankedPapers,
-  activeRankedPaperId: rankedPapers[0].id,
-  researchGaps,
-  activeGapId: researchGaps[0].id,
-  ideas: ideaCandidates,
-  selectedIdeaId: ideaCandidates.find((idea) => idea.recommended)?.id ?? ideaCandidates[0].id,
-  repositoryFiles,
-  activeRepositoryFileId: repositoryFiles[0].id,
-  experimentDesign,
-  runSteps,
-  runLogs: initialRunLogs,
-  runProgress: 62,
+  isInitializing: false,
+  isSubmittingTask: false,
+  isTaskLoading: false,
+  isLogsLoading: false,
+  isWebSocketConnected: false,
+  taskError: null,
+  toastMessage: null,
+  currentSessionId: '',
+  currentStage: 'exploration',
+  currentTask: null,
+  stages: idleStages,
+  sessions: [],
+  chatMessages: draftChatMessages,
+  chatMessagesBySession: {},
+  tasksById: {},
+  runSteps: idleRunSteps,
+  runLogs: [],
+  runLogsBySession: {},
+  runProgress: 0,
   runStatus: 'idle',
-  results: experimentResults,
-  activeResultId: experimentResults[0].id,
-  writingSections,
-  activeWritingSectionId: writingSections[0].id,
-  validationClaims,
-  resolvedClaimIds: [],
-  user: userProfile,
+  activePaperId: '',
+  selectedIdeaIds: [],
   login: () => set({ isAuthenticated: true }),
-  logout: () => set({ isAuthenticated: false }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
-  openStage: (stageId) =>
-    set((state) => ({
-      currentStage: stageId,
-      stages:
-        state.stages.find((stage) => stage.id === stageId)?.status === 'not-started'
-          ? nextStatusMap(state.stages, stageId, 'in-progress')
-          : state.stages,
-    })),
-  setStageStatus: (stageId, status) =>
-    set((state) => ({
-      currentStage: stageId,
-      stages: nextStatusMap(state.stages, stageId, status),
-    })),
-  addChatMessage: (content) => {
-    const timestamp = new Date().toLocaleTimeString('zh-CN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
+  logout: () =>
+    set({
+      isAuthenticated: false,
+      currentSessionId: '',
+      currentTask: null,
+      stages: idleStages,
+      sessions: [],
+      chatMessages: draftChatMessages,
+      chatMessagesBySession: {},
+      tasksById: {},
+      runSteps: idleRunSteps,
+      runLogs: [],
+      runLogsBySession: {},
+      runProgress: 0,
+      runStatus: 'idle',
+      isWebSocketConnected: false,
+      taskError: null,
+      toastMessage: null,
+      activePaperId: '',
+      selectedIdeaIds: [],
+    }),
+  showToast: (message) => {
+    resetToastTimer();
+    set({ toastMessage: message });
+    toastTimer = window.setTimeout(() => {
+      set({ toastMessage: null });
+      toastTimer = null;
+    }, 2400);
+  },
+  clearToast: () => {
+    resetToastTimer();
+    set({ toastMessage: null });
+  },
+  setWebSocketStatus: (connected) => set({ isWebSocketConnected: connected }),
+  initializeWorkspaceData: async () => {
+    if (get().isInitializing) {
+      return;
+    }
+
+    set({ isInitializing: true, taskError: null });
+
+    try {
+      const tasks = await getTasks();
+      const tasksById = Object.fromEntries(tasks.map((task) => [task.id, task]));
+      const sessions = tasks.map(adaptTaskToSession);
+      const currentSessionId =
+        get().currentSessionId && tasksById[get().currentSessionId]
+          ? get().currentSessionId
+          : tasks[0]?.id ?? '';
+
+      set((state) => ({
+        tasksById: { ...state.tasksById, ...tasksById },
+        sessions,
+        currentSessionId,
+        isInitializing: false,
+        ...(currentSessionId
+          ? applyTaskView(state, tasksById[currentSessionId])
+          : {
+              currentTask: null,
+              currentStage: 'exploration' as StageId,
+              stages: idleStages,
+              chatMessages: draftChatMessages,
+              runSteps: idleRunSteps,
+              runLogs: [],
+              runProgress: 0,
+              runStatus: 'idle' as RunStatus,
+            }),
+      }));
+    } catch (error) {
+      set({
+        isInitializing: false,
+        taskError: getErrorMessage(error),
+      });
+    }
+  },
+  refreshTask: async (taskId) => {
+    set({ isTaskLoading: true, taskError: null });
+
+    try {
+      const task = await getTask(taskId);
+
+      set((state) => {
+        const tasksById = { ...state.tasksById, [task.id]: task };
+        const sessions = upsertSession(state.sessions, adaptTaskToSession(task));
+
+        return {
+          tasksById,
+          sessions,
+          isTaskLoading: false,
+          ...(state.currentSessionId === task.id ? applyTaskView(state, task) : {}),
+        };
+      });
+    } catch (error) {
+      set({
+        isTaskLoading: false,
+        taskError: getErrorMessage(error),
+      });
+    }
+  },
+  refreshCurrentTask: async () => {
+    const currentSessionId = get().currentSessionId;
+
+    if (!currentSessionId) {
+      return;
+    }
+
+    await get().refreshTask(currentSessionId);
+  },
+  refreshLogs: async (taskId) => {
+    const targetTaskId = taskId ?? get().currentSessionId;
+    if (!targetTaskId) {
+      return;
+    }
+
+    set({ isLogsLoading: true, taskError: null });
+
+    try {
+      const logs = adaptLogs(await getTaskLogs(targetTaskId));
+
+      set((state) => ({
+        isLogsLoading: false,
+        runLogsBySession: { ...state.runLogsBySession, [targetTaskId]: logs },
+        ...(state.currentSessionId === targetTaskId ? { runLogs: logs } : {}),
+      }));
+    } catch (error) {
+      set({
+        isLogsLoading: false,
+        taskError: getErrorMessage(error),
+      });
+    }
+  },
+  pauseCurrentTask: async () => {
+    const taskId = get().currentSessionId;
+    if (!taskId) return;
+    set({ isTaskLoading: true, taskError: null });
+    try {
+      await pauseTask(taskId);
+      await get().refreshTask(taskId);
+      get().showToast('任务已暂停');
+    } catch (error) {
+      set({ taskError: getErrorMessage(error) });
+    } finally {
+      set({ isTaskLoading: false });
+    }
+  },
+  resumeCurrentTask: async () => {
+    const taskId = get().currentSessionId;
+    if (!taskId) return;
+    set({ isTaskLoading: true, taskError: null });
+    try {
+      await resumeTask(taskId);
+      await get().refreshTask(taskId);
+      get().showToast('任务已恢复');
+    } catch (error) {
+      set({ taskError: getErrorMessage(error) });
+    } finally {
+      set({ isTaskLoading: false });
+    }
+  },
+  abortCurrentTask: async () => {
+    const taskId = get().currentSessionId;
+    if (!taskId) return;
+    set({ isTaskLoading: true, taskError: null });
+    try {
+      await abortTask(taskId);
+      await get().refreshTask(taskId);
+      get().showToast('任务已终止');
+    } catch (error) {
+      set({ taskError: getErrorMessage(error) });
+    } finally {
+      set({ isTaskLoading: false });
+    }
+  },
+  submitWorkspacePrompt: async (topic) => {
+    const trimmedTopic = topic.trim();
+    if (!trimmedTopic) {
+      return;
+    }
+
+    set({ isSubmittingTask: true, taskError: null });
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
-      content,
-      timestamp,
-    };
-
-    const assistantMessage: ChatMessage = {
-      id: `assistant-${Date.now() + 1}`,
-      role: 'assistant',
-      timestamp,
-      content:
-        '你的问题已加入当前研究线索。建议先确认已有证据，再把最强结论推进到下游模块，保持流程连续而不打断当前语境。',
-      quickActions: inferQuickActions(content),
-    };
-
-    set((state) => ({
-      chatMessages: [...state.chatMessages, userMessage, assistantMessage],
-      stages:
-        state.stages.find((stage) => stage.id === 'exploration')?.status === 'not-started'
-          ? nextStatusMap(state.stages, 'exploration', 'in-progress')
-          : state.stages,
-    }));
-  },
-  updateTopic: (topic) =>
-    set((state) => ({
-      exploration: { ...state.exploration, topic },
-      literatureFilters: { ...state.literatureFilters, topic },
-    })),
-  toggleSource: (source) =>
-    set((state) => ({
-      selectedSources: state.selectedSources.includes(source)
-        ? state.selectedSources.filter((item) => item !== source)
-        : [...state.selectedSources, source],
-    })),
-  updateLiteratureFilters: (patch) =>
-    set((state) => ({
-      literatureFilters: { ...state.literatureFilters, ...patch },
-    })),
-  startCollection: () =>
-    set((state) => ({
-      isCollecting: true,
-      collectionProgress: 0,
-      currentStage: 'literature',
-      stages: nextStatusMap(state.stages, 'literature', 'in-progress'),
-    })),
-  setCollectionProgress: (progress) => set({ collectionProgress: progress }),
-  finishCollection: () =>
-    set((state) => ({
-      isCollecting: false,
-      collectionProgress: 100,
-      stages: nextStatusMap(state.stages, 'literature', 'completed'),
-      currentStage: 'extraction',
-    })),
-  selectPaper: (paperId) =>
-    set((state) => ({
-      activePaperId: paperId,
-      papers: state.papers.map((paper) =>
-        paper.id === paperId ? { ...paper, status: 'selected' } : paper,
-      ),
-      currentStage: 'extraction',
-      stages: nextStatusMap(state.stages, 'extraction', 'in-progress'),
-    })),
-  setExtractionSection: (sectionId) => set({ activeExtractionSectionId: sectionId }),
-  setTrendRange: (range) => set({ trendRange: range }),
-  setActiveRankedPaper: (paperId) => set({ activeRankedPaperId: paperId }),
-  setActiveGap: (gapId) =>
-    set((state) => ({
-      activeGapId: gapId,
-      currentStage: 'gaps',
-      stages: nextStatusMap(state.stages, 'gaps', 'in-progress'),
-    })),
-  promoteGapToIdeas: (gapId) =>
-    set((state) => ({
-      activeGapId: gapId,
-      currentStage: 'ideas',
-      stages: nextStatusMap(nextStatusMap(state.stages, 'gaps', 'completed'), 'ideas', 'in-progress'),
-    })),
-  selectIdea: (ideaId) =>
-    set((state) => ({
-      selectedIdeaId: ideaId,
-      currentStage: 'repository',
-      stages: nextStatusMap(nextStatusMap(state.stages, 'ideas', 'completed'), 'repository', 'in-progress'),
-    })),
-  setRepositoryFile: (fileId) => set({ activeRepositoryFileId: fileId }),
-  updateExperimentDesign: (patch) =>
-    set((state) => ({
-      experimentDesign: { ...state.experimentDesign, ...patch },
-    })),
-  saveExperimentDesign: () =>
-    set((state) => ({
-      currentStage: 'agent-run',
-      stages: nextStatusMap(nextStatusMap(state.stages, 'experiment', 'completed'), 'agent-run', 'in-progress'),
-    })),
-  startRun: () =>
-    set((state) => ({
-      runStatus: 'running',
-      runProgress: 0,
-      currentStage: 'agent-run',
-      runSteps: state.runSteps.map((step, index) =>
-        index === 0 ? { ...step, status: 'in-progress' } : { ...step, status: 'not-started' },
-      ),
-      runLogs: [
-        ...state.runLogs,
-        {
-          id: `log-${Date.now()}`,
-          level: 'info',
-          timestamp: new Date().toLocaleTimeString('zh-CN', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false,
-          }),
-          message: '智能体运行已启动，正在准备执行图与检查点。',
-        },
-      ],
-    })),
-  tickRun: () => {
-    const state = get();
-
-    if (state.runStatus !== 'running') {
-      return;
-    }
-
-    const nextProgress = Math.min(state.runProgress + 20, 100);
-    const nextIndex = Math.min(Math.floor(nextProgress / 25), state.runSteps.length - 1);
-
-    const nextSteps = state.runSteps.map((step, index) => {
-      if (index < nextIndex || nextProgress === 100) {
-        return { ...step, status: 'completed' as WorkflowStatus };
-      }
-
-      if (index === nextIndex) {
-        return { ...step, status: 'in-progress' as WorkflowStatus };
-      }
-
-      return { ...step, status: 'not-started' as WorkflowStatus };
-    });
-
-    const nextLog: RunLog = {
-      id: `run-log-${Date.now()}`,
-      level: nextProgress >= 80 ? 'warning' : 'info',
-      timestamp: new Date().toLocaleTimeString('zh-CN', {
+      content: trimmedTopic,
+      timestamp: new Intl.DateTimeFormat('zh-CN', {
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit',
         hour12: false,
-      }),
-      message:
-        nextProgress >= 80
-          ? '执行接近完成，仍有一个低标签中心批次被标记为需要复核。'
-          : `执行已推进到 ${nextProgress}%，当前激活子任务 ${nextIndex + 1}。`,
+      }).format(new Date()),
     };
 
-    set((current) => ({
-      runProgress: nextProgress,
-      runSteps: nextSteps,
-      runLogs: [...current.runLogs, nextLog],
-      runStatus: nextProgress === 100 ? 'completed' : 'running',
-      stages:
-        nextProgress === 100
-          ? nextStatusMap(nextStatusMap(current.stages, 'agent-run', 'completed'), 'results', 'in-progress')
-          : current.stages,
-      currentStage: nextProgress === 100 ? 'results' : 'agent-run',
-    }));
+    try {
+      const task = await createTask({
+        topic: trimmedTopic,
+        description: buildTaskDescription(trimmedTopic),
+        config: buildTaskConfigOverrides(),
+      });
+      const assistantMessage = buildTaskCreatedMessage(task);
+      const nextMessages = [userMessage, assistantMessage];
+
+      set((state) => {
+        const session = adaptTaskToSession(task);
+        const chatMessagesBySession = {
+          ...state.chatMessagesBySession,
+          [task.id]: nextMessages,
+        };
+        const tasksById = { ...state.tasksById, [task.id]: task };
+
+        return {
+          isSubmittingTask: false,
+          currentSessionId: task.id,
+          tasksById,
+          chatMessagesBySession,
+          sessions: upsertSession(state.sessions, session),
+          activePaperId: '',
+          selectedIdeaIds: [],
+          ...applyTaskView(
+            {
+              ...state,
+              chatMessagesBySession,
+              tasksById,
+            },
+            task,
+          ),
+        };
+      });
+
+      await Promise.all([get().refreshTask(task.id), get().refreshLogs(task.id)]);
+    } catch (error) {
+      set({
+        isSubmittingTask: false,
+        taskError: getErrorMessage(error),
+      });
+    }
   },
-  setResult: (resultId) => set({ activeResultId: resultId }),
-  setWritingSection: (sectionId) =>
+  handleWsMessage: (message) =>
+    set((state) => {
+      const nextLog = adaptWsMessageToRunLog(message);
+      const existingLogs = state.runLogsBySession[message.task_id] ?? [];
+      const runLogsBySession = {
+        ...state.runLogsBySession,
+        [message.task_id]: [...existingLogs, nextLog],
+      };
+
+      const patch: Partial<WorkspaceState> = {
+        runLogsBySession,
+        ...(state.currentSessionId === message.task_id ? { runLogs: runLogsBySession[message.task_id] } : {}),
+      };
+
+      if (message.type === 'error') {
+        patch.taskError = message.message;
+      }
+
+      if (message.type === 'completed') {
+        const task = state.tasksById[message.task_id];
+        if (task) {
+          const completedMessage = buildTaskCompletedMessage(task);
+          const existingMessages = state.chatMessagesBySession[message.task_id] ?? [];
+          const alreadyExists = existingMessages.some((entry) => entry.id === completedMessage.id);
+          const nextMessages = alreadyExists ? existingMessages : [...existingMessages, completedMessage];
+          patch.chatMessagesBySession = {
+            ...state.chatMessagesBySession,
+            [message.task_id]: nextMessages,
+          };
+
+          if (state.currentSessionId === message.task_id) {
+            patch.chatMessages = nextMessages;
+          }
+        }
+      }
+
+      return patch;
+    }),
+  openStage: (stageId) => set({ currentStage: stageId }),
+  addChatMessage: async (content) => {
+    await get().submitWorkspacePrompt(content);
+  },
+  selectSession: async (sessionId) => {
+    const cachedTask = get().tasksById[sessionId];
+
     set((state) => ({
-      activeWritingSectionId: sectionId,
-      currentStage: 'writing',
-      stages: nextStatusMap(state.stages, 'writing', 'in-progress'),
-    })),
-  updateWritingContent: (sectionId, content) =>
-    set((state) => ({
-      writingSections: state.writingSections.map((section) =>
-        section.id === sectionId ? { ...section, content } : section,
-      ),
-    })),
-  toggleResolvedClaim: (claimId) =>
-    set((state) => ({
-      resolvedClaimIds: state.resolvedClaimIds.includes(claimId)
-        ? state.resolvedClaimIds.filter((id) => id !== claimId)
-        : [...state.resolvedClaimIds, claimId],
-      currentStage: 'validation',
-      stages: nextStatusMap(state.stages, 'validation', 'in-progress'),
-    })),
-  selectSession: (sessionId) => set({ currentSessionId: sessionId }),
+      currentSessionId: sessionId,
+      activePaperId: '',
+      selectedIdeaIds: [],
+      taskError: null,
+      ...(cachedTask ? applyTaskView(state, cachedTask) : {}),
+    }));
+
+    await Promise.all([get().refreshTask(sessionId), get().refreshLogs(sessionId)]);
+  },
+  deleteSession: async (sessionId) => {
+    try {
+      await deleteTask(sessionId);
+
+      set((state) => {
+        const sessions = state.sessions.filter((session) => session.id !== sessionId);
+        const { [sessionId]: removedTask, ...tasksById } = state.tasksById;
+        const { [sessionId]: removedChat, ...chatMessagesBySession } = state.chatMessagesBySession;
+        const { [sessionId]: removedLogs, ...runLogsBySession } = state.runLogsBySession;
+        const deletingCurrent = state.currentSessionId === sessionId;
+        const nextSessionId = deletingCurrent ? sessions[0]?.id ?? '' : state.currentSessionId;
+        const nextTask = nextSessionId ? tasksById[nextSessionId] ?? null : null;
+
+        void removedTask;
+        void removedChat;
+        void removedLogs;
+
+        return {
+          sessions,
+          tasksById,
+          chatMessagesBySession,
+          runLogsBySession,
+          currentSessionId: nextSessionId,
+          activePaperId: '',
+          selectedIdeaIds: [],
+          ...(nextTask
+            ? applyTaskView(
+                {
+                  ...state,
+                  currentSessionId: nextSessionId,
+                  sessions,
+                  tasksById,
+                  chatMessagesBySession,
+                  runLogsBySession,
+                },
+                nextTask,
+              )
+            : {
+                currentTask: null,
+                currentStage: 'exploration' as StageId,
+                stages: idleStages,
+                chatMessages: draftChatMessages,
+                runSteps: idleRunSteps,
+                runLogs: [],
+                runProgress: 0,
+                runStatus: 'idle' as RunStatus,
+              }),
+        };
+      });
+    } catch (error) {
+      set({ taskError: getErrorMessage(error) });
+    }
+  },
   createSession: () =>
-    set((state) => ({
-      sessions: [
-        {
-          id: `session-${Date.now()}`,
-          title: '新研究会话',
-          domain: '未命名研究主题',
-          updatedAt: '刚刚',
-          stageLabel: '领域探索',
-        },
-        ...state.sessions,
-      ],
-    })),
+    set({
+      currentSessionId: '',
+      currentTask: null,
+      currentStage: 'exploration',
+      stages: idleStages,
+      chatMessages: draftChatMessages,
+      runSteps: idleRunSteps,
+      runLogs: [],
+      runProgress: 0,
+      runStatus: 'idle',
+      taskError: null,
+      activePaperId: '',
+      selectedIdeaIds: [],
+    }),
+  setActivePaper: (paperId) => set({ activePaperId: paperId }),
+  setSelectedIdeas: (ideaIds) => set({ selectedIdeaIds: ideaIds }),
 }));

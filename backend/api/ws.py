@@ -36,11 +36,17 @@ class ConnectionManager:
         targets = list(self._global_connections)
         if msg.task_id in self._task_connections:
             targets += self._task_connections[msg.task_id]
+        
+        dead_sockets = []
         for ws in targets:
             try:
                 await ws.send_text(payload)
             except Exception:
-                pass  # 连接已断开，忽略
+                dead_sockets.append(ws)  # 记录已断开的死连接
+                
+        # 集中清理死连接，防止无限堆积造成内存泄漏
+        for ws in dead_sockets:
+            self.disconnect(ws, msg.task_id)
 
     async def broadcast(self, data: dict):
         """广播原始 dict"""

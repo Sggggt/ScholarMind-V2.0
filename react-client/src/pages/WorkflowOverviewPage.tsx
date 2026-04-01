@@ -1,6 +1,22 @@
+import { AlertTriangle, ArrowUpRight, Check, Circle, LoaderCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
+import { routeMeta } from '../data/routeData';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
-import { EditorialPage, SectionBlock, StatusBadge, TimelineFlow } from '../components/ui/Primitives';
+import AppIcon from '../components/ui/AppIcon';
+
+function StageStatusIcon({ status }: { status: string }) {
+  if (status === 'completed') {
+    return <Check size={16} />;
+  }
+  if (status === 'in-progress') {
+    return <LoaderCircle size={16} />;
+  }
+  if (status === 'risk') {
+    return <AlertTriangle size={16} />;
+  }
+  return <Circle size={14} />;
+}
 
 export default function WorkflowOverviewPage() {
   const navigate = useNavigate();
@@ -9,57 +25,51 @@ export default function WorkflowOverviewPage() {
 
   return (
     <EditorialPage
-      eyebrow="流程总览"
-      title="把研究流程按顺序展开，而不是拆成离散页面"
-      description="每个阶段都显示依赖关系、当前状态与下游承接，帮助用户快速理解研究连续性。"
+      eyebrow="Process Architecture"
+      title="把十二个研究阶段组织成一条可阅读的学术流程线"
+      description="这里不再使用厚重看板，而是像项目时间轴一样展示每一段研究工作。你可以从任何节点继续进入对应页面。"
     >
-      <SectionBlock title="阶段时间线" description="系统通过前一阶段产物进入下一阶段的方式表达研究连续性。">
-        <div className="timeline">
-          {stages.map((stage, index) => (
-            <button
-              key={stage.id}
-              className="timeline-item"
-              onClick={() => {
-                openStage(stage.id);
-                navigate(stage.path);
-              }}
-              style={{ background: 'transparent', textAlign: 'left' }}
-              type="button"
-            >
-              <div className="kicker">{String(index + 1).padStart(2, '0')}</div>
-              <div className="timeline-dot" />
-              <div className="timeline-copy">
+      <SectionBlock
+        title="阶段时间线"
+        description="所有状态都来自真实任务模块进度，布局只负责把它们排得更清楚。"
+        action={<StatusBadge status={stages.some((stage) => stage.status === 'in-progress') ? 'in-progress' : 'not-started'} />}
+      >
+        <div className="stack">
+          {stages.map((stage, index) => {
+            const route = routeMeta.find((item) => item.id === stage.id);
+
+            return (
+              <button
+                key={stage.id}
+                className="workflow-node"
+                onClick={() => {
+                  openStage(stage.id);
+                  navigate(stage.path);
+                }}
+                type="button"
+              >
                 <div className="space-between">
-                  <strong>{stage.title}</strong>
-                  <StatusBadge status={stage.status} />
+                  <div className="toolbar-row" style={{ alignItems: 'center' }}>
+                    <span className="workflow-node-index">phase {String(index + 1).padStart(2, '0')}</span>
+                    <span className={`sidebar-subitem-icon ${stage.status}`}>
+                      <AppIcon name={route?.icon ?? 'MessagesSquare'} size={14} />
+                    </span>
+                    <span className="workflow-node-title">{stage.title}</span>
+                  </div>
+                  <div className="toolbar-row" style={{ alignItems: 'center' }}>
+                    <StatusBadge status={stage.status} />
+                    <ArrowUpRight size={15} />
+                  </div>
                 </div>
-                <div className="tiny muted">{stage.summary}</div>
-              </div>
-            </button>
-          ))}
+                <div className="toolbar-row workflow-node-summary" style={{ alignItems: 'center', marginTop: '10px' }}>
+                  <StageStatusIcon status={stage.status} />
+                  <span>{stage.summary}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </SectionBlock>
-
-      <div className="grid-two">
-        <SectionBlock title="阶段状态" description="这一套状态模型会被侧边栏、流程页与页面头部共同使用。">
-          <TimelineFlow
-            items={[
-              { year: '01', title: '未开始', summary: '该阶段尚未进入。' },
-              { year: '02', title: '进行中', summary: '该阶段正在处理并持续产出结果。' },
-              { year: '03', title: '已完成', summary: '该阶段关键产物已满足下游使用条件。' },
-              { year: '04', title: '风险', summary: '该阶段存在异常、证据不足或仍需人工判断。' },
-            ]}
-          />
-        </SectionBlock>
-
-        <SectionBlock title="当前焦点" description="默认会话当前处于趋势分析阶段。">
-          <div className="metric-card">
-            <div className="kicker">当前阶段</div>
-            <div className="metric-value">趋势分析</div>
-            <div className="tiny muted">当前最合理的下一步是把趋势结论推进成明确的研究缺口。</div>
-          </div>
-        </SectionBlock>
-      </div>
     </EditorialPage>
   );
 }

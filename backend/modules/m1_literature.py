@@ -41,9 +41,21 @@ class LiteratureModule(BaseModule):
         os.environ["SMART_LLM"] = f"openai:{config.OPENAI_MODEL}"
         os.environ["STRATEGIC_LLM"] = f"openai:{config.OPENAI_MODEL}"
 
-        # 搜索引擎优先级：brave > tavily > serper > duckduckgo
+        preferred_retriever = getattr(config, "SEARCH_PROVIDER", "brave").strip().lower()
         brave_key = os.getenv("BRAVE_API_KEY", getattr(config, "BRAVE_API_KEY", ""))
-        if brave_key:
+
+        if preferred_retriever == "brave" and brave_key:
+            os.environ["BRAVE_API_KEY"] = brave_key
+            os.environ["RETRIEVER"] = "brave"
+        elif preferred_retriever == "tavily" and config.TAVILY_API_KEY:
+            os.environ["TAVILY_API_KEY"] = config.TAVILY_API_KEY
+            os.environ["RETRIEVER"] = "tavily"
+        elif preferred_retriever == "serper" and config.SERPER_API_KEY:
+            os.environ["SERPER_API_KEY"] = config.SERPER_API_KEY
+            os.environ["RETRIEVER"] = "serper"
+        elif preferred_retriever == "duckduckgo":
+            os.environ["RETRIEVER"] = "duckduckgo"
+        elif brave_key:
             os.environ["BRAVE_API_KEY"] = brave_key
             os.environ["RETRIEVER"] = "brave"
         elif config.TAVILY_API_KEY:
