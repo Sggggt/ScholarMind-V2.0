@@ -32,7 +32,48 @@ dist/
 Thumbs.db
 
 # Env (contains secrets)
+.env
+.env.*
+!.env.example
+!.env.sample
 backend/.env
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+react-client/.env
+react-client/.env.*
+!react-client/.env.example
+
+# Logs / runtime
+*.log
+logs/
+*.pid
+*.seed
+*.out
+*.err
+
+# Build cache
+**/dist/
+**/coverage/
+**/*.tsbuildinfo
+
+# Secrets / credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.pub
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+.npmrc
+.pypirc
+.envrc
 
 # Aider
 .aider*
