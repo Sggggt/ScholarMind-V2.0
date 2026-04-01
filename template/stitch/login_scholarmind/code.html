@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&amp;family=Public+Sans:wght@300;400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container": "#edeeeb",
+              "on-surface": "#2f3331",
+              "surface-variant": "#e0e3e0",
+              "tertiary-fixed": "#fde2b3",
+              "background": "#faf9f7",
+              "on-primary-fixed-variant": "#8c4a00",
+              "surface-container-low": "#f3f4f1",
+              "primary-container": "#ffdcc3",
+              "primary-fixed": "#ffdcc3",
+              "outline": "#777c79",
+              "on-tertiary-fixed": "#4f3f1d",
+              "tertiary-container": "#fde2b3",
+              "on-secondary-fixed-variant": "#605b54",
+              "on-primary-container": "#7e4200",
+              "surface-container-highest": "#e0e3e0",
+              "secondary": "#635e57",
+              "on-surface-variant": "#5c605d",
+              "primary-dim": "#7f4300",
+              "tertiary-fixed-dim": "#eed4a6",
+              "inverse-on-surface": "#9d9d9b",
+              "secondary-fixed": "#e9e1d8",
+              "surface-dim": "#d6dbd7",
+              "tertiary": "#705c37",
+              "surface-container-high": "#e6e9e6",
+              "on-background": "#2f3331",
+              "on-secondary": "#fff8f0",
+              "inverse-surface": "#0d0e0e",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "on-secondary-fixed": "#433f39",
+              "on-primary-fixed": "#633300",
+              "on-secondary-container": "#56514a",
+              "on-error-container": "#742410",
+              "error": "#9e422c",
+              "primary-fixed-dim": "#ffcaa1",
+              "outline-variant": "#afb3b0",
+              "tertiary-dim": "#63512d",
+              "surface-bright": "#faf9f7",
+              "surface": "#faf9f7",
+              "secondary-fixed-dim": "#dbd3cb",
+              "inverse-primary": "#fe932c",
+              "error-container": "#fe8b70",
+              "on-error": "#fff7f6",
+              "surface-tint": "#904d00",
+              "surface-container-lowest": "#ffffff",
+              "secondary-container": "#e9e1d8",
+              "on-tertiary": "#fff8f1",
+              "error-dim": "#5c1202",
+              "on-tertiary-container": "#63512d",
+              "on-primary": "#fff6f2",
+              "secondary-dim": "#57524c",
+              "primary": "#904d00"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "serif"],
+              "body": ["Public Sans", "sans-serif"],
+              "label": ["Public Sans", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #faf9f7;
+            color: #2f3331;
+            font-family: 'Public Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .serif-title {
+            font-family: 'Noto Serif SC', serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .input-underline {
+            border: none;
+            border-bottom: 1px solid rgba(175, 179, 176, 0.3);
+            background: transparent;
+            transition: border-color 0.3s ease;
+        }
+        .input-underline:focus {
+            outline: none;
+            border-bottom: 1px solid #904d00;
+            box-shadow: none;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-6 selection:bg-primary-container selection:text-on-primary-container">
+<main class="w-full max-w-4xl grid grid-cols-1 md:grid-cols-12 gap-12 items-center">
+<!-- Asymmetric Empty Space / Intellectual Anchor -->
+<div class="hidden md:flex md:col-span-5 flex-col justify-center space-y-8 pr-12">
+<div class="space-y-4">
+<h1 class="serif-title text-4xl font-bold tracking-tight text-on-surface">ScholarMind</h1>
+<p class="text-on-surface-variant font-light leading-relaxed max-w-xs">
+                    静谧的数字化策展空间，为深思熟虑的研究者而建。在这里，思想得以自由呼吸。
+                </p>
+</div>
+<div class="w-12 h-[1px] bg-outline-variant/30"></div>
+</div>
+<!-- Login Form Container -->
+<div class="md:col-span-7 bg-surface-container-lowest/40 backdrop-blur-sm p-8 md:p-12 rounded-lg">
+<div class="mb-12 md:hidden">
+<h1 class="serif-title text-3xl font-bold text-on-surface">ScholarMind</h1>
+</div>
+<header class="mb-10">
+<h2 class="serif-title text-2xl text-on-surface mb-2">进入研究工坊</h2>
+<p class="text-on-surface-variant text-sm tracking-wide">请输入您的凭据以继续学术航程</p>
+</header>
+<form class="space-y-10">
+<div class="space-y-1">
+<label class="block text-xs font-medium text-on-surface-variant uppercase tracking-widest" for="email">电子邮箱</label>
+<input class="input-underline w-full py-3 text-lg font-light text-on-surface placeholder:text-outline-variant/50" id="email" name="email" placeholder="researcher@university.edu" type="email"/>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between items-end">
+<label class="block text-xs font-medium text-on-surface-variant uppercase tracking-widest" for="password">访问密码</label>
+<a class="text-xs text-primary/70 hover:text-primary transition-colors" href="#">忘记密码？</a>
+</div>
+<input class="input-underline w-full py-3 text-lg font-light text-on-surface placeholder:text-outline-variant/50" id="password" name="password" placeholder="••••••••" type="password"/>
+</div>
+<div class="pt-6 flex flex-col md:flex-row md:items-center gap-6">
+<button class="bg-primary text-on-primary px-10 py-3 rounded-md font-medium text-sm tracking-widest hover:brightness-110 active:scale-95 transition-all shadow-sm" type="submit">
+                        开启会话
+                    </button>
+<button class="group flex items-center text-on-surface-variant hover:text-on-surface transition-colors text-sm" type="button">
+<span class="mr-2">使用学术通行证登录</span>
+<span class="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_right_alt</span>
+</button>
+</div>
+</form>
+<div class="mt-16 flex items-center space-x-4 opacity-40 grayscale hover:opacity-100 transition-opacity">
+<img alt="Institutional Badge" class="w-10 h-10 object-contain" data-alt="minimalist monochrome emblem of a classic university seal simplified with clean lines on ivory background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDmVgpA9hpA71E7mVXhw-a7s6wy4uB4vBSJiQlWY4jaG66I7xKttxqY3epEfUFptGAM4VvB8Nl4mpTycdgllTE8X7OQXxPRWknXvO6MI3sRf61VSiUmf1AwoYXhEVpVnjuIb2kQIL64pYqbhRFJYTwS1EbH_T-ZH0tg9qaliKINeM3xPN8jchysZYxViU942nBrRizcaIvOubxy0FnuyVQJAA-DNPmLrrsvijkfzSdcf4zXQFa-5ykNE_pwTI1YHorwO8mDeTXZ-Y4"/>
+<div class="h-8 w-[1px] bg-on-surface/20"></div>
+<p class="text-[10px] leading-tight tracking-wider text-on-surface uppercase font-medium">
+                    Trusted by Global<br/>Research Institutes
+                </p>
+</div>
+</div>
+</main>
+<!-- Footer Links -->
+<footer class="fixed bottom-10 w-full flex justify-center space-x-8 text-[11px] tracking-[0.2em] text-on-surface-variant/60 uppercase">
+<a class="hover:text-primary transition-colors" href="#">服务条款</a>
+<a class="hover:text-primary transition-colors" href="#">隐私政策</a>
+<a class="hover:text-primary transition-colors" href="#">机构访问</a>
+<span class="hidden md:inline text-outline-variant/30">|</span>
+<span class="hidden md:inline">© 2024 Digital Atelier</span>
+</footer>
+<!-- Subtle texture overlay -->
+<div class="fixed inset-0 pointer-events-none opacity-[0.03]" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDa7QFBShbe9AedbephlzalxbG5_0jzrRrlCnRmdG-wE4ZBKwpQYJUOW5XoMIat7SuuotWb4irtZnZ1m3CzSFdM7nELmmyzGLRwoGs-rRem9kFzFurDj9OOTM_kl-0Q0tt_oecYWw0tzVtHydAz_yBA84takWPMluDSoa40xEsEf5Ysc0NiPt8HwDSapeYPAPPxSytSfYwldghzYbmp8Rm7Cdy_PP4Ds4zlTEYfsuuq1xQrzpzYpcp1t8-Xl2nKrX8NuQQs2tg4KEc');"></div>
+</body></html>

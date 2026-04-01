@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&amp;family=Public+Sans:wght@300;400;500;600&amp;family=Noto+Sans+SC:wght@300;400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "inverse-primary": "#fe932c",
+              "surface-container-highest": "#e0e3e0",
+              "surface-variant": "#e0e3e0",
+              "error": "#9e422c",
+              "background": "#faf9f7",
+              "tertiary-fixed-dim": "#eed4a6",
+              "surface-tint": "#904d00",
+              "on-primary-container": "#7e4200",
+              "on-primary": "#fff6f2",
+              "secondary-container": "#e9e1d8",
+              "on-secondary-fixed-variant": "#605b54",
+              "surface": "#faf9f7",
+              "on-tertiary-container": "#63512d",
+              "on-surface": "#2f3331",
+              "error-container": "#fe8b70",
+              "on-surface-variant": "#5c605d",
+              "primary-fixed-dim": "#ffcaa1",
+              "secondary-fixed-dim": "#dbd3cb",
+              "error-dim": "#5c1202",
+              "primary-dim": "#7f4300",
+              "primary-fixed": "#ffdcc3",
+              "inverse-surface": "#0d0e0e",
+              "surface-container-low": "#f3f4f1",
+              "secondary-fixed": "#e9e1d8",
+              "inverse-on-surface": "#9d9d9b",
+              "primary": "#904d00",
+              "on-primary-fixed-variant": "#8c4a00",
+              "surface-container": "#edeeeb",
+              "tertiary-fixed": "#fde2b3",
+              "on-tertiary-fixed": "#4f3f1d",
+              "secondary": "#635e57",
+              "on-secondary-fixed": "#433f39",
+              "tertiary-container": "#fde2b3",
+              "on-secondary": "#fff8f0",
+              "surface-container-high": "#e6e9e6",
+              "on-error-container": "#742410",
+              "surface-dim": "#d6dbd7",
+              "on-tertiary": "#fff8f1",
+              "on-primary-fixed": "#633300",
+              "primary-container": "#ffdcc3",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "surface-container-lowest": "#ffffff",
+              "tertiary": "#705c37",
+              "outline-variant": "#afb3b0",
+              "outline": "#777c79",
+              "on-secondary-container": "#56514a",
+              "tertiary-dim": "#63512d",
+              "secondary-dim": "#57524c",
+              "surface-bright": "#faf9f7",
+              "on-error": "#fff7f6",
+              "on-background": "#2f3331"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "serif"],
+              "body": ["Public Sans", "Noto Sans SC", "sans-serif"],
+              "label": ["Public Sans", "Noto Sans SC", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            font-size: 20px;
+        }
+        body {
+            background-color: #faf9f7;
+            color: #2f3331;
+            font-family: 'Public Sans', 'Noto Sans SC', sans-serif;
+        }
+        .serif-text {
+            font-family: 'Noto Serif SC', serif;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #afb3b040;
+            border-radius: 10px;
+        }
+        .tonal-shift-no-lines {
+            border: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background overflow-hidden">
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-[#afb3b0]/10 bg-[#f3f4f1] dark:bg-stone-900 flex flex-col h-full py-6 px-4 font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide">
+<div class="mb-10 px-2">
+<h1 class="font-['Noto_Serif_SC','Noto_Serif'] font-bold text-[#2f3331] dark:text-stone-100 text-lg">数字工坊</h1>
+<p class="text-xs text-on-surface-variant opacity-60">Digital Atelier</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98] transition-all" href="#">
+<span class="material-symbols-outlined">space_dashboard</span>
+<span>工作台</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98] transition-all" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span>研究流</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98] transition-all" href="#">
+<span class="material-symbols-outlined">history</span>
+<span>近期会话</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#904d00] dark:text-amber-500 font-medium border-l-2 border-[#904d00] bg-white/50 dark:bg-white/5 scale-100 active:scale-[0.98] transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">library_books</span>
+<span>学术馆藏</span>
+</a>
+</nav>
+<div class="mt-auto space-y-1">
+<button class="w-full mb-6 flex items-center justify-center gap-2 py-2.5 bg-primary text-on-primary rounded-lg font-medium hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-sm">add</span>
+<span>新建研究</span>
+</button>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-[#5c605d] hover:text-[#2f3331] hover:bg-[#faf9f7] transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>设置</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-[#5c605d] hover:text-[#2f3331] hover:bg-[#faf9f7] transition-colors" href="#">
+<span class="material-symbols-outlined">person</span>
+<span>账户</span>
+</a>
+</div>
+</aside>
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-14 z-40 bg-[#faf9f7]/80 dark:bg-stone-950/80 backdrop-blur-xl border-b border-[#afb3b0]/10 flex justify-between items-center px-8 w-full font-['Noto_Serif_SC','Noto_Serif'] text-base">
+<div class="flex items-center gap-8">
+<span class="text-xl font-semibold text-[#2f3331] dark:text-stone-200">资料库整合</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:text-[#904d00] transition-colors opacity-100 hover:opacity-80" href="#">概览</a>
+<a class="text-[#904d00] dark:text-amber-500 border-b-2 border-[#904d00] pb-1 opacity-100 hover:opacity-80" href="#">文献</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:text-[#904d00] transition-colors opacity-100 hover:opacity-80" href="#">写作</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:text-[#904d00] transition-colors opacity-100 hover:opacity-80" href="#">发布</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant text-sm">search</span>
+<input class="pl-10 pr-4 py-1.5 bg-surface-container-low border-none rounded-full text-sm w-64 focus:ring-1 focus:ring-primary/30 transition-all" placeholder="搜索馆藏内容..." type="text"/>
+</div>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors opacity-100 hover:opacity-80">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors opacity-100 hover:opacity-80">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-14 h-[calc(100vh-3.5rem)] flex overflow-hidden">
+<!-- Left: File Tree (Repository Structure) -->
+<section class="w-72 bg-surface-container-low/30 p-6 flex flex-col border-r border-outline-variant/10 overflow-y-auto custom-scrollbar">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-headline font-semibold text-on-surface tracking-tight">资源目录</h3>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary">create_new_folder</span>
+</div>
+<ul class="space-y-4 text-sm">
+<!-- Project Folder -->
+<li>
+<div class="flex items-center gap-2 text-on-surface font-medium mb-2 cursor-pointer">
+<span class="material-symbols-outlined text-primary">folder_open</span>
+<span>神经语言学研究_2024</span>
+</div>
+<ul class="ml-6 space-y-2 text-on-surface-variant">
+<li class="flex items-center gap-2 py-1 px-2 rounded hover:bg-surface-container transition-colors cursor-pointer group">
+<span class="material-symbols-outlined text-sm opacity-60">description</span>
+<span class="group-hover:text-on-surface">核心论文初稿.docx</span>
+</li>
+<li class="flex items-center gap-2 py-1 px-2 rounded bg-surface-container-lowest text-primary font-medium cursor-pointer shadow-sm">
+<span class="material-symbols-outlined text-sm">table_chart</span>
+<span>实验样本数据集_V2.csv</span>
+</li>
+<li class="flex items-center gap-2 py-1 px-2 rounded hover:bg-surface-container transition-colors cursor-pointer group">
+<span class="material-symbols-outlined text-sm opacity-60">terminal</span>
+<span class="group-hover:text-on-surface">分析脚本_main.py</span>
+</li>
+</ul>
+</li>
+<!-- Archives Folder -->
+<li>
+<div class="flex items-center gap-2 text-on-surface-variant font-medium mb-2 cursor-pointer opacity-70">
+<span class="material-symbols-outlined">folder</span>
+<span>参考资料库</span>
+</div>
+</li>
+<!-- Citations -->
+<li>
+<div class="flex items-center gap-2 text-on-surface-variant font-medium mb-2 cursor-pointer opacity-70">
+<span class="material-symbols-outlined">folder</span>
+<span>引用文献 (14)</span>
+</div>
+</li>
+</ul>
+<div class="mt-auto pt-6 border-t border-outline-variant/10">
+<div class="bg-primary/5 p-4 rounded-lg border border-primary/10">
+<p class="text-xs text-primary font-semibold mb-1 uppercase tracking-widest">同步状态</p>
+<div class="flex items-center gap-2 text-on-surface-variant text-xs">
+<span class="w-2 h-2 rounded-full bg-green-500"></span>
+<span>已更新至云端 (2分钟前)</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Right: Preview Area -->
+<section class="flex-1 bg-surface p-8 overflow-y-auto custom-scrollbar">
+<div class="max-w-5xl mx-auto space-y-8">
+<!-- Asset Header -->
+<div class="flex justify-between items-start border-b border-outline-variant/10 pb-6">
+<div>
+<div class="flex items-center gap-3 mb-2">
+<span class="px-2 py-0.5 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded uppercase tracking-tighter">Dataset</span>
+<h2 class="text-2xl font-headline font-bold text-on-surface">实验样本数据集_V2.csv</h2>
+</div>
+<p class="text-on-surface-variant flex items-center gap-4 text-sm">
+<span>大小: 4.2 MB</span>
+<span>修改时间: 2024年5月12日 14:30</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-xs">history</span> 版本 1.4</span>
+</p>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 border border-outline-variant/30 rounded-lg text-sm font-medium hover:bg-surface-container-low transition-colors">预览原始文件</button>
+<button class="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-medium shadow-sm hover:opacity-90 transition-opacity flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">download</span>
+                            下载资源
+                        </button>
+</div>
+</div>
+<!-- Bento Grid Visualization -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Data Stats Card -->
+<div class="col-span-12 md:col-span-4 bg-surface-container-low p-6 rounded-xl space-y-4">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest">统计概览</h4>
+<div class="space-y-4">
+<div>
+<div class="flex justify-between text-sm mb-1">
+<span class="text-on-surface-variant">总行数</span>
+<span class="font-mono font-semibold">12,408</span>
+</div>
+<div class="w-full h-1 bg-outline-variant/20 rounded-full">
+<div class="w-full h-full bg-primary rounded-full"></div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface-container-lowest p-3 rounded-lg">
+<p class="text-[10px] text-on-surface-variant uppercase">特征维度</p>
+<p class="text-lg font-headline font-bold">32</p>
+</div>
+<div class="bg-surface-container-lowest p-3 rounded-lg">
+<p class="text-[10px] text-on-surface-variant uppercase">缺失值</p>
+<p class="text-lg font-headline font-bold text-error">0.2%</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Visual Preview Placeholder -->
+<div class="col-span-12 md:col-span-8 bg-surface-container-low rounded-xl relative overflow-hidden h-64 md:h-auto">
+<img alt="Data visualization charts" class="w-full h-full object-cover opacity-80 mix-blend-multiply" data-alt="Modern clean data dashboard visualization with minimalist line charts and bar graphs in amber and gray tones on a soft ivory background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCDFKx-gENOFP-QpGngDZnPbay2AUUnNUc5emN2BfsPgPfYUiLd13DQJGHg_kshKRDVhKIrrxHfo34J9WGxZCj2X9RHzlrO4Irw11kd2JxO-AhXm6N8M-aUZrAHFmVPMMvK5dv4dyEco__qWc3I-tvBXElB6ON_Nvt_8P7toYnF7Pbzj4GmMCGjxSbJ42GT8UB4hgkVa7nnSMxnt3YPw4W8oPOsPJJ2axLxr08Uv-dh8bjS-hZs6rE6N5rqw1YoCTUKPPAW8u6cCxU"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container-low via-transparent to-transparent"></div>
+<div class="absolute bottom-4 left-4 right-4 flex justify-between items-center">
+<span class="text-xs font-medium text-on-surface bg-white/60 backdrop-blur px-2 py-1 rounded">采样分布热力图预览</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer">fullscreen</span>
+</div>
+</div>
+<!-- Config/Code Snippet -->
+<div class="col-span-12 bg-surface-container-low p-6 rounded-xl">
+<div class="flex justify-between items-center mb-4">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest">读取配置 (Python)</h4>
+<span class="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer">content_copy</span>
+</div>
+<div class="bg-stone-900 rounded-lg p-6 font-mono text-sm text-stone-300 leading-relaxed overflow-x-auto">
+<span class="text-amber-500">import</span> pandas <span class="text-amber-500">as</span> pd<br/>
+<span class="text-amber-500">import</span> numpy <span class="text-amber-500">as</span> np<br/><br/>
+<span class="text-stone-500"># 加载核心实验数据</span><br/>
+                            df = pd.read_csv(<span class="text-emerald-400">'experimental_v2.csv'</span>, encoding=<span class="text-emerald-400">'utf-8'</span>)<br/>
+<br/>
+<span class="text-stone-500"># 预处理：移除无效空值并标准化脑电频段</span><br/>
+                            cleaned_data = df.dropna(subset=[<span class="text-emerald-400">'alpha_power'</span>, <span class="text-emerald-400">'beta_power'</span>])<br/>
+                            print(<span class="text-emerald-400">f"有效样本数: {len(cleaned_data)}"</span>)
+                        </div>
+</div>
+<!-- Scholarly Citations Card -->
+<div class="col-span-12 md:col-span-7 bg-white p-8 border border-outline-variant/10 rounded-xl shadow-sm relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+<h4 class="text-xs font-bold text-primary uppercase tracking-widest mb-4">关联文献引用</h4>
+<div class="space-y-6">
+<div class="group">
+<p class="text-on-surface font-headline font-semibold mb-1 group-hover:text-primary transition-colors cursor-pointer">Chen, L. et al. (2023). "Neural Oscillations in Semantic Processing."</p>
+<p class="text-sm text-on-surface-variant italic">Journal of Cognitive Neuroscience, Vol. 45, pp. 112-128.</p>
+<div class="mt-2 flex gap-2">
+<span class="text-[10px] border border-outline-variant/30 px-2 py-0.5 rounded text-on-surface-variant">脑电研究</span>
+<span class="text-[10px] border border-outline-variant/30 px-2 py-0.5 rounded text-on-surface-variant">语义提取</span>
+</div>
+</div>
+<div class="group">
+<p class="text-on-surface font-headline font-semibold mb-1 group-hover:text-primary transition-colors cursor-pointer">Zhang, W. (2022). "Dataset Construction for Linguistic Neuroimaging."</p>
+<p class="text-sm text-on-surface-variant italic">Academic Press London, 2nd Edition.</p>
+</div>
+</div>
+</div>
+<!-- Quick Actions Bento -->
+<div class="col-span-12 md:col-span-5 grid grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-6 rounded-xl flex flex-col items-center justify-center text-center hover:bg-surface-container-high transition-colors cursor-pointer group">
+<span class="material-symbols-outlined text-3xl text-on-surface-variant mb-2 group-hover:scale-110 transition-transform">share</span>
+<p class="text-sm font-medium">生成共享链接</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-xl flex flex-col items-center justify-center text-center hover:bg-surface-container-high transition-colors cursor-pointer group">
+<span class="material-symbols-outlined text-3xl text-on-surface-variant mb-2 group-hover:scale-110 transition-transform">history_edu</span>
+<p class="text-sm font-medium">查看变更日志</p>
+</div>
+<div class="bg-primary/5 p-6 rounded-xl col-span-2 flex items-center justify-between hover:bg-primary/10 transition-colors cursor-pointer group">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">auto_awesome</span>
+</div>
+<div>
+<p class="text-sm font-bold text-on-surface">AI 智能洞察</p>
+<p class="text-xs text-on-surface-variant">自动分析数据集关联性与离群点</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating UI for Citation Add (Contextual) -->
+<div class="fixed bottom-8 right-8 flex flex-col gap-4 items-end">
+<div class="bg-surface-container-lowest shadow-2xl rounded-full px-6 py-3 flex items-center gap-4 border border-outline-variant/10 animate-fade-in">
+<span class="text-xs font-medium text-on-surface-variant">选中的 1 个资源已准备就绪</span>
+<div class="h-4 w-[1px] bg-outline-variant/30"></div>
+<button class="text-primary text-sm font-bold hover:underline">批量导出</button>
+<button class="bg-on-surface text-surface text-sm px-4 py-1.5 rounded-full font-medium hover:opacity-90">添加到论文</button>
+</div>
+</div>
+</body></html>

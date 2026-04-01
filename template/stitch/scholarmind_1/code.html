@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Digital Atelier - 领域探索</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&amp;family=Public+Sans:wght@300;400;500;600&amp;family=Noto+Serif:ital,wght@0,400;0,700;1,400&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary-fixed-variant": "#8c4a00",
+              "on-secondary-fixed-variant": "#605b54",
+              "primary-container": "#ffdcc3",
+              "on-tertiary-fixed": "#4f3f1d",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "surface-container-lowest": "#ffffff",
+              "on-secondary": "#fff8f0",
+              "tertiary": "#705c37",
+              "surface-variant": "#e0e3e0",
+              "inverse-surface": "#0d0e0e",
+              "on-error-container": "#742410",
+              "primary-dim": "#7f4300",
+              "surface-container-low": "#f3f4f1",
+              "outline-variant": "#afb3b0",
+              "on-primary": "#fff6f2",
+              "tertiary-dim": "#63512d",
+              "secondary": "#635e57",
+              "on-surface": "#2f3331",
+              "secondary-fixed-dim": "#dbd3cb",
+              "secondary-dim": "#57524c",
+              "error-dim": "#5c1202",
+              "outline": "#777c79",
+              "on-tertiary-container": "#63512d",
+              "on-tertiary": "#fff8f1",
+              "secondary-container": "#e9e1d8",
+              "on-error": "#fff7f6",
+              "error": "#9e422c",
+              "surface-bright": "#faf9f7",
+              "inverse-on-surface": "#9d9d9b",
+              "background": "#faf9f7",
+              "tertiary-container": "#fde2b3",
+              "surface-container-high": "#e6e9e6",
+              "on-primary-container": "#7e4200",
+              "surface-container": "#edeeeb",
+              "on-primary-fixed": "#633300",
+              "on-surface-variant": "#5c605d",
+              "tertiary-fixed-dim": "#eed4a6",
+              "on-secondary-container": "#56514a",
+              "on-secondary-fixed": "#433f39",
+              "primary": "#904d00",
+              "surface": "#faf9f7",
+              "surface-tint": "#904d00",
+              "secondary-fixed": "#e9e1d8",
+              "error-container": "#fe8b70",
+              "primary-fixed-dim": "#ffcaa1",
+              "surface-container-highest": "#e0e3e0",
+              "primary-fixed": "#ffdcc3",
+              "on-background": "#2f3331",
+              "tertiary-fixed": "#fde2b3",
+              "surface-dim": "#d6dbd7",
+              "inverse-primary": "#fe932c"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "serif"],
+              "body": ["Public Sans", "sans-serif"],
+              "label": ["Public Sans", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 200, 'GRAD' 0, 'opsz' 24;
+        }
+        .scholar-gradient {
+            background: linear-gradient(180deg, rgba(243, 244, 241, 0) 0%, rgba(243, 244, 241, 1) 100%);
+        }
+        body {
+            background-color: #faf9f7;
+            color: #2f3331;
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary-container">
+<!-- SideNavBar (Authority: Shared Components JSON) -->
+<nav class="fixed left-0 top-0 h-screen w-64 bg-[#f3f4f1] dark:bg-stone-900 font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide border-r border-[#afb3b0]/10 flex flex-col py-6 px-4 z-50">
+<div class="mb-10 flex items-center gap-3 px-2">
+<div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">menu_book</span>
+</div>
+<div>
+<h1 class="font-['Noto_Serif_SC','Noto_Serif'] font-bold text-[#2f3331] dark:text-stone-100 text-lg leading-tight">数字工坊</h1>
+<p class="text-[10px] uppercase tracking-[0.2em] text-on-surface-variant opacity-60">Digital Atelier</p>
+</div>
+</div>
+<button class="mb-8 w-full py-3 bg-primary text-on-primary rounded-lg flex items-center justify-center gap-2 scale-100 active:scale-[0.98] transition-all font-medium">
+<span class="material-symbols-outlined text-sm">add</span>
+            新建研究
+        </button>
+<div class="flex-1 space-y-2">
+<!-- Active State: 研究流 (Research Stream) fits current Exploration context -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800" href="#">
+<span class="material-symbols-outlined">space_dashboard</span>
+                工作台
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md transition-all text-[#904d00] dark:text-amber-500 font-medium border-l-2 border-[#904d00] bg-white/50 dark:bg-white/5" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+                研究流
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800" href="#">
+<span class="material-symbols-outlined">history</span>
+                近期会话
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800" href="#">
+<span class="material-symbols-outlined">library_books</span>
+                学术馆藏
+            </a>
+</div>
+<div class="pt-6 border-t border-outline-variant/10 space-y-2">
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+                设置
+            </a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-md text-on-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-sm">person</span>
+                账户
+            </a>
+</div>
+</nav>
+<!-- TopAppBar (Authority: Shared Components JSON) -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-14 z-40 bg-[#faf9f7]/80 dark:bg-stone-950/80 backdrop-blur-xl border-b border-[#afb3b0]/10 flex justify-between items-center px-8">
+<div class="flex items-center gap-8">
+<nav class="flex gap-6 font-['Noto_Serif_SC','Noto_Serif'] text-base">
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:text-[#904d00] transition-colors" href="#">概览</a>
+<a class="text-[#904d00] dark:text-amber-500 border-b-2 border-[#904d00] pb-1" href="#">文献</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:text-[#904d00] transition-colors" href="#">写作</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:text-[#904d00] transition-colors" href="#">发布</a>
+</nav>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative group">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant text-sm">search</span>
+<input class="pl-10 pr-4 py-1.5 bg-surface-container-low border-none rounded-full text-sm w-64 focus:ring-1 focus:ring-primary/20 transition-all" placeholder="搜索文献或概念..." type="text"/>
+</div>
+<div class="flex gap-4">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">help_outline</button>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-64 pt-14 min-h-screen bg-background">
+<div class="max-w-6xl mx-auto px-12 py-16 flex gap-12">
+<!-- Left: Side Index / Navigation (Curated Minimalist) -->
+<aside class="w-48 sticky top-24 h-fit hidden xl:block">
+<nav class="space-y-8">
+<div>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant mb-4 block">工作流进度</span>
+<ul class="space-y-4 border-l border-outline-variant/20">
+<li class="pl-4 border-l-2 border-primary -ml-[1px]">
+<a class="text-primary font-medium text-sm" href="#">领域探索</a>
+</li>
+<li class="pl-4 border-l-2 border-transparent -ml-[1px]">
+<a class="text-on-surface-variant hover:text-on-surface text-sm transition-colors" href="#">文献综述</a>
+</li>
+<li class="pl-4 border-l-2 border-transparent -ml-[1px]">
+<a class="text-on-surface-variant hover:text-on-surface text-sm transition-colors" href="#">论证构建</a>
+</li>
+<li class="pl-4 border-l-2 border-transparent -ml-[1px]">
+<a class="text-on-surface-variant hover:text-on-surface text-sm transition-colors" href="#">初稿生成</a>
+</li>
+</ul>
+</div>
+<div>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant mb-4 block">备忘索引</span>
+<ul class="space-y-3">
+<li><a class="text-xs text-on-surface-variant hover:underline decoration-primary/30" href="#landscape">1. 研究图景</a></li>
+<li><a class="text-xs text-on-surface-variant hover:underline decoration-primary/30" href="#knowledge-map">2. 知识拓扑</a></li>
+<li><a class="text-xs text-on-surface-variant hover:underline decoration-primary/30" href="#core-concepts">3. 核心概念</a></li>
+</ul>
+</div>
+</nav>
+</aside>
+<!-- Center: The Editorial Brief -->
+<article class="flex-1 max-w-2xl">
+<!-- Header -->
+<header class="mb-16">
+<div class="mb-6 flex items-center gap-2">
+<span class="px-2 py-0.5 bg-tertiary-container text-on-tertiary-container text-[10px] font-bold tracking-tighter uppercase rounded-sm">MEMO / 042</span>
+<span class="text-on-surface-variant text-xs italic">最后编辑于 2024年10月24日</span>
+</div>
+<h2 class="font-headline text-4xl text-on-surface font-bold leading-tight mb-4">后人类主义在当代东亚建筑中的映射研究</h2>
+<p class="text-on-surface-variant text-lg leading-relaxed font-light italic">
+                        "探讨技术介质如何重新定义空间边界与人类身体的感知关系。"
+                    </p>
+</header>
+<!-- Section: Research Landscape (Asymmetric Grid) -->
+<section class="mb-20" id="landscape">
+<div class="flex items-end gap-3 mb-8">
+<h3 class="font-headline text-2xl font-semibold">研究图景</h3>
+<div class="h-px flex-1 bg-outline-variant/10 mb-2"></div>
+</div>
+<div class="grid grid-cols-12 gap-6">
+<div class="col-span-12 p-6 bg-surface-container-low rounded-xl border border-outline-variant/5">
+<span class="text-[10px] font-bold text-primary mb-2 block tracking-widest">LANDSCAPE OVERVIEW</span>
+<p class="text-on-surface leading-relaxed mb-4">
+                                本领域正处于从“功能主义”向“赛博空间实体化”转型的关键期。东亚高密度城市环境为这种实验提供了独特的培养皿，尤其是在东京与上海的实验建筑群中。
+                            </p>
+<div class="flex gap-4">
+<div class="flex -space-x-2">
+<img class="w-8 h-8 rounded-full border-2 border-surface object-cover" data-alt="close-up portrait of a thoughtful female researcher in a modern library with soft natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBbm0pou6Pt7dDxUOMpeeZ3UG3Gi7Wao7HaFekrHTgLugL-UA3FrEApZWVvelHYLXrG_m10rUH2rXa2hCXO_XPCtCqIeHkpIrglzJ1DvKB66s7A8N3O_SSiIjceyQF-ckcX7Ifvha3qpw5gCJCaJpivyMIwTL6icHUCZqIKR0MVdgb8QsOal0PgdpKbkQXftxWJA7AeU3Sdw20lb79Up1vtKb7po3-9YpcVEN9qYHPdnpa_zg04YPhen_O17wHt9pD72OrVGa7koK0"/>
+<img class="w-8 h-8 rounded-full border-2 border-surface object-cover" data-alt="portrait of an elderly male academic professor with grey beard and glasses in a scholarly setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJyxNPiKqyc6JjuYGxhGWrMhSmVW6nV2Gph-Wtv0getjZnmuXj5eNpdZtqudIwRSa7mtwGcjphNhHjcdoZcc2ngCYEJn5opEO5iQNXl4t4D5tMG0tyg37tS19a2D3vqENn248DHFlXfWReZKXePik-Kp8-FLes0IlZFWAwi4bEZpO8FPCJ-V3tefjzrJ8RxuKFGcCYhH2mp22SFhz0UI5EtCl65xvYfIcj2B9gvbyvCZKfXXGm9u4ZH_9m0h4knXat8iSacqRlCM0"/>
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-[10px] font-bold text-on-secondary-container">+12</div>
+</div>
+<span class="text-xs text-on-surface-variant self-center">活跃研究者在本周增加了 14.3%</span>
+</div>
+</div>
+<div class="col-span-7 h-48 rounded-xl overflow-hidden relative">
+<img class="absolute inset-0 w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-700" data-alt="minimalist architectural shot of a sleek modern skyscraper reflected in a clear glass facade at sunset" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDLXMgB8L_uOCtpgO0lIjCJRYM43oD1iF8pr-s-G-qFvreIuFsSO5fsF3fITJKRyNq-YcPwhlHoUmP8PVNLgi8U7CDM08e5TUZC-ISPtwgbeEGWpY-z4Frr-gpm22Eh8M3YPp2E7dqlIpIS84YJnoMjyb1EXClx9Kzdk1uq0Ku5OkqyrPTfB5f0GNhSlHdh4VaVhIHJwpZ42qq49ofb9L5XmTt7hOF7JqdcaPTzlmL64ZjOxZapbExYOFmpnsN3JATKrpYx2dpRSzw"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex flex-col justify-end p-4">
+<span class="text-white/80 text-[10px] tracking-widest uppercase">核心案例</span>
+<span class="text-white font-medium">中银胶囊塔的后人类主义解读</span>
+</div>
+</div>
+<div class="col-span-5 bg-primary-container/30 p-5 rounded-xl border border-primary/5 flex flex-col justify-between">
+<div class="material-symbols-outlined text-primary mb-2">auto_awesome</div>
+<h4 class="text-sm font-bold text-primary">AI 建议方向</h4>
+<p class="text-xs text-on-primary-container leading-relaxed">
+                                建议关注“生物合成材料”在近期文献中的激增，这可能是论证“非有机身体”在建筑中延伸的重要支点。
+                            </p>
+</div>
+</div>
+</section>
+<!-- Section: Knowledge Topology (Modern Bento Style) -->
+<section class="mb-20" id="knowledge-map">
+<div class="flex items-end gap-3 mb-8">
+<h3 class="font-headline text-2xl font-semibold">知识拓扑</h3>
+<div class="h-px flex-1 bg-outline-variant/10 mb-2"></div>
+</div>
+<div class="relative w-full aspect-video bg-surface-container-low rounded-2xl overflow-hidden group">
+<div class="absolute inset-0 scholar-gradient opacity-20 pointer-events-none"></div>
+<!-- Mock Map Nodes -->
+<div class="absolute inset-0 p-8 flex items-center justify-center">
+<div class="relative w-full h-full">
+<!-- Central Node -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 group/node">
+<div class="w-16 h-16 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/20 transition-transform duration-500 group-hover/node:scale-110">
+<span class="material-symbols-outlined text-white" style="font-variation-settings: 'FILL' 1;">hub</span>
+</div>
+<div class="absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-sm font-bold text-on-surface">空间本体论</div>
+</div>
+<!-- Satellite Node 1 -->
+<div class="absolute top-1/4 right-1/4 group/node">
+<div class="w-10 h-10 rounded-full border border-primary/40 bg-white flex items-center justify-center transition-transform duration-500 group-hover/node:-translate-y-1">
+<span class="material-symbols-outlined text-primary text-sm">settings_input_component</span>
+</div>
+<div class="absolute -right-16 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs text-on-surface-variant">技术介质</div>
+</div>
+<!-- Satellite Node 2 -->
+<div class="absolute bottom-1/4 left-1/4 group/node">
+<div class="w-10 h-10 rounded-full border border-primary/40 bg-white flex items-center justify-center transition-transform duration-500 group-hover/node:translate-y-1">
+<span class="material-symbols-outlined text-primary text-sm">fingerprint</span>
+</div>
+<div class="absolute -left-16 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs text-on-surface-variant">身体义肢化</div>
+</div>
+<!-- Connecting Lines (SVG simulation) -->
+<svg class="absolute inset-0 w-full h-full -z-10 opacity-10" viewbox="0 0 100 100">
+<line class="text-primary" stroke="currentColor" stroke-width="0.5" x1="50" x2="75" y1="50" y2="25"></line>
+<line class="text-primary" stroke="currentColor" stroke-width="0.5" x1="50" x2="25" y1="50" y2="75"></line>
+</svg>
+</div>
+</div>
+<div class="absolute bottom-4 right-4 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-outline-variant/10 shadow-sm flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+<span class="text-[10px] text-on-surface-variant font-medium">实时关联更新中</span>
+</div>
+</div>
+</section>
+<!-- Section: Core Concepts (Editorial List) -->
+<section class="mb-10" id="core-concepts">
+<div class="flex items-end gap-3 mb-8">
+<h3 class="font-headline text-2xl font-semibold">核心概念</h3>
+<div class="h-px flex-1 bg-outline-variant/10 mb-2"></div>
+</div>
+<div class="space-y-12">
+<div class="group">
+<div class="flex items-start gap-6">
+<span class="text-primary font-headline text-2xl opacity-20 group-hover:opacity-100 transition-opacity">01</span>
+<div>
+<h4 class="text-lg font-bold mb-2 group-hover:text-primary transition-colors">技术异化 (Technological Alienation)</h4>
+<p class="text-on-surface-variant text-sm leading-relaxed mb-3">
+                                        当建筑不再仅仅作为遮风避雨的容器，而是作为感知系统的延伸。探讨人类在过度自动化的居住环境中所产生的身份缺失感。
+                                    </p>
+<div class="flex gap-2">
+<span class="text-[10px] px-2 py-0.5 border border-outline-variant/30 text-on-surface-variant rounded-full">海德格尔</span>
+<span class="text-[10px] px-2 py-0.5 border border-outline-variant/30 text-on-surface-variant rounded-full">赛博格</span>
+</div>
+</div>
+</div>
+</div>
+<div class="group">
+<div class="flex items-start gap-6">
+<span class="text-primary font-headline text-2xl opacity-20 group-hover:opacity-100 transition-opacity">02</span>
+<div>
+<h4 class="text-lg font-bold mb-2 group-hover:text-primary transition-colors">流体疆界 (Liquid Borders)</h4>
+<p class="text-on-surface-variant text-sm leading-relaxed mb-3">
+                                        数字化界面与物理墙体的重合。分析信息流如何打破传统的私密与公共空间界限，重新定义城市边界。
+                                    </p>
+<div class="flex gap-2">
+<span class="text-[10px] px-2 py-0.5 border border-outline-variant/30 text-on-surface-variant rounded-full">齐格蒙特·鲍曼</span>
+<span class="text-[10px] px-2 py-0.5 border border-outline-variant/30 text-on-surface-variant rounded-full">动态外墙</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</article>
+<!-- Right: Supplementary Tools (Floating Tonal Sidebar) -->
+<aside class="w-64 space-y-6 hidden 2xl:block">
+<div class="bg-surface-container-low p-6 rounded-2xl border border-outline-variant/5">
+<h5 class="text-xs font-bold mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-sm">auto_stories</span>
+                        推荐引注
+                    </h5>
+<div class="space-y-4">
+<div class="p-3 bg-white rounded-lg border-l-2 border-primary shadow-sm">
+<p class="text-[10px] text-on-surface leading-tight mb-2">"建筑是权力的固体化身，但在数字时代，它是流动欲望的暂存器。"</p>
+<p class="text-[9px] text-on-surface-variant">— Donna Haraway, 1991</p>
+</div>
+<div class="p-3 bg-white rounded-lg border-l-2 border-primary shadow-sm">
+<p class="text-[10px] text-on-surface leading-tight mb-2">"东亚城市的微型居住单元是赛博朋克现实的初级形态。"</p>
+<p class="text-[9px] text-on-surface-variant">— William Gibson, 2003</p>
+</div>
+</div>
+<button class="mt-4 w-full py-2 text-[10px] font-bold text-primary uppercase tracking-widest hover:bg-primary/5 transition-colors">查看全部 24 条</button>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/10">
+<h5 class="text-xs font-bold mb-3">关联文献库</h5>
+<ul class="space-y-2">
+<li class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">description</span>
+<span class="text-[11px] text-on-surface-variant truncate">东亚建筑现状研究报告.pdf</span>
+</li>
+<li class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant">link</span>
+<span class="text-[11px] text-on-surface-variant truncate">库哈斯：后人类城市访谈</span>
+</li>
+</ul>
+</div>
+</aside>
+</div>
+</main>
+<!-- FAB: AI Interaction (Curated Styling) -->
+<button class="fixed bottom-10 right-10 w-14 h-14 bg-primary text-on-primary rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all group z-50">
+<span class="material-symbols-outlined group-hover:rotate-12 transition-transform" style="font-variation-settings: 'FILL' 1;">psychology</span>
+</button>
+</body></html>

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&amp;family=Public+Sans:wght@300;400;500;600&amp;family=Noto+Serif:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "inverse-primary": "#fe932c",
+              "surface-container-highest": "#e0e3e0",
+              "surface-variant": "#e0e3e0",
+              "error": "#9e422c",
+              "background": "#faf9f7",
+              "tertiary-fixed-dim": "#eed4a6",
+              "surface-tint": "#904d00",
+              "on-primary-container": "#7e4200",
+              "on-primary": "#fff6f2",
+              "secondary-container": "#e9e1d8",
+              "on-secondary-fixed-variant": "#605b54",
+              "surface": "#faf9f7",
+              "on-tertiary-container": "#63512d",
+              "on-surface": "#2f3331",
+              "error-container": "#fe8b70",
+              "on-surface-variant": "#5c605d",
+              "primary-fixed-dim": "#ffcaa1",
+              "secondary-fixed-dim": "#dbd3cb",
+              "error-dim": "#5c1202",
+              "primary-dim": "#7f4300",
+              "primary-fixed": "#ffdcc3",
+              "inverse-surface": "#0d0e0e",
+              "surface-container-low": "#f3f4f1",
+              "secondary-fixed": "#e9e1d8",
+              "inverse-on-surface": "#9d9d9b",
+              "primary": "#904d00",
+              "on-primary-fixed-variant": "#8c4a00",
+              "surface-container": "#edeeeb",
+              "tertiary-fixed": "#fde2b3",
+              "on-tertiary-fixed": "#4f3f1d",
+              "secondary": "#635e57",
+              "on-secondary-fixed": "#433f39",
+              "tertiary-container": "#fde2b3",
+              "on-secondary": "#fff8f0",
+              "surface-container-high": "#e6e9e6",
+              "on-error-container": "#742410",
+              "surface-dim": "#d6dbd7",
+              "on-tertiary": "#fff8f1",
+              "on-primary-fixed": "#633300",
+              "primary-container": "#ffdcc3",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "surface-container-lowest": "#ffffff",
+              "tertiary": "#705c37",
+              "outline-variant": "#afb3b0",
+              "outline": "#777c79",
+              "on-secondary-container": "#56514a",
+              "tertiary-dim": "#63512d",
+              "secondary-dim": "#57524c",
+              "surface-bright": "#faf9f7",
+              "on-error": "#fff7f6",
+              "on-background": "#2f3331"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "Noto Serif"],
+              "body": ["Public Sans", "Noto Sans SC"],
+              "label": ["Public Sans", "Noto Sans SC"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .tonal-shift-no-lines {
+            border-right: 1px solid rgba(175, 179, 176, 0.1);
+        }
+        body {
+            background-color: #faf9f7;
+            color: #2f3331;
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar Component -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-[#afb3b0]/10 flex flex-col py-6 px-4 bg-[#f3f4f1] dark:bg-stone-900 font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide">
+<div class="mb-10 px-4">
+<h1 class="font-['Noto_Serif_SC','Noto_Serif'] font-bold text-[#2f3331] dark:text-stone-100 text-lg">数字工坊</h1>
+<p class="text-xs text-on-surface-variant opacity-60 uppercase tracking-widest mt-1">Digital Atelier</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 rounded-md text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined" data-icon="space_dashboard">space_dashboard</span>
+<span>工作台</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+<span>研究流</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span>近期会话</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined" data-icon="library_books">library_books</span>
+<span>学术馆藏</span>
+</a>
+</nav>
+<div class="mt-auto pt-6 space-y-1">
+<button class="w-full flex items-center justify-center gap-2 bg-primary text-on-primary py-2.5 rounded-md mb-6 font-medium transition-all active:scale-[0.98]">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+<span>新建研究</span>
+</button>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md text-[#904d00] dark:text-amber-500 font-medium border-l-2 border-[#904d00] bg-white/50 dark:bg-white/5 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>设置</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-md text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span>账户</span>
+</a>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- TopAppBar Component -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-14 z-40 bg-[#faf9f7]/80 backdrop-blur-xl border-b border-[#afb3b0]/10 flex justify-between items-center px-8 font-['Noto_Serif_SC','Noto_Serif'] text-base">
+<div class="flex gap-8 items-center h-full">
+<a class="text-[#5c605d] hover:text-[#2f3331] transition-colors" href="#">概览</a>
+<a class="text-[#5c605d] hover:text-[#2f3331] transition-colors" href="#">文献</a>
+<a class="text-[#5c605d] hover:text-[#2f3331] transition-colors" href="#">写作</a>
+<a class="text-[#5c605d] hover:text-[#2f3331] transition-colors" href="#">发布</a>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm" data-icon="search">search</span>
+<input class="bg-surface-container-low border-none rounded-full py-1.5 pl-9 pr-4 text-sm w-48 focus:ring-1 focus:ring-primary focus:w-64 transition-all duration-300 outline-none" placeholder="搜索设置..." type="text"/>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="notifications">notifications</span></button>
+<button class="hover:text-primary transition-colors"><span class="material-symbols-outlined" data-icon="help_outline">help_outline</span></button>
+</div>
+</div>
+</header>
+<!-- Content Area -->
+<div class="pt-28 pb-20 px-12 max-w-5xl mx-auto">
+<header class="mb-16">
+<h2 class="font-headline text-4xl font-bold tracking-tight text-on-surface mb-2">设置</h2>
+<p class="text-on-surface-variant font-body">定制您的学术研究环境与偏好。</p>
+</header>
+<div class="grid grid-cols-12 gap-x-16 gap-y-24">
+<!-- Section: Personalization -->
+<section class="col-span-12 md:col-span-4">
+<h3 class="font-headline text-xl mb-4 text-primary">个性化</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed mb-6">调整界面的视觉表现，以适应您的阅读习惯与审美偏好。</p>
+</section>
+<section class="col-span-12 md:col-span-8 space-y-10">
+<div class="flex justify-between items-center pb-6 border-b border-outline-variant/10">
+<div>
+<h4 class="font-medium text-on-surface">主题模式</h4>
+<p class="text-sm text-on-surface-variant">选择适合当前光线环境的界面色调。</p>
+</div>
+<div class="flex bg-surface-container rounded-full p-1">
+<button class="px-4 py-1 text-xs rounded-full bg-surface-container-lowest text-primary shadow-sm font-medium">象牙白</button>
+<button class="px-4 py-1 text-xs rounded-full text-on-surface-variant hover:text-on-surface">碳素黑</button>
+<button class="px-4 py-1 text-xs rounded-full text-on-surface-variant hover:text-on-surface">随系统</button>
+</div>
+</div>
+<div class="flex justify-between items-center pb-6 border-b border-outline-variant/10">
+<div>
+<h4 class="font-medium text-on-surface">字体呈现</h4>
+<p class="text-sm text-on-surface-variant">正文使用思源宋体，提供更佳的阅读体验。</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="space-y-4">
+<h4 class="font-medium text-on-surface">色彩重点</h4>
+<div class="flex gap-4">
+<div class="w-8 h-8 rounded-full bg-[#904d00] border-2 border-white ring-2 ring-[#904d00] cursor-pointer"></div>
+<div class="w-8 h-8 rounded-full bg-[#2f4f4f] border-2 border-white cursor-pointer hover:ring-1 ring-outline-variant"></div>
+<div class="w-8 h-8 rounded-full bg-[#556b2f] border-2 border-white cursor-pointer hover:ring-1 ring-outline-variant"></div>
+<div class="w-8 h-8 rounded-full bg-[#704214] border-2 border-white cursor-pointer hover:ring-1 ring-outline-variant"></div>
+</div>
+</div>
+</section>
+<!-- Section: AI Assistant -->
+<section class="col-span-12 md:col-span-4">
+<h3 class="font-headline text-xl mb-4 text-primary">智能辅助</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed mb-6">配置 AI 研究员的行为模式，使其更贴合您的研究领域。</p>
+</section>
+<section class="col-span-12 md:col-span-8 space-y-12">
+<div class="bg-surface-container-low rounded-xl p-8 space-y-8">
+<div>
+<label class="block text-sm font-medium text-on-surface mb-2">研究深度偏好</label>
+<input class="w-full h-1 bg-surface-container-highest rounded-lg appearance-none cursor-pointer accent-primary" type="range"/>
+<div class="flex justify-between text-[10px] text-on-surface-variant mt-2 uppercase tracking-tighter">
+<span>快速概览</span>
+<span>平衡深度</span>
+<span>详尽综述</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div class="p-4 rounded-lg border border-outline-variant/10 bg-surface-container-lowest hover:border-primary/30 transition-all cursor-pointer group">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-symbols-outlined text-primary" data-icon="auto_awesome">auto_awesome</span>
+<span class="text-sm font-medium">联想引用</span>
+</div>
+<p class="text-xs text-on-surface-variant">在写作时自动建议相关的学术来源。</p>
+</div>
+<div class="p-4 rounded-lg border border-outline-variant/10 bg-surface-container-lowest hover:border-primary/30 transition-all cursor-pointer">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="terminal">terminal</span>
+<span class="text-sm font-medium">代码解释</span>
+</div>
+<p class="text-xs text-on-surface-variant">自动解析论文中的数学公式或伪代码。</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Storage & Security -->
+<section class="col-span-12 md:col-span-4">
+<h3 class="font-headline text-xl mb-4 text-primary">存储与同步</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed mb-6">管理您的学术文献库存储空间，以及多端数据同步状态。</p>
+</section>
+<section class="col-span-12 md:col-span-8">
+<div class="space-y-8">
+<div class="flex items-start justify-between">
+<div class="flex gap-4">
+<div class="w-12 h-12 rounded-lg bg-surface-container flex items-center justify-center">
+<span class="material-symbols-outlined text-primary" data-icon="cloud_done">cloud_done</span>
+</div>
+<div>
+<h4 class="font-medium text-on-surface">云端同步</h4>
+<p class="text-sm text-on-surface-variant">上次同步于 2023年10月27日 14:30</p>
+</div>
+</div>
+<button class="px-4 py-1.5 text-xs border border-primary text-primary rounded-md hover:bg-primary/5 transition-colors">立即同步</button>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between text-sm">
+<span class="text-on-surface">文献库空间</span>
+<span class="text-on-surface-variant">4.2 GB / 10 GB (42%)</span>
+</div>
+<div class="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[42%]"></div>
+</div>
+</div>
+<div class="pt-6">
+<button class="flex items-center gap-2 text-sm text-error font-medium hover:underline">
+<span class="material-symbols-outlined text-sm" data-icon="delete_forever">delete_forever</span>
+                                清除本地缓存数据
+                            </button>
+</div>
+</div>
+</section>
+<!-- Floating Academic Citation Mockup (As required by DS) -->
+<div class="fixed bottom-10 right-10 max-w-xs p-5 bg-surface-container-lowest rounded-lg border-l-2 border-primary shadow-2xl z-50 transform hover:-translate-y-1 transition-transform duration-300">
+<div class="flex justify-between items-start mb-3">
+<span class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded uppercase font-bold tracking-widest">引用来源</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="close">close</span>
+</div>
+<p class="text-xs font-headline italic text-on-surface mb-2">"信息的整理并非终点，而是创造性思考的起点。"</p>
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full overflow-hidden">
+<img alt="Author" data-alt="profile portrait of a distinguished senior academic researcher with glasses and silver hair" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD3tFoKpZOu4UKhbNfX7w0LemtMK6yh9f-dmVMEUz-ucBXgDN5x8rrmR-t_sKXtoFqfpQM6STomuKYCFbmvfGQJx217yeYv3nhykydt6gDX3AvyheKK3fUCnEZDXc-Uuax1wGpdVWQZYvyMcJAdFvS2vMAL3dg84E9VxVePa4CwjM6x-W30-tKrY3s0sAzfGNqVWitbnT1FcmRAmrruQNEsghq8EdiKNnnj4GqBiCBNAu8F-i-lbuYipmvH7YWHLUkoOwCSIfsfbQM"/>
+</div>
+<p class="text-[10px] text-on-surface-variant font-medium">— 维克多·陈, 《数字时代的知识策展》 (2023)</p>
+</div>
+</div>
+</div>
+<footer class="mt-32 pt-12 border-t border-outline-variant/10 text-center">
+<p class="text-xs text-on-surface-variant opacity-40">Digital Atelier v1.4.2 — 构建于思辨与宁静之中</p>
+</footer>
+</div>
+</main>
+</body></html>

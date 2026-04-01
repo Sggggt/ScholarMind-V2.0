@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>研究构思生成 - ScholarMind</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&amp;family=Public+Sans:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "inverse-primary": "#fe932c",
+              "surface-container-highest": "#e0e3e0",
+              "surface-variant": "#e0e3e0",
+              "error": "#9e422c",
+              "background": "#faf9f7",
+              "tertiary-fixed-dim": "#eed4a6",
+              "surface-tint": "#904d00",
+              "on-primary-container": "#7e4200",
+              "on-primary": "#fff6f2",
+              "secondary-container": "#e9e1d8",
+              "on-secondary-fixed-variant": "#605b54",
+              "surface": "#faf9f7",
+              "on-tertiary-container": "#63512d",
+              "on-surface": "#2f3331",
+              "error-container": "#fe8b70",
+              "on-surface-variant": "#5c605d",
+              "primary-fixed-dim": "#ffcaa1",
+              "secondary-fixed-dim": "#dbd3cb",
+              "error-dim": "#5c1202",
+              "primary-dim": "#7f4300",
+              "primary-fixed": "#ffdcc3",
+              "inverse-surface": "#0d0e0e",
+              "surface-container-low": "#f3f4f1",
+              "secondary-fixed": "#e9e1d8",
+              "inverse-on-surface": "#9d9d9b",
+              "primary": "#904d00",
+              "on-primary-fixed-variant": "#8c4a00",
+              "surface-container": "#edeeeb",
+              "tertiary-fixed": "#fde2b3",
+              "on-tertiary-fixed": "#4f3f1d",
+              "secondary": "#635e57",
+              "on-secondary-fixed": "#433f39",
+              "tertiary-container": "#fde2b3",
+              "on-secondary": "#fff8f1",
+              "surface-container-high": "#e6e9e6",
+              "on-error-container": "#742410",
+              "surface-dim": "#d6dbd7",
+              "on-tertiary": "#fff8f1",
+              "on-primary-fixed": "#633300",
+              "primary-container": "#ffdcc3",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "surface-container-lowest": "#ffffff",
+              "tertiary": "#705c37",
+              "outline-variant": "#afb3b0",
+              "outline": "#777c79",
+              "on-secondary-container": "#56514a",
+              "tertiary-dim": "#63512d",
+              "secondary-dim": "#57524c",
+              "surface-bright": "#faf9f7",
+              "on-error": "#fff7f6",
+              "on-background": "#2f3331"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "serif"],
+              "body": ["Public Sans", "sans-serif"],
+              "label": ["Public Sans", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #faf9f7;
+            color: #2f3331;
+            font-family: 'Public Sans', sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .serif-title {
+            font-family: 'Noto Serif SC', serif;
+        }
+        /* Custom scrollbar for minimalist look */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #faf9f7;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #afb3b0;
+            border-radius: 10px;
+        }
+        .tonal-shift-no-lines {
+            border: none !important;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface">
+<!-- SideNavBar (Predicted Component) -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-[#afb3b0]/10 bg-[#f3f4f1] dark:bg-stone-900 flex flex-col py-6 px-4 font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide z-50">
+<div class="mb-10 px-2 flex items-center gap-3">
+<div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" data-icon="auto_stories">auto_stories</span>
+</div>
+<div>
+<h1 class="font-['Noto_Serif_SC','Noto_Serif'] font-bold text-[#2f3331] dark:text-stone-100 text-lg leading-tight">数字工坊</h1>
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant/60">Digital Atelier</p>
+</div>
+</div>
+<button class="mb-8 w-full bg-primary text-on-primary py-3 rounded-lg flex items-center justify-center gap-2 font-medium scale-100 active:scale-[0.98] transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+            新建研究
+        </button>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#5c605d] dark:text-stone-400 hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 group" href="#">
+<span class="material-symbols-outlined" data-icon="space_dashboard">space_dashboard</span>
+                工作台
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#904d00] dark:text-amber-500 font-medium border-l-2 border-[#904d00] bg-white/50 dark:bg-white/5 group" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+                研究流
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#5c605d] dark:text-stone-400 hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 group" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+                近期会话
+            </a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#5c605d] dark:text-stone-400 hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 group" href="#">
+<span class="material-symbols-outlined" data-icon="library_books">library_books</span>
+                学术馆藏
+            </a>
+</nav>
+<div class="mt-auto pt-6 space-y-1 border-t border-[#afb3b0]/10">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-md text-[#5c605d] dark:text-stone-400 hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                设置
+            </a>
+<div class="flex items-center gap-3 px-3 py-4 mt-2">
+<img alt="User Scholar Profile" class="w-8 h-8 rounded-full bg-surface-container" data-alt="minimalist close-up portrait of a scholar wearing glasses in soft natural lighting against a neutral grey wall" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAYG_JFW_k-GJ87Kzp1Q7Y4xo7Jea9C-fZGgiB44DQugSEQgTo0ev6LYgUyYqNUyX22JWPbLJRLYhHtEa60GTccFrLFrkdCwn1cENHfMUiWuUpf9zwzSYRFRmWhNQTE22I3EVpmmlkxhyAo1rcF3RMzs4RusVI4cDvmjO12x64piaqsAC6NKQ7JdKCmY6mxO9wIt2rsuU2tWqXzER2dUvP3OyMiqTGybuEKj_IXAucpVVPU4RLn7uoo7jzEmyay88sp6o-h3i-7Vig"/>
+<div class="flex-1 min-w-0">
+<p class="text-xs font-semibold truncate text-on-surface">账户</p>
+<p class="text-[10px] text-on-surface-variant truncate">Premium Scholar</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- TopAppBar (Predicted Component) -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-14 z-40 bg-[#faf9f7]/80 dark:bg-stone-950/80 backdrop-blur-xl border-b border-[#afb3b0]/10 flex justify-between items-center px-8 w-full font-['Noto_Serif_SC','Noto_Serif'] text-base">
+<div class="flex items-center gap-8">
+<span class="text-xl font-semibold text-[#2f3331] dark:text-stone-200">研究构思生成</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors" href="#">概览</a>
+<a class="text-[#904d00] dark:text-amber-500 border-b-2 border-[#904d00] pb-1" href="#">文献</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors" href="#">写作</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors" href="#">发布</a>
+</nav>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative group">
+<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-on-surface-variant/40">
+<span class="material-symbols-outlined text-sm" data-icon="search">search</span>
+</span>
+<input class="bg-surface-container-low border-none rounded-full py-1.5 pl-10 pr-4 text-xs w-48 focus:ring-1 focus:ring-primary/20 transition-all" placeholder="搜索文献或构思..." type="text"/>
+</div>
+<div class="flex items-center gap-4 text-on-surface-variant">
+<button class="hover:text-[#904d00] transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="hover:text-[#904d00] transition-colors">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 pt-14 min-h-screen">
+<div class="max-w-6xl mx-auto px-12 py-12">
+<!-- Hero Header Section -->
+<section class="mb-16">
+<div class="flex items-baseline justify-between mb-4">
+<h2 class="serif-title text-4xl font-bold tracking-tight text-on-surface">选题建议与多维比对</h2>
+<span class="text-xs font-label text-primary tracking-widest bg-primary-container px-3 py-1 rounded-full">AI 生成报告 #2024-0012</span>
+</div>
+<p class="max-w-2xl text-lg text-on-surface-variant font-body leading-relaxed">
+                    基于您最近阅读的 14 篇关于“数字人文”与“叙事学”的文献，ScholarMind 为您构建了三个核心研究路径。每个构思都经过了创新性、可行性及学术价值的深度对标。
+                </p>
+</section>
+<!-- Bento Grid Comparison Layout -->
+<div class="grid grid-cols-12 gap-8 mb-16">
+<!-- Candidate Idea 1 (The Recommendation) -->
+<article class="col-span-12 lg:col-span-7 bg-surface-container-lowest p-8 rounded-xl relative overflow-hidden group border border-outline-variant/10">
+<div class="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+<div class="flex justify-between items-start mb-6">
+<div class="flex items-center gap-2 text-primary font-label text-sm font-semibold">
+<span class="material-symbols-outlined text-base" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+                            首选推荐
+                        </div>
+<div class="text-[10px] text-on-surface-variant/40 tracking-widest uppercase">匹配度 94%</div>
+</div>
+<h3 class="serif-title text-2xl mb-4 text-on-surface">跨媒介叙事中的情感图谱：基于大型语言模型的文学情感演变分析</h3>
+<p class="text-on-surface-variant font-body leading-relaxed mb-8">
+                        该研究旨在利用 LLM 的上下文理解能力，对跨越 20 世纪不同媒介的同一母题叙事进行情感颗粒度分析。它弥补了传统计算语言学在深层语义和情感意图识别上的短板。
+                    </p>
+<div class="grid grid-cols-3 gap-6 pt-8 border-t border-outline-variant/10">
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest mb-1">创新性</p>
+<p class="font-headline text-xl text-on-surface">卓越</p>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest mb-1">数据支撑</p>
+<p class="font-headline text-xl text-on-surface">充足</p>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest mb-1">预期工作量</p>
+<p class="font-headline text-xl text-on-surface">3-4 月</p>
+</div>
+</div>
+<div class="mt-10 flex gap-4">
+<button class="bg-primary text-on-primary px-6 py-2.5 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity">
+                            深入探索该路径
+                        </button>
+<button class="border-b-2 border-primary text-primary px-4 py-2.5 text-sm font-medium hover:bg-primary-container transition-colors">
+                            查看文献对标
+                        </button>
+</div>
+</article>
+<!-- Visual Insight Card -->
+<aside class="col-span-12 lg:col-span-5 bg-surface-container-low p-8 rounded-xl flex flex-col justify-between">
+<div>
+<h4 class="font-headline text-lg mb-4">领域分布与知识缺口</h4>
+<div class="h-48 w-full rounded bg-surface/50 mb-6 flex items-end justify-around p-4 gap-2">
+<div class="w-8 bg-primary/20 h-[30%] rounded-t-sm"></div>
+<div class="w-8 bg-primary h-[85%] rounded-t-sm relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold text-primary">推荐</div>
+</div>
+<div class="w-8 bg-primary/40 h-[50%] rounded-t-sm"></div>
+<div class="w-8 bg-primary/10 h-[20%] rounded-t-sm"></div>
+</div>
+<p class="text-sm text-on-surface-variant leading-relaxed italic">
+                            “当前学术界在「计算叙事学」领域的产出呈指数增长，但结合「情感图谱」的跨学科视角仍有 30% 的话语空白。”
+                        </p>
+</div>
+<div class="flex items-center gap-4 mt-6">
+<div class="flex -space-x-2">
+<img alt="Reference Book 1" class="w-8 h-8 rounded-full border-2 border-surface" data-alt="close-up of a vintage leather book spine with gold embossed lettering in warm candlelight" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAcSeQ-TYWWRsyeyprlg4zaaOg2H81hARG-DOMAYmiRUtXpePE1VZ7gLl_u7A6CtkBuvJpN0zpFpCetq-YomU6Au0jY-QGjjmnOuRFHsvNGaWl4OC8nFhhHyQF5S-LLo5YiDZWk_voyFHM537FkbozHOZLDcZHLXhOsoM7uyWZ3gRGlmcMWB3MQXFFtp1oNRH92qMV7cGgtIpKGGb6pfJ984v4XNh4m3jMMdQ2L9JLNj3FUFgyfEe6QKNMHTsvuag7DiLIeo9cyf0w"/>
+<img alt="Reference Book 2" class="w-8 h-8 rounded-full border-2 border-surface" data-alt="a stack of old scholarly books on a dark oak desk with soft bokeh background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCRCU4pbwi61ySQEHqNVf4in6r0NN3cgoU3fgiWppuAPLuffKEP0cjdEhbPNQiPHGRBqU5bGlaIY7GrVXwk9vnlmK7rwl5opEiSiTkxLVsCXbkqb-Ng2r8nELiQiQC1uCsgHRCRFUDFVdNCD4IG50dzHyQqzhdls7uI4nDHv5caCA9gWHaezwUolmfYBTstrA1dDcarON9IQkydsQbIPlahwiKGEuUqfyYrXcGtv78nmZnUCKu7vAXemd1uVQl6S99bXUkPSxi_yPA"/>
+</div>
+<span class="text-xs text-on-surface-variant">关联核心文献 5 篇</span>
+</div>
+</aside>
+<!-- Candidate Idea 2 -->
+<article class="col-span-12 lg:col-span-6 bg-surface-container-lowest p-8 rounded-xl border border-outline-variant/10">
+<div class="flex justify-between items-start mb-6">
+<div class="flex items-center gap-2 text-on-surface-variant font-label text-sm">
+<span class="material-symbols-outlined text-base" data-icon="lightbulb">lightbulb</span>
+                            备选路径 A
+                        </div>
+<div class="text-[10px] text-on-surface-variant/40 tracking-widest uppercase">匹配度 78%</div>
+</div>
+<h3 class="serif-title text-xl mb-4 text-on-surface">数字图书馆中的沉浸式体验：空间叙事视角下的交互设计研究</h3>
+<p class="text-sm text-on-surface-variant font-body leading-relaxed mb-6">
+                        探讨如何将虚拟现实技术引入数字馆藏展示。虽然具有极高的社会应用价值，但在纯学术理论创新上略显薄弱，更偏向于应用实践。
+                    </p>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-1 text-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="trending_up">trending_up</span>
+                            技术可行性：高
+                        </div>
+<div class="flex items-center gap-1 text-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="warning">warning</span>
+                            理论纵深：中
+                        </div>
+</div>
+</article>
+<!-- Candidate Idea 3 -->
+<article class="col-span-12 lg:col-span-6 bg-surface-container-lowest p-8 rounded-xl border border-outline-variant/10">
+<div class="flex justify-between items-start mb-6">
+<div class="flex items-center gap-2 text-on-surface-variant font-label text-sm">
+<span class="material-symbols-outlined text-base" data-icon="psychology">psychology</span>
+                            备选路径 B
+                        </div>
+<div class="text-[10px] text-on-surface-variant/40 tracking-widest uppercase">匹配度 65%</div>
+</div>
+<h3 class="serif-title text-xl mb-4 text-on-surface">后人类主义视野下的 AI 辅助写作：作者身份的解构与重组</h3>
+<p class="text-sm text-on-surface-variant font-body leading-relaxed mb-6">
+                        纯理论层面的探讨，分析 AI 作为“合作作者”对文学创作范式的冲击。该课题目前竞争极其激烈，且缺乏足够的可量化实验支持。
+                    </p>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-1 text-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="speed">speed</span>
+                            研究周期：长
+                        </div>
+<div class="flex items-center gap-1 text-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="analytics">analytics</span>
+                            数据难度：高
+                        </div>
+</div>
+</article>
+</div>
+<!-- Citation/AI Insight Section -->
+<section class="bg-surface-container-lowest p-10 rounded-xl border-l-4 border-primary shadow-sm">
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary" data-icon="auto_awesome">auto_awesome</span>
+<h4 class="font-headline text-xl">学术策展笔记 (Citations &amp; Insights)</h4>
+</div>
+<div class="space-y-8">
+<div class="flex gap-6">
+<div class="flex-shrink-0 w-12 h-12 bg-surface-container flex items-center justify-center rounded">
+<span class="text-lg font-headline text-on-surface-variant">01</span>
+</div>
+<div>
+<p class="text-sm font-label font-semibold text-on-surface mb-2">Moretti, F. (2013). "Distant Reading". Verso Books.</p>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                                您所关注的“情感图谱”技术正是莫莱蒂“远读”理论的当代演进。建议参考书中关于「量化形式分析」的章节，以为您的构思提供理论背书。
+                            </p>
+</div>
+</div>
+<div class="flex gap-6">
+<div class="flex-shrink-0 w-12 h-12 bg-surface-container flex items-center justify-center rounded">
+<span class="text-lg font-headline text-on-surface-variant">02</span>
+</div>
+<div>
+<p class="text-sm font-label font-semibold text-on-surface mb-2">刘禾. (2020). "六论数字人文". 《探索与争鸣》.</p>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                                注意刘禾教授提到的“算法与人文精神的张力”，在您论证「AI 辅助分析」时，需警惕过度数据化的陷阱，保持对文本细读的尊重。
+                            </p>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Floating Action for specific context -->
+<div class="fixed bottom-10 right-10 flex flex-col gap-4">
+<button class="w-14 h-14 bg-surface-container-lowest text-on-surface-variant rounded-full shadow-lg border border-outline-variant/10 flex items-center justify-center hover:bg-primary hover:text-on-primary transition-all group">
+<span class="material-symbols-outlined" data-icon="share">share</span>
+</button>
+<button class="w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-110 transition-transform">
+<span class="material-symbols-outlined" data-icon="edit_note" style="font-variation-settings: 'FILL' 1;">edit_note</span>
+</button>
+</div>
+</div>
+</main>
+</body></html>

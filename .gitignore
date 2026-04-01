@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.venv/
+*.db
+
+# Node
+node_modules/
+frontend/dist/
+
+# Backend
+backend/venv/
+backend/workspace/
+backend/repos/
+backend/static/
+backend/*.db
+
+# Build output
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (contains secrets)
+backend/.env
+
+# Aider
+.aider*
+*.db-journal

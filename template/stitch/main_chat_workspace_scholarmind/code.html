@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Digital Atelier - 数字化工坊</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&amp;family=Public+Sans:wght@300;400;500;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container": "#edeeeb",
+              "on-surface": "#2f3331",
+              "surface-variant": "#e0e3e0",
+              "tertiary-fixed": "#fde2b3",
+              "background": "#faf9f7",
+              "on-primary-fixed-variant": "#8c4a00",
+              "surface-container-low": "#f3f4f1",
+              "primary-container": "#ffdcc3",
+              "primary-fixed": "#ffdcc3",
+              "outline": "#777c79",
+              "on-tertiary-fixed": "#4f3f1d",
+              "tertiary-container": "#fde2b3",
+              "on-secondary-fixed-variant": "#605b54",
+              "on-primary-container": "#7e4200",
+              "surface-container-highest": "#e0e3e0",
+              "secondary": "#635e57",
+              "on-surface-variant": "#5c605d",
+              "primary-dim": "#7f4300",
+              "tertiary-fixed-dim": "#eed4a6",
+              "inverse-on-surface": "#9d9d9b",
+              "secondary-fixed": "#e9e1d8",
+              "surface-dim": "#d6dbd7",
+              "tertiary": "#705c37",
+              "surface-container-high": "#e6e9e6",
+              "on-background": "#2f3331",
+              "on-secondary": "#fff8f0",
+              "inverse-surface": "#0d0e0e",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "on-secondary-fixed": "#433f39",
+              "on-primary-fixed": "#633300",
+              "on-secondary-container": "#56514a",
+              "on-error-container": "#742410",
+              "error": "#9e422c",
+              "primary-fixed-dim": "#ffcaa1",
+              "outline-variant": "#afb3b0",
+              "tertiary-dim": "#63512d",
+              "surface-bright": "#faf9f7",
+              "surface": "#faf9f7",
+              "secondary-fixed-dim": "#dbd3cb",
+              "inverse-primary": "#fe932c",
+              "error-container": "#fe8b70",
+              "on-error": "#fff7f6",
+              "surface-tint": "#904d00",
+              "surface-container-lowest": "#ffffff",
+              "secondary-container": "#e9e1d8",
+              "on-tertiary": "#fff8f1",
+              "error-dim": "#5c1202",
+              "on-tertiary-container": "#63512d",
+              "on-primary": "#fff6f2",
+              "secondary-dim": "#57524c",
+              "primary": "#904d00"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "serif"],
+              "body": ["Public Sans", "sans-serif"],
+              "label": ["Public Sans", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #faf9f7;
+            color: #2f3331;
+        }
+        .tonal-shift-no-lines {
+            border: none !important;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 bg-[#f3f4f1] dark:bg-stone-900 font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide flex flex-col py-6 px-4 z-50">
+<div class="mb-8 px-2 flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-lg">auto_stories</span>
+</div>
+<div>
+<h1 class="font-['Noto_Serif_SC','Noto_Serif'] font-bold text-[#2f3331] dark:text-stone-100 text-lg leading-tight">数字工坊</h1>
+<p class="text-[10px] text-on-surface-variant tracking-widest uppercase opacity-70">Digital Atelier</p>
+</div>
+</div>
+<button class="mb-8 w-full py-3 px-4 bg-white/50 dark:bg-white/5 border border-outline-variant/10 rounded-lg flex items-center justify-center gap-2 text-primary font-medium hover:bg-white transition-all scale-100 active:scale-[0.98]">
+<span class="material-symbols-outlined text-sm">add</span>
+<span>新建研究</span>
+</button>
+<nav class="flex-1 space-y-1">
+<!-- Workstation (Active) -->
+<a class="flex items-center gap-3 px-4 py-2.5 text-[#904d00] dark:text-amber-500 font-medium border-l-2 border-[#904d00] bg-white/50 dark:bg-white/5 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">space_dashboard</span>
+<span>工作台</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span>研究流</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">history</span>
+<span>近期会话</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">library_books</span>
+<span>学术馆藏</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-outline-variant/10 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] transition-colors duration-300" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>设置</span>
+</a>
+<div class="flex items-center gap-3 px-4 py-2 mt-2">
+<div class="w-8 h-8 rounded-full bg-surface-variant overflow-hidden">
+<img alt="User Scholar Profile" class="w-full h-full object-cover" data-alt="close-up portrait of a thoughtful person in a library setting with warm natural light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCEiAHZQHHCNiBQ_n52vV-wyImvJcjeTp9NOJRVPmpz96hJA0pfbisgvs3pVtlAfJmGwhDNRpS2EXQRMr2Gh_Ibg9xXlS-7cNubPodtBo2fHjmQ8B3SL95jo9WKo8fpMFtyme6mTXk3NztHVqhjKHPc639FdA9PQvophW0CabSfsnoCqdADrbrL2jEUXfv1uIQ2k6YdXE2C-0NF4z1jQWlRZK3g9UnBADbs1EfU_axMrUdUka6YAY7afpTbbnMgPjYrJHmyAWLwszU"/>
+</div>
+<div class="flex-1 min-w-0">
+<p class="text-xs font-semibold truncate">账户</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-14 z-40 bg-[#faf9f7]/80 dark:bg-stone-950/80 backdrop-blur-xl flex justify-between items-center px-8 w-full border-b border-[#afb3b0]/10">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 text-on-surface-variant text-sm">
+<span>项目</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+<span class="text-on-surface font-medium">现象学研究综述</span>
+</div>
+</div>
+<nav class="flex items-center gap-8 h-full">
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors font-['Noto_Serif_SC','Noto_Serif'] text-base" href="#">概览</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors font-['Noto_Serif_SC','Noto_Serif'] text-base" href="#">文献</a>
+<a class="text-[#904d00] dark:text-amber-500 border-b-2 border-[#904d00] pb-1 font-['Noto_Serif_SC','Noto_Serif'] text-base" href="#">写作</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors font-['Noto_Serif_SC','Noto_Serif'] text-base" href="#">发布</a>
+</nav>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer transition-colors">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer transition-colors">help_outline</span>
+</div>
+</header>
+<!-- Main Workspace -->
+<main class="ml-64 pt-14 min-h-screen flex flex-col items-center">
+<div class="max-w-3xl w-full px-6 py-12 flex-1 flex flex-col gap-12 scrollbar-hide">
+<!-- Message: AI Thinking Stage -->
+<div class="space-y-4">
+<div class="flex items-start gap-4">
+<div class="w-8 h-8 rounded-lg bg-surface-container-low flex items-center justify-center text-primary-dim">
+<span class="material-symbols-outlined text-xl">temp_preferences_custom</span>
+</div>
+<div class="flex-1 pt-1">
+<h2 class="font-headline text-headline-md text-on-surface mb-2">关于海德格尔“存在”概念的演变</h2>
+<p class="text-on-surface-variant body-lg leading-relaxed">
+                            在探讨《存在与时间》时，我们必须首先厘清他如何将传统的形而上学本体论转化为基础存在论。以下是我为您整理的核心逻辑演进路径。
+                        </p>
+</div>
+</div>
+</div>
+<!-- Message: User -->
+<div class="flex justify-end">
+<div class="max-w-[85%] bg-surface-container-lowest px-6 py-4 border border-outline-variant/10 rounded-xl">
+<p class="text-on-surface leading-relaxed">
+                        你能更详细地解释一下“在此” (Dasein) 作为一个在世界中存在的结构吗？特别是它与“器物” (Zuhandenheit) 的关系。
+                    </p>
+</div>
+</div>
+<!-- Message: AI Detailed Response -->
+<div class="space-y-6">
+<div class="flex items-start gap-4">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined text-xl">auto_awesome</span>
+</div>
+<div class="flex-1 pt-1">
+<div class="prose prose-stone max-w-none space-y-6">
+<p class="body-lg leading-relaxed text-on-surface">
+                                这是一个深刻的问题。**Dasein (在此)** 并非一个孤立的主体，而是一个“展开的状态”。它与器物的关系通过以下三个维度展开：
+                            </p>
+<!-- Research Note Card -->
+<div class="bg-surface-container-lowest border-l-4 border-primary p-6 space-y-4">
+<div class="flex items-center gap-2 text-primary font-semibold text-sm">
+<span class="material-symbols-outlined text-sm">sticky_note_2</span>
+<span>核心概念：可用性 (Zuhandenheit)</span>
+</div>
+<p class="text-on-surface italic leading-relaxed">
+                                    “当我们真正使用工具时，工具本身是‘隐退’的。只有当工具损坏时，它才作为‘现成之物’ (Vorhandenheit) 突显出来。”
+                                </p>
+</div>
+<ul class="space-y-4 list-none p-0">
+<li class="flex gap-3">
+<span class="text-primary mt-1">01.</span>
+<div>
+<strong class="text-on-surface">操劳 (Sorge):</strong>
+<span class="text-on-surface-variant">Dasein 通过操劳与世界建立联系，器物在这种操劳的链条中获得意义。</span>
+</div>
+</li>
+<li class="flex gap-3">
+<span class="text-primary mt-1">02.</span>
+<div>
+<strong class="text-on-surface">指引 (Verweisung):</strong>
+<span class="text-on-surface-variant">每一个器物都指向另一个器物，形成一个意义网络。</span>
+</div>
+</li>
+</ul>
+<!-- Floating Citation -->
+<div class="flex items-center gap-3 py-2 px-4 bg-surface-container-low rounded-full text-xs text-on-surface-variant w-fit border border-outline-variant/10">
+<span class="material-symbols-outlined text-sm">menu_book</span>
+<span>引自：海德格尔，《存在与时间》, 第15-18节</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Asymmetric Bento Grid for Related Context -->
+<div class="grid grid-cols-3 gap-4 mt-8">
+<div class="col-span-2 bg-surface-container-low/50 p-6 rounded-xl hover:bg-surface-container-low transition-colors group cursor-pointer border border-transparent hover:border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">延伸阅读</span>
+<span class="material-symbols-outlined text-on-surface-variant group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</div>
+<h3 class="font-headline text-title-md mb-2">现代技术中的本体论转向</h3>
+<p class="text-sm text-on-surface-variant">探讨海德格尔后期对“集置” (Gestell) 的批判及其对人工智能伦理的启示。</p>
+</div>
+<div class="bg-primary-container/30 p-6 rounded-xl border border-primary-container flex flex-col justify-between">
+<span class="material-symbols-outlined text-primary text-3xl">lightbulb</span>
+<p class="text-sm font-semibold text-on-primary-container">生成一个关于“现成性”与“可用性”的对比图表？</p>
+</div>
+</div>
+<div class="h-32"></div> <!-- Spacer for footer -->
+</div>
+<!-- Floating Context Rail (Right side, subtle) -->
+<div class="fixed right-6 top-24 w-48 hidden xl:flex flex-col gap-6">
+<div class="space-y-3">
+<h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold px-2">当前上下文</h4>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-white border border-outline-variant/20 rounded text-[11px] text-on-surface-variant">现象学</span>
+<span class="px-2 py-1 bg-white border border-outline-variant/20 rounded text-[11px] text-on-surface-variant">海德格尔</span>
+<span class="px-2 py-1 bg-white border border-outline-variant/20 rounded text-[11px] text-on-surface-variant">存在论</span>
+</div>
+</div>
+<div class="space-y-3">
+<h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold px-2">关联文献 (4)</h4>
+<div class="space-y-2">
+<div class="p-2 hover:bg-white rounded transition-colors cursor-pointer group">
+<p class="text-[11px] font-medium truncate group-hover:text-primary">Being and Time (1927)</p>
+<p class="text-[9px] text-on-surface-variant">Martin Heidegger</p>
+</div>
+<div class="p-2 hover:bg-white rounded transition-colors cursor-pointer group border-l-2 border-primary bg-white">
+<p class="text-[11px] font-medium truncate text-primary">The Question Concerning Technology</p>
+<p class="text-[9px] text-on-surface-variant">Martin Heidegger</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Input Bar -->
+<div class="fixed bottom-0 right-0 w-[calc(100%-16rem)] p-6 z-40 bg-gradient-to-t from-background via-background to-transparent">
+<div class="max-w-3xl mx-auto relative">
+<div class="bg-surface-container-lowest border border-outline-variant/20 rounded-2xl shadow-xl shadow-on-surface/5 flex flex-col p-2 transition-all focus-within:ring-2 ring-primary/10">
+<textarea class="w-full bg-transparent border-none focus:ring-0 resize-none px-4 py-3 text-on-surface body-lg placeholder:text-on-surface-variant/50 scrollbar-hide" placeholder="继续探讨或输入新的指令..." rows="1" style="min-height: 56px;"></textarea>
+<div class="flex items-center justify-between px-2 pb-2">
+<div class="flex items-center gap-1">
+<button class="p-2 hover:bg-surface-container-low rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">attach_file</span>
+</button>
+<button class="p-2 hover:bg-surface-container-low rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">mic</span>
+</button>
+<div class="h-4 w-px bg-outline-variant/20 mx-1"></div>
+<button class="flex items-center gap-2 px-3 py-1.5 hover:bg-surface-container-low rounded-lg transition-colors text-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">search</span>
+<span>联网搜索</span>
+</button>
+</div>
+<button class="bg-primary text-on-primary p-2 rounded-xl flex items-center justify-center hover:opacity-90 transition-all scale-100 active:scale-95">
+<span class="material-symbols-outlined">arrow_upward</span>
+</button>
+</div>
+</div>
+<p class="text-center text-[10px] text-on-surface-variant/50 mt-3 font-medium">Digital Atelier 可提供具有洞察力的学术建议，但请务必核实原始资料。</p>
+</div>
+</div>
+</body></html>

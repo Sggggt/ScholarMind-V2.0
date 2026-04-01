@@ -1,0 +1,24 @@
+# ── 核心框架 ──
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+websockets==13.0
+
+# ── 数据库 ──
+sqlalchemy==2.0.35
+aiosqlite==0.20.0
+
+# ── HTTP / API ──
+httpx==0.27.2
+pydantic==2.9.0
+
+# ── LLM 客户端(可选, 用于本地模型) ──
+# openai==1.50.0
+# anthropic==0.34.0
+
+# ── 学术文献 ──
+semanticscholar==0.8.4
+
+# ── 实验管理(可选) ──
+# mlflow==2.16.0
+# optuna==4.0.0
+# wandb==0.18.0

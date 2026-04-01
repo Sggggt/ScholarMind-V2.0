@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>趋势分析 - Digital Atelier</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&amp;family=Public+Sans:wght@300;400;500;600&amp;family=Noto+Serif:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-primary-fixed-variant": "#8c4a00",
+              "on-secondary-fixed-variant": "#605b54",
+              "primary-container": "#ffdcc3",
+              "on-tertiary-fixed": "#4f3f1d",
+              "on-tertiary-fixed-variant": "#6e5b36",
+              "surface-container-lowest": "#ffffff",
+              "on-secondary": "#fff8f0",
+              "tertiary": "#705c37",
+              "surface-variant": "#e0e3e0",
+              "inverse-surface": "#0d0e0e",
+              "on-error-container": "#742410",
+              "primary-dim": "#7f4300",
+              "surface-container-low": "#f3f4f1",
+              "outline-variant": "#afb3b0",
+              "on-primary": "#fff6f2",
+              "tertiary-dim": "#63512d",
+              "secondary": "#635e57",
+              "on-surface": "#2f3331",
+              "secondary-fixed-dim": "#dbd3cb",
+              "secondary-dim": "#57524c",
+              "error-dim": "#5c1202",
+              "outline": "#777c79",
+              "on-tertiary-container": "#63512d",
+              "on-tertiary": "#fff8f1",
+              "secondary-container": "#e9e1d8",
+              "on-error": "#fff7f6",
+              "error": "#9e422c",
+              "surface-bright": "#faf9f7",
+              "inverse-on-surface": "#9d9d9b",
+              "background": "#faf9f7",
+              "tertiary-container": "#fde2b3",
+              "surface-container-high": "#e6e9e6",
+              "on-primary-container": "#7e4200",
+              "surface-container": "#edeeeb",
+              "on-primary-fixed": "#633300",
+              "on-surface-variant": "#5c605d",
+              "tertiary-fixed-dim": "#eed4a6",
+              "on-secondary-container": "#56514a",
+              "on-secondary-fixed": "#433f39",
+              "primary": "#904d00",
+              "surface": "#faf9f7",
+              "surface-tint": "#904d00",
+              "secondary-fixed": "#e9e1d8",
+              "error-container": "#fe8b70",
+              "primary-fixed-dim": "#ffcaa1",
+              "surface-container-highest": "#e0e3e0",
+              "primary-fixed": "#ffdcc3",
+              "on-background": "#2f3331",
+              "tertiary-fixed": "#fde2b3",
+              "surface-dim": "#d6dbd7",
+              "inverse-primary": "#fe932c"
+            },
+            fontFamily: {
+              "headline": ["Noto Serif SC", "serif"],
+              "body": ["Public Sans", "sans-serif"],
+              "label": ["Public Sans", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .tonal-shift-no-lines { border: none !important; }
+        body { background-color: #faf9f7; color: #2f3331; }
+    </style>
+</head>
+<body class="font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar (Shared Component) -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-[#afb3b0]/10 bg-[#f3f4f1] dark:bg-stone-900 flex flex-col h-full py-6 px-4 z-50">
+<div class="mb-10 px-2">
+<h1 class="font-headline font-bold text-[#2f3331] dark:text-stone-100 text-lg leading-tight">数字工坊</h1>
+<p class="text-xs text-on-surface-variant tracking-widest mt-1 opacity-70">Digital Atelier</p>
+</div>
+<nav class="flex-1 space-y-2">
+<!-- Workstation (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">space_dashboard</span>
+<span class="font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide">工作台</span>
+</a>
+<!-- Research Stream (Active - Context: Trend Analysis falls under Research flow) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#904d00] dark:text-amber-500 font-medium border-l-2 border-[#904d00] bg-white/50 dark:bg-white/5 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span class="font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide">研究流</span>
+</a>
+<!-- Recent Sessions (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide">近期会话</span>
+</a>
+<!-- Academic Collection (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#5c605d] dark:text-stone-400 hover:text-[#2f3331] hover:bg-[#faf9f7] dark:hover:bg-stone-800 transition-colors duration-300 scale-100 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined">library_books</span>
+<span class="font-['Public_Sans','Noto_Sans_SC'] text-sm tracking-wide">学术馆藏</span>
+</a>
+</nav>
+<div class="mt-auto space-y-4">
+<button class="w-full bg-primary text-on-primary py-2.5 rounded-md text-sm font-medium hover:opacity-90 transition-opacity">
+                新建研究
+            </button>
+<div class="pt-4 border-t border-outline-variant/10 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-xs tracking-wide">设置</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-base">person</span>
+<span class="text-xs tracking-wide">账户</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- TopAppBar (Shared Component) -->
+<header class="fixed top-0 right-0 w-[calc(100%-16rem)] h-14 z-40 bg-[#faf9f7]/80 dark:bg-stone-950/80 backdrop-blur-xl border-b border-[#afb3b0]/10 flex justify-between items-center px-8">
+<div class="flex items-center gap-8">
+<span class="text-xl font-semibold text-[#2f3331] dark:text-stone-200 font-headline">Digital Atelier</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors text-sm font-label" href="#">概览</a>
+<a class="text-[#904d00] dark:text-amber-500 border-b-2 border-[#904d00] pb-1 text-sm font-label" href="#">文献</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors text-sm font-label" href="#">写作</a>
+<a class="text-[#5c605d] dark:text-stone-400 hover:text-[#904d00] transition-colors text-sm font-label" href="#">发布</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+<input class="bg-surface-container-low border-none rounded-full pl-10 pr-4 py-1.5 text-xs w-64 focus:ring-1 focus:ring-primary/30 transition-all" placeholder="搜索文献或趋势..." type="text"/>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">help_outline</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 pt-20 pb-12 px-12 max-w-7xl mx-auto">
+<!-- Header Section -->
+<header class="mb-12">
+<div class="flex items-baseline gap-4 mb-2">
+<h2 class="text-4xl font-headline font-bold text-on-surface">趋势分析报告</h2>
+<span class="text-sm font-label text-on-surface-variant tracking-widest italic">Trend Analysis Report v2.4</span>
+</div>
+<p class="text-on-surface-variant max-w-2xl leading-relaxed">
+                本报告通过对过去五年的跨学科文献进行语义聚类分析，识别出当前学术领域中的新兴动能与研究范式演变趋势。
+            </p>
+</header>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Main Trajectory Visualization (Large Card) -->
+<section class="col-span-8 bg-surface-container-lowest p-8 rounded-xl shadow-[0_4px_20px_-4px_rgba(47,51,49,0.05)]">
+<div class="flex justify-between items-center mb-10">
+<div>
+<h3 class="font-headline text-xl text-on-surface mb-1">关键词演变轨迹</h3>
+<p class="text-xs text-on-surface-variant font-label">2019 — 2024 年度频率分布</p>
+</div>
+<div class="flex gap-4 text-xs font-label">
+<span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary"></span> 关键动能</span>
+<span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-secondary"></span> 稳健学科</span>
+</div>
+</div>
+<!-- Custom Timeline Visualization (CSS based) -->
+<div class="relative h-[300px] w-full mt-8">
+<!-- Grid Lines -->
+<div class="absolute inset-0 flex flex-col justify-between border-b border-outline-variant/20">
+<div class="w-full border-t border-outline-variant/10"></div>
+<div class="w-full border-t border-outline-variant/10"></div>
+<div class="w-full border-t border-outline-variant/10"></div>
+<div class="w-full border-t border-outline-variant/10"></div>
+</div>
+<!-- Trend Lines (Visual abstraction using SVGs) -->
+<svg class="absolute inset-0 w-full h-full" preserveaspectratio="none">
+<!-- Primary Trend Line -->
+<path d="M0,250 Q100,240 200,180 T400,120 T600,60 T800,20" fill="none" stroke="#904d00" stroke-linecap="round" stroke-width="2.5"></path>
+<circle cx="800" cy="20" fill="#904d00" r="4"></circle>
+<!-- Secondary Trend Line -->
+<path d="M0,200 Q150,210 300,190 T600,170 T800,165" fill="none" opacity="0.6" stroke="#635e57" stroke-dasharray="4 4" stroke-width="2"></path>
+<circle cx="800" cy="165" fill="#635e57" r="4"></circle>
+</svg>
+<!-- Labels -->
+<div class="absolute bottom-[-32px] inset-x-0 flex justify-between px-2 text-[10px] text-on-surface-variant font-label tracking-tighter">
+<span>2019</span>
+<span>2020</span>
+<span>2021</span>
+<span>2022</span>
+<span>2023</span>
+<span>现在</span>
+</div>
+<!-- Highlight Tooltip Overlay -->
+<div class="absolute right-[15%] top-[10%] bg-surface-container-high/90 backdrop-blur-md p-4 rounded-lg border border-outline-variant/10 max-w-[180px]">
+<p class="text-[10px] uppercase tracking-widest text-primary font-bold mb-1">关键突破点</p>
+<p class="text-xs text-on-surface leading-snug">神经形态计算在该领域显示出 142% 的非线性增长。</p>
+</div>
+</div>
+</section>
+<!-- Momentum Score Card -->
+<section class="col-span-4 flex flex-col gap-8">
+<div class="bg-surface-container-low p-8 rounded-xl flex-1 flex flex-col justify-center text-center">
+<span class="material-symbols-outlined text-4xl text-primary mb-4" style="font-variation-settings: 'wght' 200;">trending_up</span>
+<h3 class="font-headline text-lg text-on-surface-variant">综合动能评分</h3>
+<div class="my-4">
+<span class="text-6xl font-headline font-bold text-on-surface">87.4</span>
+<span class="text-primary text-sm font-medium ml-1">+12%</span>
+</div>
+<p class="text-xs text-on-surface-variant font-label leading-relaxed px-4">
+                        基于出版频率、引用密度和社交媒体提及率的加权估值。
+                    </p>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<h4 class="font-headline text-sm text-on-surface">近期热度波动</h4>
+<span class="material-symbols-outlined text-on-surface-variant text-sm">schedule</span>
+</div>
+<ul class="space-y-4">
+<li class="flex items-center justify-between">
+<span class="text-xs text-on-surface-variant font-label">算法伦理</span>
+<div class="w-24 h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[75%]"></div>
+</div>
+</li>
+<li class="flex items-center justify-between">
+<span class="text-xs text-on-surface-variant font-label">后量子加密</span>
+<div class="w-24 h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="bg-secondary h-full w-[40%]"></div>
+</div>
+</li>
+<li class="flex items-center justify-between">
+<span class="text-xs text-on-surface-variant font-label">跨维拓扑</span>
+<div class="w-24 h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[92%]"></div>
+</div>
+</li>
+</ul>
+</div>
+</section>
+<!-- Deep Dive Content Section -->
+<section class="col-span-12 grid grid-cols-3 gap-8 mt-4">
+<div class="bg-[#faf9f7] p-8 border-l-2 border-primary">
+<h4 class="font-headline text-lg mb-4 text-on-surface">新兴范式识别</h4>
+<p class="text-sm text-on-surface-variant leading-relaxed">
+                        数据驱动的“预测性建模”正逐渐取代传统的“描述性分析”。在 2023 年第四季度的文献中，前者的占比已从 12% 跃升至 38%。
+                    </p>
+</div>
+<div class="relative group">
+<img alt="Library aisle" class="w-full h-full object-cover rounded-xl grayscale hover:grayscale-0 transition-all duration-700 opacity-60 group-hover:opacity-100" data-alt="cinematic shot of a quiet historic library with tall bookshelves and dust motes dancing in sunbeams filtering through tall windows" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAbWWMimpwNxlQ7d9wtLJw2aMA4EBrPovN9zZqtPLq-SSzZLBg605YAJanoSUj7cOEqh4Zg4Gvn5J2KsuF9y4zrxzWJcDA2tBfNHgLa1tusBcR5DraZGQPhwn8H-4-S1B8dNYYYiq4gjIqGrc5HWTrYvCFTxLfMHzWRtsslV9Yq3aVFsHt4wSxJK8wdnQxC26HkjNeUzUlowwYAD-ahDe_DWJx-1s6IOkOCTkZGUQNq9AH9QMFSLJr9EMFTiRvIi348BBVd0IuAwRw"/>
+<div class="absolute inset-0 bg-primary/10 mix-blend-multiply rounded-xl"></div>
+<div class="absolute bottom-6 left-6 text-white">
+<p class="text-[10px] uppercase tracking-[0.2em] font-label font-bold mb-1">背景研究</p>
+<p class="text-sm font-headline italic">古典方法论的回归</p>
+</div>
+</div>
+<div class="bg-surface-container-low p-8 rounded-xl relative overflow-hidden">
+<div class="absolute -right-4 -top-4 opacity-5">
+<span class="material-symbols-outlined text-[120px]">auto_awesome</span>
+</div>
+<h4 class="font-headline text-lg mb-4 text-on-surface">策略性建议</h4>
+<ul class="text-xs text-on-surface-variant space-y-3 font-label">
+<li class="flex gap-2">
+<span class="text-primary font-bold">01.</span>
+<span>重点关注跨学科交叉领域的语义漏洞，这些往往是重大发现的温床。</span>
+</li>
+<li class="flex gap-2">
+<span class="text-primary font-bold">02.</span>
+<span>增加对非共识文献的抓取权重，识别即将到来的范式转移。</span>
+</li>
+</ul>
+</div>
+</section>
+</div>
+</main>
+<!-- Citation Overlay (Academic Curator specific component) -->
+<div class="fixed bottom-8 right-8 w-80 bg-surface-container-lowest p-5 rounded-lg shadow-2xl border border-outline-variant/10 z-50 transform translate-y-0 opacity-100 transition-all duration-500">
+<div class="flex items-start gap-3">
+<div class="w-1 h-12 bg-primary rounded-full shrink-0"></div>
+<div>
+<p class="text-[10px] font-label font-bold text-primary tracking-widest uppercase mb-1">实时引注提取</p>
+<p class="text-xs italic font-serif leading-relaxed text-on-surface">
+                    "趋势并非线性延伸，而是复杂系统的临界点涌现。"
+                </p>
+<p class="text-[10px] mt-2 text-on-surface-variant font-label">— 斯宾塞 (2024), 《算法策展论》</p>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant text-sm ml-auto">close</button>
+</div>
+</div>
+</body></html>
