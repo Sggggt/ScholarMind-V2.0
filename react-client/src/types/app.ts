@@ -1,11 +1,10 @@
 export type WorkflowStatus = 'not-started' | 'in-progress' | 'completed' | 'risk';
 export type RunStatus = 'idle' | 'running' | 'paused' | 'review' | 'completed' | 'failed' | 'aborted';
+export type TaskCommand = 'pause' | 'resume' | 'abort' | 'restart';
+export type TransitionState = 'creating' | 'stage-change' | 'completed' | 'restarting' | 'aborting';
 
 export type StageId =
-  | 'exploration'
   | 'literature'
-  | 'extraction'
-  | 'trends'
   | 'gaps'
   | 'ideas'
   | 'repository'
@@ -47,6 +46,8 @@ export interface RecentSession {
   domain: string;
   updatedAt: string;
   stageLabel: string;
+  taskId?: string;
+  taskStatus?: string;
 }
 
 export interface UserProfile {
@@ -57,8 +58,9 @@ export interface UserProfile {
 
 export interface ChatQuickAction {
   label: string;
-  path: string;
+  path?: string;
   stageId?: StageId;
+  command?: TaskCommand;
 }
 
 export interface ChatMessage {
@@ -66,6 +68,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  kind?: 'text' | 'thinking' | 'stage-transition' | 'running-status';
   quickActions?: ChatQuickAction[];
 }
 
@@ -90,6 +93,7 @@ export interface PaperRecord {
   id: string;
   title: string;
   source: string;
+  url?: string;
   year: number;
   authors: string;
   focus: string;

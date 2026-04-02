@@ -40,7 +40,7 @@ function summarizeStage(title: string, task: BackendTaskResponse, module?: Backe
   }
 
   if (module.status === 'completed') {
-    return `${title}已完成，可以进入页面继续阅读。`;
+    return `${title}已完成，可以进入页面继续查看。`;
   }
 
   if (module.status === 'running') {
@@ -70,20 +70,7 @@ export function adaptTaskToStages(task: BackendTaskResponse): WorkflowStage[] {
   const m9 = getModule(task, 'M9');
 
   const stageStatusMap: Record<StageId, WorkflowStatus> = {
-    exploration: task.topic ? 'completed' : 'not-started',
     literature: normalizeModuleStatus(m1?.status),
-    extraction:
-      m1?.status === 'completed'
-        ? 'completed'
-        : m1?.status === 'running' && (m1.percent ?? 0) >= 55
-          ? 'in-progress'
-          : 'not-started',
-    trends:
-      m2?.status === 'running'
-        ? 'in-progress'
-        : m2?.status === 'completed'
-          ? 'completed'
-          : 'not-started',
     gaps: normalizeModuleStatus(m2?.status),
     ideas: normalizeModuleStatus(m3?.status),
     repository: normalizeModuleStatus(m4?.status),
@@ -94,10 +81,8 @@ export function adaptTaskToStages(task: BackendTaskResponse): WorkflowStage[] {
     validation: normalizeModuleStatus(m9?.status),
   };
 
-  const stageModuleMap: Partial<Record<StageId, BackendModuleProgress | undefined>> = {
+  const stageModuleMap: Record<StageId, BackendModuleProgress | undefined> = {
     literature: m1,
-    extraction: m1,
-    trends: m2,
     gaps: m2,
     ideas: m3,
     repository: m4,
@@ -111,19 +96,12 @@ export function adaptTaskToStages(task: BackendTaskResponse): WorkflowStage[] {
   return initialStages.map((stage) => ({
     ...stage,
     status: stageStatusMap[stage.id],
-    summary:
-      stage.id === 'exploration'
-        ? task.topic || '尚未创建任务。'
-        : summarizeStage(stage.title, task, stageModuleMap[stage.id]),
+    summary: summarizeStage(stage.title, task, stageModuleMap[stage.id]),
   }));
 }
 
 export function inferCurrentStage(task: BackendTaskResponse): StageId {
-  const currentModule = task.modules.find((module) => module.module_id === 'M1');
-
   switch (task.current_module) {
-    case 'M1':
-      return (currentModule?.percent ?? 0) >= 55 ? 'extraction' : 'literature';
     case 'M2':
       return 'gaps';
     case 'M3':
@@ -140,8 +118,9 @@ export function inferCurrentStage(task: BackendTaskResponse): StageId {
       return 'writing';
     case 'M9':
       return 'validation';
+    case 'M1':
     default:
-      return 'exploration';
+      return 'literature';
   }
 }
 

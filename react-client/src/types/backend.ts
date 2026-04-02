@@ -39,6 +39,47 @@ export interface BackendTaskCreateRequest {
   config?: Record<string, unknown>;
 }
 
+export interface BackendChatSessionResponse {
+  id: string;
+  title: string;
+  summary: string;
+  task_id?: string | null;
+  task_status?: BackendTaskStatus | string | null;
+  created_at: string;
+  updated_at: string;
+  last_message_preview: string;
+}
+
+export interface BackendChatMessageResponse {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant';
+  kind: string;
+  content: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface BackendChatSessionDetailResponse {
+  session: BackendChatSessionResponse;
+  messages: BackendChatMessageResponse[];
+  task?: BackendTaskResponse | null;
+}
+
+export interface BackendChatMessageCreateRequest {
+  content: string;
+  task_description?: string;
+  task_config?: Record<string, unknown>;
+}
+
+export interface BackendChatMessageSendResponse {
+  session: BackendChatSessionResponse;
+  user_message: BackendChatMessageResponse;
+  assistant_message: BackendChatMessageResponse;
+  task?: BackendTaskResponse | null;
+  task_created: boolean;
+}
+
 export interface BackendRuntimeSettingsRequest {
   llm_provider: string;
   api_key: string;

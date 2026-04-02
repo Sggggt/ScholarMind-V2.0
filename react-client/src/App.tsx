@@ -1,11 +1,9 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/app-shell/AppLayout';
 import AgentRunPage from './pages/AgentRunPage';
-import DomainExplorationPage from './pages/DomainExplorationPage';
 import ExperimentDesignPage from './pages/ExperimentDesignPage';
 import HistoryPage from './pages/HistoryPage';
 import IdeaGenerationPage from './pages/IdeaGenerationPage';
-import InformationExtractionPage from './pages/InformationExtractionPage';
 import LiteraturePage from './pages/LiteraturePage';
 import LoginPage from './pages/LoginPage';
 import MainChatWorkspacePage from './pages/MainChatWorkspacePage';
@@ -13,7 +11,6 @@ import RepositoryPage from './pages/RepositoryPage';
 import ResearchGapsPage from './pages/ResearchGapsPage';
 import ResultsAnalysisPage from './pages/ResultsAnalysisPage';
 import SettingsPage from './pages/SettingsPage';
-import TrendAnalysisPage from './pages/TrendAnalysisPage';
 import ValidationPage from './pages/ValidationPage';
 import WorkflowOverviewPage from './pages/WorkflowOverviewPage';
 import WritingPage from './pages/WritingPage';
@@ -45,10 +42,10 @@ export default function App() {
           <Route path="/workflow" element={<WorkflowOverviewPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/exploration" element={<DomainExplorationPage />} />
+          <Route path="/exploration" element={<Navigate to="/literature" replace />} />
           <Route path="/literature" element={<LiteraturePage />} />
-          <Route path="/extraction" element={<InformationExtractionPage />} />
-          <Route path="/trends" element={<TrendAnalysisPage />} />
+          <Route path="/extraction" element={<Navigate to="/literature" replace />} />
+          <Route path="/trends" element={<Navigate to="/gaps" replace />} />
           <Route path="/gaps" element={<ResearchGapsPage />} />
           <Route path="/ideas" element={<IdeaGenerationPage />} />
           <Route path="/repository" element={<RepositoryPage />} />

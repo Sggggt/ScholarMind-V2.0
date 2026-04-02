@@ -16,8 +16,10 @@ const runStatusLabelMap = {
 
 export default function AgentRunPage() {
   const navigate = useNavigate();
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const runSteps = useWorkspaceStore((state) => state.runSteps);
   const runLogs = useWorkspaceStore((state) => state.runLogs);
+  const runLogsBySession = useWorkspaceStore((state) => state.runLogsBySession);
   const runProgress = useWorkspaceStore((state) => state.runProgress);
   const runStatus = useWorkspaceStore((state) => state.runStatus);
   const isTaskLoading = useWorkspaceStore((state) => state.isTaskLoading);
@@ -30,8 +32,20 @@ export default function AgentRunPage() {
   const taskError = useWorkspaceStore((state) => state.taskError);
 
   useEffect(() => {
-    void Promise.all([refreshCurrentTask(), refreshLogs()]);
-  }, [refreshCurrentTask, refreshLogs]);
+    if (!currentTaskId) {
+      return;
+    }
+
+    const hasCachedLogs = (runLogsBySession[currentTaskId] ?? []).length > 0;
+
+    if (!currentTask) {
+      void refreshCurrentTask({ background: true });
+    }
+
+    if (!hasCachedLogs) {
+      void refreshLogs(currentTaskId);
+    }
+  }, [currentTask, currentTaskId, refreshCurrentTask, refreshLogs, runLogsBySession]);
 
   return (
     <EditorialPage
@@ -80,7 +94,7 @@ export default function AgentRunPage() {
                   恢复
                 </button>
               ) : null}
-              {runStatus !== 'completed' && runStatus !== 'aborted' ? (
+              {runStatus === 'running' || runStatus === 'paused' ? (
                 <button
                   className="control-btn danger"
                   onClick={() => {

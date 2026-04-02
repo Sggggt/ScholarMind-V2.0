@@ -8,14 +8,14 @@ import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
 export default function IdeaGenerationPage() {
   const navigate = useNavigate();
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const selectedIdeaIds = useWorkspaceStore((state) => state.selectedIdeaIds);
   const setSelectedIdeas = useWorkspaceStore((state) => state.setSelectedIdeas);
   const [ideas, setIdeas] = useState<Array<any>>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setIdeas([]);
       setSelectedIdeas([]);
       setError(null);
@@ -26,7 +26,7 @@ export default function IdeaGenerationPage() {
 
     const loadIdeas = async () => {
       try {
-        const response = await getArtifactContent(currentSessionId, 'm3_scored_ideas.json');
+        const response = await getArtifactContent(currentTaskId, 'm3_scored_ideas.json');
         if (cancelled) {
           return;
         }
@@ -46,7 +46,7 @@ export default function IdeaGenerationPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, setSelectedIdeas]);
+  }, [currentTaskId, setSelectedIdeas]);
 
   const toggleIdea = (id: string) => {
     const next = selectedIdeaIds.includes(id)

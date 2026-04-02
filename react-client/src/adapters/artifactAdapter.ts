@@ -51,6 +51,46 @@ function cleanText(text: string) {
     .trim();
 }
 
+const INVALID_SOURCE_PATTERNS = [
+  /access denied/i,
+  /rate limit/i,
+  /too many requests/i,
+  /forbidden/i,
+  /captcha/i,
+  /enable cookies/i,
+  /javascript required/i,
+  /sign in to view/i,
+];
+
+function isInvalidSourceText(text: string) {
+  const normalized = cleanText(text);
+  return Boolean(normalized) && INVALID_SOURCE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function normalizeDisplayText(text: string, fallback = '') {
+  const normalized = cleanText(text)
+    .replace(/\bLatest request\s*:\s*/gi, '')
+    .replace(/\bComprehensive literature review on:\s*/gi, '')
+    .replace(/\bFind and analyze relevant academic papers\..*$/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return normalized || fallback;
+}
+
+function dedupeBy<T>(items: T[], getKey: (item: T) => string) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = getKey(item);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 function formatInlineValue(value: unknown): string {
   if (typeof value === 'string') {
     return cleanText(value);
@@ -160,25 +200,38 @@ export function adaptLiteratureArtifacts(
   const sources = asArray<Record<string, unknown>>(payload.sources);
   const currentYear = new Date().getFullYear();
 
-  const papers = sources.map((source, index) => {
-    const title = pickText(source, ['title', 'Title'], `文献 ${index + 1}`);
-    const preview = pickText(source, ['content_preview', 'snippet', 'summary', 'abstract']);
-    const url = readString(source.url);
-    const sourceName = pickText(source, ['source'], inferSourceName(url));
+  const papers = dedupeBy(
+    sources.map((source, index) => {
+      const rawTitle = pickText(source, ['title', 'Title'], `文献 ${index + 1}`);
+      const title = normalizeDisplayText(rawTitle, `文献 ${index + 1}`);
+      const preview = normalizeDisplayText(
+        pickText(source, ['content_preview', 'snippet', 'summary', 'abstract']),
+      );
+      const rawFocus = pickText(source, ['query', 'topic', 'keywords'], topic || '当前研究主题');
+      const focus = normalizeDisplayText(rawFocus, topic || '当前研究主题');
+      const url = readString(source.url);
+      const sourceName = pickText(source, ['source'], inferSourceName(url));
+      const shouldDiscard = isInvalidSourceText(title) || (isInvalidSourceText(preview) && !url);
 
-    return {
-      id: `paper-${index + 1}`,
-      title,
-      source: sourceName,
-      year: inferYear(`${title} ${preview}`, currentYear - (index % 5)),
-      authors: readAuthors(source),
-      focus: pickText(source, ['query', 'topic', 'keywords'], topic || '当前研究主题'),
-      status: index === 0 ? 'selected' : index < 3 ? 'extracted' : 'queued',
-      citations: readNumber(source.citations, 0),
-      abstract:
-        preview || '当前来源没有提供结构化摘要，建议继续查看原始链接或文献综述正文。',
-    } satisfies PaperRecord;
-  });
+      return {
+        id: `paper-${index + 1}`,
+        title,
+        source: sourceName,
+        url: url || undefined,
+        year: inferYear(`${title} ${preview}`, currentYear - (index % 5)),
+        authors: readAuthors(source),
+        focus,
+        status: index === 0 ? 'selected' : index < 3 ? 'extracted' : 'queued',
+        citations: readNumber(source.citations ?? source.citation_count, 0),
+        abstract:
+          preview || '当前来源没有提供结构化摘要，建议继续查看原始链接或文献综述正文。',
+        _discard: shouldDiscard,
+      };
+    }),
+    (paper) => `${paper.title.toLowerCase()}|${(paper.url ?? '').toLowerCase()}`,
+  )
+    .filter((paper) => !paper._discard)
+    .map(({ _discard, ...paper }) => paper as PaperRecord);
 
   const filters: LiteratureFilters = {
     topic,
@@ -244,18 +297,26 @@ export function adaptExtractionArtifacts(reviewMarkdown: string, papers: PaperRe
     id: sectionIds[index],
     label,
     summary: paragraphs[index] ?? papers[index]?.abstract ?? '当前产物还没有生成对应的提取摘要。',
-    quotes: papers
-      .slice(index, index + 2)
-      .map((paper) => paper.abstract)
-      .filter(Boolean)
-      .slice(0, 2),
+    quotes: dedupeBy(
+      papers
+        .slice(index, index + 4)
+        .map((paper) => normalizeDisplayText(paper.abstract))
+        .filter((quote) => quote && !isInvalidSourceText(quote)),
+      (quote) => quote.toLowerCase(),
+    ).slice(0, 2),
   }));
 
-  const relations: RelationNode[] = papers.slice(0, 4).map((paper, index) => ({
-    source: paper.focus,
-    relation: index % 2 === 0 ? '支持' : '提示',
-    target: paper.title,
-  }));
+  const relations: RelationNode[] = dedupeBy(
+    papers
+      .slice(0, 6)
+      .map((paper, index) => ({
+        source: normalizeDisplayText(paper.focus, '当前研究主题'),
+        relation: index % 2 === 0 ? '支持' : '提示',
+        target: normalizeDisplayText(paper.title, `文献 ${index + 1}`),
+      }))
+      .filter((relation) => !isInvalidSourceText(relation.source) && !isInvalidSourceText(relation.target)),
+    (relation) => `${relation.source.toLowerCase()}|${relation.target.toLowerCase()}`,
+  ).slice(0, 4);
 
   return { sections, relations };
 }

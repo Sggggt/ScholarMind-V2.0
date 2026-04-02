@@ -16,6 +16,7 @@ type LiteraturePaper = {
   id: string;
   title: string;
   source: string;
+  url?: string;
   year: number;
   authors: string;
   focus: string;
@@ -24,17 +25,38 @@ type LiteraturePaper = {
   abstract: string;
 };
 
+function normalizeFilterText(text: string) {
+  return text
+    .replace(/\bLatest request\s*:\s*/gi, ' ')
+    .replace(/[：:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeKeywords(text: string) {
+  return Array.from(
+    new Set(
+      normalizeFilterText(text)
+        .toLowerCase()
+        .split(/[\s,，。;；、()（）[\]/\\|]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2 && !['latest', 'request'].includes(token)),
+    ),
+  );
+}
+
 export default function LiteraturePage() {
   const navigate = useNavigate();
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const currentTask = useWorkspaceStore((state) => state.currentTask);
   const setActivePaper = useWorkspaceStore((state) => state.setActivePaper);
+  const showToast = useWorkspaceStore((state) => state.showToast);
   const [summary, setSummary] = useState('');
   const [availableSources, setAvailableSources] = useState<string[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [literatureFilters, setLiteratureFilters] = useState({
-    topic: currentTask?.topic ?? '',
-    keywords: currentTask?.topic ?? '',
+    topic: normalizeFilterText(currentTask?.topic ?? ''),
+    keywords: normalizeFilterText(currentTask?.topic ?? ''),
     yearStart: new Date().getFullYear() - 5,
     yearEnd: new Date().getFullYear(),
   });
@@ -44,7 +66,7 @@ export default function LiteraturePage() {
   const deferredKeywords = useDeferredValue(literatureFilters.keywords);
 
   useEffect(() => {
-    if (!currentSessionId || !currentTask) {
+    if (!currentTaskId || !currentTask) {
       setSummary('');
       setAvailableSources([]);
       setSelectedSources([]);
@@ -61,8 +83,8 @@ export default function LiteraturePage() {
 
       try {
         const [sourcesResponse, reviewResponse] = await Promise.all([
-          getArtifactContent(currentSessionId, 'm1_sources.json'),
-          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
+          getArtifactContent(currentTaskId, 'm1_sources.json'),
+          getArtifactContent(currentTaskId, 'm1_literature_review.md'),
         ]);
         if (cancelled) {
           return;
@@ -78,7 +100,11 @@ export default function LiteraturePage() {
         setPapers(adapted.papers);
         setAvailableSources(adapted.selectedSources);
         setSelectedSources(adapted.selectedSources);
-        setLiteratureFilters(adapted.filters);
+        setLiteratureFilters({
+          ...adapted.filters,
+          topic: normalizeFilterText(adapted.filters.topic),
+          keywords: normalizeFilterText(adapted.filters.keywords),
+        });
       } catch (artifactError) {
         if (!cancelled) {
           setError(artifactError instanceof Error ? artifactError.message : '文献产物尚未生成。');
@@ -97,19 +123,36 @@ export default function LiteraturePage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, currentTask]);
+  }, [currentTaskId, currentTask]);
 
   const filteredRows = useMemo(() => {
-    const query = deferredKeywords.toLowerCase();
+    const normalizedQuery = normalizeFilterText(deferredKeywords).toLowerCase();
+    const keywordTokens = tokenizeKeywords(deferredKeywords);
 
     return papers.filter(
-      (paper) =>
-        (!selectedSources.length || selectedSources.includes(paper.source)) &&
-        (paper.title.toLowerCase().includes(query) ||
-          paper.focus.toLowerCase().includes(query) ||
-          paper.source.toLowerCase().includes(query)),
+      (paper) => {
+        if (paper.year < literatureFilters.yearStart || paper.year > literatureFilters.yearEnd) {
+          return false;
+        }
+
+        if (selectedSources.length && !selectedSources.includes(paper.source)) {
+          return false;
+        }
+
+        if (!normalizedQuery) {
+          return true;
+        }
+
+        const haystack = `${paper.title} ${paper.focus} ${paper.source} ${paper.authors}`.toLowerCase();
+
+        if (haystack.includes(normalizedQuery)) {
+          return true;
+        }
+
+        return keywordTokens.some((token) => haystack.includes(token));
+      },
     );
-  }, [deferredKeywords, papers, selectedSources]);
+  }, [deferredKeywords, literatureFilters.yearEnd, literatureFilters.yearStart, papers, selectedSources]);
 
   const sourceDistribution = useMemo(() => {
     const total = papers.length || 1;
@@ -131,25 +174,37 @@ export default function LiteraturePage() {
   const collectionProgress = Math.round(m1Module?.percent ?? 0);
   const isCollecting = m1Module?.status === 'running';
 
+  const openPaper = (paper: LiteraturePaper) => {
+    setActivePaper(paper.id);
+
+    if (paper.url) {
+      window.open(paper.url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    showToast('当前文献没有原始链接，已切换到信息提取页查看摘要。');
+    navigate('/gaps');
+  };
+
   return (
     <EditorialPage
       eyebrow="Literature Review"
-      title="把检索条件、进度、来源结构与论文表收拢到一个研究工作面"
-      description="这不是后台管理页，而是一张正在被持续充实的文献工作台。研究者需要先看来源，再看分布，最后落到可操作的论文表。"
+      title="把检索条件、进度、来源结构与论文表收拢到一个研究工作台"
+      description="这里不是后台管理页，而是一张持续更新的文献工作台。先看来源与分布，再落到具体论文和后续提取动作。"
       actions={
         <button
           className="button-primary"
-          onClick={() => navigate(currentSessionId ? '/agent-run' : '/workspace')}
+          onClick={() => navigate(currentTaskId ? '/agent-run' : '/workspace')}
           type="button"
         >
           <Bot size={14} />
-          {currentSessionId ? '查看实时运行' : '前往工作台'}
+          {currentTaskId ? '查看实时运行' : '前往工作台'}
         </button>
       }
     >
       <SectionBlock
         title="检索面板"
-        description="当前来源开关、主题与年份范围都只服务于最后那张论文表。"
+        description="当前来源开关、主题与年份范围都服务于下方这张论文表。"
         action={<StatusBadge status={isCollecting ? 'in-progress' : papers.length ? 'completed' : 'not-started'} />}
       >
         <div className="stack">
@@ -219,7 +274,7 @@ export default function LiteraturePage() {
       </SectionBlock>
 
       <div className="grid-two">
-        <SectionBlock title="综述摘要" description="直接展示当前任务从 M1 产物整理出的核心综述。">
+        <SectionBlock title="综述摘要" description="直接展示当前任务从 M1 产物整理出来的核心综述。">
           <div className="page-description">
             {isLoading ? '正在加载真实文献产物...' : summary || error || '当前任务还没有生成文献综述。'}
           </div>
@@ -242,7 +297,7 @@ export default function LiteraturePage() {
                   <div className="distribution-bar-fill" style={{ width: `${item.ratio}%` }} />
                 </div>
                 <div className="distribution-value">
-                  {item.count} 篇 · {item.ratio}%
+                  {item.count} 篇 / {item.ratio}%
                 </div>
               </div>
             ))}
@@ -285,14 +340,14 @@ export default function LiteraturePage() {
             ),
             actions: (
               <div className="toolbar-row">
-                <button className="button-secondary" type="button">
-                  查看
+                <button className="button-secondary" onClick={() => openPaper(paper)} type="button">
+                  {paper.url ? '查看原文' : '查看摘要'}
                 </button>
                 <button
                   className="button-primary"
                   onClick={() => {
                     setActivePaper(paper.id);
-                    navigate('/extraction');
+                    navigate('/gaps');
                   }}
                   type="button"
                 >

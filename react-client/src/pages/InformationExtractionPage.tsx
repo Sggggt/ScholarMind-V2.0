@@ -5,7 +5,7 @@ import { getArtifactContent } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
 export default function InformationExtractionPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const currentTask = useWorkspaceStore((state) => state.currentTask);
   const activePaperId = useWorkspaceStore((state) => state.activePaperId);
   const setActivePaper = useWorkspaceStore((state) => state.setActivePaper);
@@ -16,7 +16,7 @@ export default function InformationExtractionPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId || !currentTask) {
+    if (!currentTaskId || !currentTask) {
       setPapers([]);
       setSections([]);
       setRelations([]);
@@ -29,8 +29,8 @@ export default function InformationExtractionPage() {
     const loadArtifacts = async () => {
       try {
         const [sourcesResponse, reviewResponse] = await Promise.all([
-          getArtifactContent(currentSessionId, 'm1_sources.json'),
-          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
+          getArtifactContent(currentTaskId, 'm1_sources.json'),
+          getArtifactContent(currentTaskId, 'm1_literature_review.md'),
         ]);
         if (cancelled) {
           return;
@@ -60,7 +60,7 @@ export default function InformationExtractionPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, currentTask]);
+  }, [currentTaskId, currentTask]);
 
   const activePaper = useMemo(
     () => papers.find((paper) => paper.id === activePaperId) ?? papers[0],

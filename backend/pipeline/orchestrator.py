@@ -1,22 +1,15 @@
 from __future__ import annotations
-"""流水线编排器
 
-按 M1→M9 顺序执行9个模块，支持：
-- 暂停/恢复/终止
-- M7结果不达标回退到M6
-- 人工审阅干预点
-- 全程追溯日志
-"""
+"""Pipeline orchestrator for modules M1-M9."""
 
+import glob
+import json
+import os
 import traceback
+from pathlib import Path
 
-from sqlalchemy import select
 from db.database import async_session
 from db.models import Task
-
-from pipeline.state import TaskStateMachine
-from pipeline.tracer import Tracer
-
 from modules.m1_literature import LiteratureModule
 from modules.m2_gap_analysis import GapAnalysisModule
 from modules.m3_idea_scoring import IdeaScoringModule
@@ -26,28 +19,31 @@ from modules.m6_agent_runner import AgentRunnerModule
 from modules.m7_analysis import AnalysisModule
 from modules.m8_paper_writing import PaperWritingModule
 from modules.m9_review import ReviewModule
+from pipeline.state import TaskStateMachine
+from pipeline.tracer import Tracer
 
 import config
 
 
 class PipelineOrchestrator:
-    """9模块研究流水线编排"""
+    """Execute the research pipeline and support resuming from a module."""
 
-    def __init__(self, task_id: str):
+    def __init__(self, task_id: str, start_module: int = 1):
         self.task_id = task_id
+        self.start_module = max(1, min(9, int(start_module)))
         self.state = TaskStateMachine(task_id)
         self.tracer = Tracer(task_id)
 
         self.modules = [
-            LiteratureModule(),       # M1
-            GapAnalysisModule(),      # M2
-            IdeaScoringModule(),      # M3
-            CodeGenModule(),          # M4
-            ExperimentDesignModule(), # M5
-            AgentRunnerModule(),      # M6
-            AnalysisModule(),         # M7
-            PaperWritingModule(),     # M8
-            ReviewModule(),           # M9
+            LiteratureModule(),
+            GapAnalysisModule(),
+            IdeaScoringModule(),
+            CodeGenModule(),
+            ExperimentDesignModule(),
+            AgentRunnerModule(),
+            AnalysisModule(),
+            PaperWritingModule(),
+            ReviewModule(),
         ]
 
     def pause(self):
@@ -62,123 +58,275 @@ class PipelineOrchestrator:
     async def submit_review(self, approved: bool, feedback: str):
         await self.state.submit_review(approved, feedback)
 
-    async def _load_task(self) -> Task:
+    async def _load_task(self) -> Task | None:
         async with async_session() as db:
             return await db.get(Task, self.task_id)
 
-    async def run(self):
-        """执行完整流水线"""
-        await self.state.set_status("running")
-        task = await self._load_task()
-        if not task:
-            return
+    def _read_text(self, path: Path, default: str = "") -> str:
+        if not path.exists():
+            return default
+        return path.read_text(encoding="utf-8", errors="replace")
 
-        # 上下文：在模块间传递的数据
+    def _read_json(self, path: Path, default):
+        if not path.exists():
+            return default
+        try:
+            return json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            return default
+
+    def _find_project_dir(self, workspace: Path) -> Path | None:
+        project_root = workspace / "project"
+        if not project_root.exists():
+            return None
+
+        candidates = sorted(path for path in project_root.iterdir() if path.is_dir())
+        return candidates[0] if candidates else None
+
+    def _load_run_results(self, project_dir: Path | None, experiment_results: list[dict] | None = None) -> dict:
+        all_run_results: dict = {}
+        if project_dir and project_dir.exists():
+            for run_dir in sorted(glob.glob(os.path.join(str(project_dir), "run_*"))):
+                info_path = os.path.join(run_dir, "final_info.json")
+                if not os.path.exists(info_path):
+                    continue
+
+                with open(info_path, encoding="utf-8", errors="replace") as handle:
+                    data = json.load(handle)
+                all_run_results[os.path.basename(run_dir)] = {
+                    key: value["means"] if isinstance(value, dict) and "means" in value else value
+                    for key, value in data.items()
+                }
+
+        for result in experiment_results or []:
+            if result.get("status") == "success" and result.get("metrics"):
+                all_run_results[result["experiment"]] = result["metrics"]
+
+        return all_run_results
+
+    def _restore_context(self, task: Task) -> dict:
+        workspace = Path(config.WORKSPACE_DIR / self.task_id)
         context = {
             "task_id": self.task_id,
             "topic": task.topic,
             "domain": task.domain,
             "config": task.config,
-            "workspace": str(config.WORKSPACE_DIR / self.task_id),
+            "workspace": str(workspace),
         }
+        workspace.mkdir(parents=True, exist_ok=True)
 
-        # 确保工作目录存在
-        import os
-        os.makedirs(context["workspace"], exist_ok=True)
+        if self.start_module <= 1:
+            return context
+
+        review_path = workspace / "m1_literature_review.md"
+        sources_path = workspace / "m1_sources.json"
+        sources_payload = self._read_json(sources_path, {})
+        sources = sources_payload.get("sources", []) if isinstance(sources_payload, dict) else []
+        context["literature_review"] = self._read_text(review_path)
+        context["research_sources"] = sources
+        context["visited_urls"] = sources_payload.get("visited_urls", []) if isinstance(sources_payload, dict) else []
+        context["selected_papers"] = sources
+
+        if self.start_module <= 2:
+            return context
+
+        gap_path = workspace / "m2_gap_analysis.json"
+        gap_payload = self._read_json(gap_path, {})
+        context["research_gaps"] = gap_payload.get("gaps", []) if isinstance(gap_payload, dict) else []
+        ai_scientist_dir = workspace / "ai_scientist_workspace"
+        context["ai_scientist_dir"] = str(ai_scientist_dir)
+        context["prompt_json"] = self._read_json(ai_scientist_dir / "prompt.json", {})
+        context["seed_ideas"] = self._read_json(ai_scientist_dir / "seed_ideas.json", [])
+
+        if self.start_module <= 3:
+            return context
+
+        ideas_path = workspace / "m3_scored_ideas.json"
+        ideas_payload = self._read_json(ideas_path, {})
+        scored_ideas = ideas_payload.get("scored_ideas", []) if isinstance(ideas_payload, dict) else []
+        best_index = ideas_payload.get("best_idea_index", 0) if isinstance(ideas_payload, dict) else 0
+        best_index = best_index if 0 <= best_index < len(scored_ideas) else 0
+        context["scored_ideas"] = scored_ideas
+        context["best_idea_index"] = best_index
+        context["best_idea"] = scored_ideas[best_index] if scored_ideas else {}
+        context["all_ideas_raw"] = self._read_json(ai_scientist_dir / "ideas.json", [])
+
+        if self.start_module <= 4:
+            return context
+
+        project_dir = self._find_project_dir(workspace)
+        if project_dir:
+            context["project_dir"] = str(project_dir)
+            context["code_dir"] = str(project_dir)
+            context["code_files"] = [
+                os.path.relpath(os.path.join(root, filename), str(project_dir))
+                for root, dirs, files in os.walk(project_dir)
+                for filename in files
+                if ".git" not in Path(root).parts and not any(part.startswith("run_") for part in Path(root).parts)
+            ]
+            baseline_path = project_dir / "run_0" / "final_info.json"
+            context["baseline_results"] = self._read_json(baseline_path, {})
+            context["run_command"] = "python experiment.py --out_dir=run_1"
+
+        if self.start_module <= 5:
+            return context
+
+        plan_path = workspace / "m5_experiment_plan.json"
+        plan_payload = self._read_json(plan_path, {})
+        context["experiment_plan"] = plan_payload
+        context["experiments"] = plan_payload.get("experiments", []) if isinstance(plan_payload, dict) else []
+        context["max_runs"] = plan_payload.get("total_runs_planned", 5) if isinstance(plan_payload, dict) else 5
+
+        if self.start_module <= 6:
+            return context
+
+        results_path = workspace / "m6_experiment_results.json"
+        results_payload = self._read_json(results_path, {})
+        experiment_results = results_payload.get("results", []) if isinstance(results_payload, dict) else []
+        context["experiment_results"] = experiment_results
+        context["experiment_full_data"] = self._read_json(workspace / "experiment_data.json", {})
+        if project_dir and (project_dir / "figures").exists():
+            context["figure_paths"] = [
+                str(path) for path in sorted((project_dir / "figures").glob("*")) if path.is_file()
+            ]
+
+        if self.start_module <= 7:
+            return context
+
+        analysis_path = workspace / "m7_analysis.json"
+        analysis_payload = self._read_json(analysis_path, {})
+        context["analysis_data"] = analysis_payload if isinstance(analysis_payload, dict) else {}
+        context["analysis_passed"] = bool(context["analysis_data"].get("passed", False))
+        context["key_findings"] = context["analysis_data"].get("key_findings", [])
+        context["analysis_report"] = self._read_text(workspace / "m7_analysis_report.md")
+        context["all_run_results"] = self._load_run_results(project_dir, experiment_results)
+
+        if self.start_module <= 8:
+            return context
+
+        paper_dir = workspace / "paper"
+        if paper_dir.exists():
+            context["paper_dir"] = str(paper_dir)
+            if (paper_dir / "paper.tex").exists():
+                context["paper_latex"] = str(paper_dir / "paper.tex")
+            if (paper_dir / "paper.pdf").exists():
+                context["paper_pdf"] = str(paper_dir / "paper.pdf")
+
+        return context
+
+    async def _run_linear_modules(self, context: dict, start_module: int, end_module: int) -> dict:
+        for module_number in range(start_module, end_module + 1):
+            mod = self.modules[module_number - 1]
+
+            if self.state.is_aborted:
+                await self.state.set_status("aborted")
+                return context
+
+            await self.state.wait_if_paused()
+
+            await self.state.set_progress(module_number, mod.name, 10)
+            await self.tracer.log(module_number, "start", f"开始{mod.name}")
+            self.tracer.step_start()
+
+            context = await mod.execute(context, self.tracer, self.state)
+
+            await self.state.set_progress(module_number, mod.name, 100)
+            await self.tracer.log(
+                module_number,
+                "done",
+                f"{mod.name} 完成",
+                duration_ms=self.tracer.step_elapsed_ms(),
+            )
+
+        return context
+
+    async def run(self):
+        await self.state.set_status("running")
+        task = await self._load_task()
+        if not task:
+            return
+
+        context = self._restore_context(task)
 
         try:
-            # M1 → M6: 顺序执行
-            for i, mod in enumerate(self.modules[:6], start=1):
-                if self.state.is_aborted:
-                    await self.state.set_status("aborted")
-                    return
+            if self.start_module <= 6:
+                context = await self._run_linear_modules(context, self.start_module, 6)
 
-                await self.state.wait_if_paused()
-
-                # 设置初始进度 (每个模块占 ~11%)
-                await self.state.set_progress(i, mod.name, 10)
-                await self.tracer.log(i, "start", f"开始 {mod.name}")
-                self.tracer.step_start()
-
-                context = await mod.execute(context, self.tracer, self.state)
-
-                # 模块完成后设进度为 100
-                await self.state.set_progress(i, mod.name, 100)
-                await self.tracer.log(i, "done", f"{mod.name} 完成",
-                                      duration_ms=self.tracer.step_elapsed_ms())
-
-            # M6→M7 循环(结果不达标可回退)
             max_retries = context.get("config", {}).get(
                 "max_retries", config.DEFAULT_EXPERIMENT_RETRIES
             )
 
-            while True:
-                if self.state.is_aborted:
-                    await self.state.set_status("aborted")
-                    return
+            if self.start_module <= 7:
+                while True:
+                    if self.state.is_aborted:
+                        await self.state.set_status("aborted")
+                        return
 
-                await self.state.wait_if_paused()
+                    await self.state.wait_if_paused()
 
-                # M7: 结果分析
-                mod7 = self.modules[6]
-                await self.state.set_progress(7, mod7.name, 10)
-                await self.tracer.log(7, "start", f"开始 {mod7.name}")
-                self.tracer.step_start()
+                    mod7 = self.modules[6]
+                    await self.state.set_progress(7, mod7.name, 10)
+                    await self.tracer.log(7, "start", f"开始{mod7.name}")
+                    self.tracer.step_start()
 
-                context = await mod7.execute(context, self.tracer, self.state)
+                    context = await mod7.execute(context, self.tracer, self.state)
 
-                await self.state.set_progress(7, mod7.name, 100)
-                await self.tracer.log(7, "done", f"{mod7.name} 完成",
-                                      duration_ms=self.tracer.step_elapsed_ms())
+                    await self.state.set_progress(7, mod7.name, 100)
+                    await self.tracer.log(
+                        7,
+                        "done",
+                        f"{mod7.name} 完成",
+                        duration_ms=self.tracer.step_elapsed_ms(),
+                    )
 
-                # 检查是否达标
-                if context.get("analysis_passed", False):
-                    break
+                    if context.get("analysis_passed", False):
+                        break
 
-                retry_count = await self.state.increment_retry()
-                if retry_count >= max_retries:
-                    await self.tracer.log(7, "max_retries",
-                                          f"已达最大重试次数 {max_retries}，使用当前结果继续",
-                                          level="warn")
-                    break
+                    retry_count = await self.state.increment_retry()
+                    if retry_count >= max_retries:
+                        await self.tracer.log(
+                            7,
+                            "max_retries",
+                            f"已达最大重试次数 {max_retries}，使用当前结果继续",
+                            level="warn",
+                        )
+                        break
 
-                await self.tracer.log(7, "retry",
-                                      f"结果未达标，回退到M6重新实验 (第{retry_count}次重试)",
-                                      level="warn")
+                    await self.tracer.log(
+                        7,
+                        "retry",
+                        f"结果未达标，回退到 M6 重新实验（第 {retry_count} 次重试）",
+                        level="warn",
+                    )
 
-                # 回退到M6
-                mod6 = self.modules[5]
-                await self.state.set_progress(6, mod6.name, 55)
-                context = await mod6.execute(context, self.tracer, self.state)
+                    mod6 = self.modules[5]
+                    await self.state.set_progress(6, mod6.name, 55)
+                    await self.tracer.log(6, "start", f"重新开始{mod6.name}")
+                    self.tracer.step_start()
+                    context = await mod6.execute(context, self.tracer, self.state)
+                    await self.state.set_progress(6, mod6.name, 100)
+                    await self.tracer.log(
+                        6,
+                        "done",
+                        f"{mod6.name} 完成",
+                        duration_ms=self.tracer.step_elapsed_ms(),
+                    )
 
-            # M8: 论文写作
-            if not self.state.is_aborted:
-                mod8 = self.modules[7]
-                await self.state.set_progress(8, mod8.name, 10)
-                await self.tracer.log(8, "start", f"开始 {mod8.name}")
-                self.tracer.step_start()
-                context = await mod8.execute(context, self.tracer, self.state)
-                await self.state.set_progress(8, mod8.name, 100)
-                await self.tracer.log(8, "done", f"{mod8.name} 完成",
-                                      duration_ms=self.tracer.step_elapsed_ms())
+            if self.start_module <= 8 and not self.state.is_aborted:
+                context = await self._run_linear_modules(context, 8, 8)
 
-            # M9: 评审打分
-            if not self.state.is_aborted:
-                mod9 = self.modules[8]
-                await self.state.set_progress(9, mod9.name, 10)
-                await self.tracer.log(9, "start", f"开始 {mod9.name}")
-                self.tracer.step_start()
-                context = await mod9.execute(context, self.tracer, self.state)
-                await self.state.set_progress(9, mod9.name, 100)
-                await self.tracer.log(9, "done", f"{mod9.name} 完成",
-                                      duration_ms=self.tracer.step_elapsed_ms())
+            if self.start_module <= 9 and not self.state.is_aborted:
+                context = await self._run_linear_modules(context, 9, 9)
 
-            # 完成
+            if self.state.is_aborted:
+                await self.state.set_status("aborted")
+                return
+
             await self.state.set_progress(9, "completed", 100)
             await self.state.set_status("completed")
             await self.tracer.mark_completed()
 
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             await self.tracer.log_error(0, "pipeline_error", error_msg)
             await self.state.set_status("failed")

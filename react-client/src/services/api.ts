@@ -1,6 +1,10 @@
 import type {
   BackendArtifactContentResponse,
   BackendArtifactEntry,
+  BackendChatMessageCreateRequest,
+  BackendChatMessageSendResponse,
+  BackendChatSessionDetailResponse,
+  BackendChatSessionResponse,
   BackendLogEntryResponse,
   BackendRepoFileResponse,
   BackendRepoTreeNode,
@@ -17,6 +21,8 @@ import type {
 import { resolveApiBase, resolveBackendAccessToken } from './preferences';
 
 const REQUEST_TIMEOUT_MS = 20000;
+const responseCache = new Map<string, unknown>();
+const pendingRequestCache = new Map<string, Promise<unknown>>();
 
 export class ApiError extends Error {
   status: number;
@@ -33,44 +39,120 @@ function buildUrl(path: string) {
   return `${apiBase}${path}`;
 }
 
+function buildRequestCacheKey(path: string, method: string, authorizationHeader: string) {
+  return `${method.toUpperCase()}::${buildUrl(path)}::${authorizationHeader}`;
+}
+
+function clearResolvedApiCache(predicate?: (key: string) => boolean) {
+  for (const key of responseCache.keys()) {
+    if (!predicate || predicate(key)) {
+      responseCache.delete(key);
+    }
+  }
+
+  for (const key of pendingRequestCache.keys()) {
+    if (!predicate || predicate(key)) {
+      pendingRequestCache.delete(key);
+    }
+  }
+}
+
+export function clearApiCache() {
+  clearResolvedApiCache();
+}
+
+export function clearTaskApiCache(taskId: string) {
+  if (!taskId) {
+    return;
+  }
+
+  clearResolvedApiCache((key) => key.includes(`/tasks/${taskId}`) || key.includes(`/files/${taskId}/`));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const apiKey = resolveBackendAccessToken();
   const authorizationHeader = apiKey
     ? apiKey.toLowerCase().startsWith('bearer ')
       ? apiKey
       : `Bearer ${apiKey}`
     : '';
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const shouldCache = method === 'GET' && !init?.body;
+  const cacheKey = shouldCache ? buildRequestCacheKey(path, method, authorizationHeader) : '';
+
+  if (cacheKey && responseCache.has(cacheKey)) {
+    return responseCache.get(cacheKey) as T;
+  }
+
+  if (cacheKey && pendingRequestCache.has(cacheKey)) {
+    return (await pendingRequestCache.get(cacheKey)) as T;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  const fetchRequest = (async () => {
+    try {
+      const response = await fetch(buildUrl(path), {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
+          ...(init?.headers ?? {}),
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new ApiError(errorText || `Request failed with status ${response.status}`, response.status);
+      }
+
+      if (response.status === 204) {
+        return undefined as T;
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        return (await response.json()) as T;
+      }
+
+      return (await response.text()) as T;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  })();
+
+  if (cacheKey) {
+    pendingRequestCache.set(cacheKey, fetchRequest);
+  }
 
   try {
-    const response = await fetch(buildUrl(path), {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
-        ...(init?.headers ?? {}),
-      },
-      signal: controller.signal,
-    });
+    const result = await fetchRequest;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new ApiError(errorText || `Request failed with status ${response.status}`, response.status);
+    if (cacheKey) {
+      responseCache.set(cacheKey, result);
+    } else {
+      clearResolvedApiCache();
     }
 
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    const contentType = response.headers.get('content-type') ?? '';
-    if (contentType.includes('application/json')) {
-      return (await response.json()) as T;
-    }
-
-    return (await response.text()) as T;
+    return result;
   } finally {
-    window.clearTimeout(timeoutId);
+    if (cacheKey) {
+      pendingRequestCache.delete(cacheKey);
+    }
+  }
+}
+
+async function requestOptional<T>(path: string, init?: RequestInit): Promise<T | null> {
+  try {
+    return await request<T>(path, init);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+
+    throw error;
   }
 }
 
@@ -87,6 +169,36 @@ export async function createTask(payload: BackendTaskCreateRequest) {
       config: payload.config ?? {},
     }),
   });
+}
+
+export async function getChatSessions() {
+  return request<BackendChatSessionResponse[]>('/chat/sessions');
+}
+
+export async function createChatSession(title = '') {
+  return request<BackendChatSessionDetailResponse>('/chat/sessions', {
+    method: 'POST',
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function getChatSession(sessionId: string) {
+  return request<BackendChatSessionDetailResponse>(`/chat/sessions/${sessionId}`);
+}
+
+export async function sendChatMessage(sessionId: string, payload: BackendChatMessageCreateRequest) {
+  return request<BackendChatMessageSendResponse>(`/chat/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({
+      content: payload.content,
+      task_description: payload.task_description ?? '',
+      task_config: payload.task_config ?? {},
+    }),
+  });
+}
+
+export async function deleteChatSession(sessionId: string) {
+  return request<{ ok: boolean }>(`/chat/sessions/${sessionId}`, { method: 'DELETE' });
 }
 
 export async function getRuntimeSettings() {
@@ -119,6 +231,17 @@ export async function resumeTask(taskId: string) {
 
 export async function abortTask(taskId: string) {
   return request<BackendTaskResponse>(`/tasks/${taskId}/abort`, { method: 'POST' });
+}
+
+export async function restartTask(taskId: string) {
+  return requestOptional<BackendTaskResponse>(`/tasks/${taskId}/restart`, { method: 'POST' });
+}
+
+export async function resetTaskModule(taskId: string, moduleId: string) {
+  return requestOptional<BackendTaskResponse>(`/tasks/${taskId}/reset-module`, {
+    method: 'POST',
+    body: JSON.stringify({ module_id: moduleId }),
+  });
 }
 
 export async function deleteTask(taskId: string) {

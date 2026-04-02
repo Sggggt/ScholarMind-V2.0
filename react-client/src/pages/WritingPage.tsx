@@ -6,7 +6,7 @@ import { getArtifactContent, getTaskOutput } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
 export default function WritingPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const showToast = useWorkspaceStore((state) => state.showToast);
   const [writingSections, setWritingSections] = useState<Array<any>>([]);
   const [activeWritingSectionId, setActiveWritingSectionId] = useState('');
@@ -14,7 +14,7 @@ export default function WritingPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setWritingSections([]);
       setActiveWritingSectionId('');
       setPaperUrl(null);
@@ -27,8 +27,8 @@ export default function WritingPage() {
     const loadWritingArtifacts = async () => {
       try {
         const [texResponse, outputResponse] = await Promise.all([
-          getArtifactContent(currentSessionId, 'paper/paper.tex'),
-          getTaskOutput(currentSessionId).catch(() => ({ paper_url: null })),
+          getArtifactContent(currentTaskId, 'paper/paper.tex'),
+          getTaskOutput(currentTaskId).catch(() => ({ paper_url: null })),
         ]);
         if (cancelled) {
           return;
@@ -51,7 +51,7 @@ export default function WritingPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentTaskId]);
 
   const activeSection = useMemo(
     () => writingSections.find((section) => section.id === activeWritingSectionId) ?? writingSections[0],

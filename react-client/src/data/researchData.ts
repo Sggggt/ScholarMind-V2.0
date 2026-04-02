@@ -57,7 +57,7 @@ export const initialChatMessages: ChatMessage[] = [
     content:
       '已整理当前会话的研究脉络。趋势分析显示，联邦学习在数据异构与跨域泛化上存在方法断层，这个结果可以直接推进到研究缺口页面。',
     quickActions: [
-      { label: '进入领域探索', path: '/exploration', stageId: 'exploration' },
+      { label: '进入文献综述', path: '/literature', stageId: 'literature' },
       { label: '转到文献采集', path: '/literature', stageId: 'literature' },
       { label: '查看研究缺口', path: '/gaps', stageId: 'gaps' },
     ],

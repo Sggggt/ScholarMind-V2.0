@@ -6,13 +6,13 @@ import { getReviewReport } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
 export default function ValidationPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const [claims, setClaims] = useState<Array<any>>([]);
   const [resolvedClaimIds, setResolvedClaimIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setClaims([]);
       setResolvedClaimIds([]);
       setError(null);
@@ -23,7 +23,7 @@ export default function ValidationPage() {
 
     const loadReviewReport = async () => {
       try {
-        const report = await getReviewReport(currentSessionId);
+        const report = await getReviewReport(currentTaskId);
         if (cancelled) {
           return;
         }
@@ -41,7 +41,7 @@ export default function ValidationPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentTaskId]);
 
   const riskItems = useMemo(
     () =>

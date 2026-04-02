@@ -8,13 +8,13 @@ import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
 export default function ResearchGapsPage() {
   const navigate = useNavigate();
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const [gaps, setGaps] = useState<Array<any>>([]);
   const [activeGapId, setActiveGap] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setGaps([]);
       setActiveGap('');
       setError(null);
@@ -25,7 +25,7 @@ export default function ResearchGapsPage() {
 
     const loadGaps = async () => {
       try {
-        const response = await getArtifactContent(currentSessionId, 'm2_gap_analysis.json');
+        const response = await getArtifactContent(currentTaskId, 'm2_gap_analysis.json');
         if (cancelled) {
           return;
         }
@@ -45,7 +45,7 @@ export default function ResearchGapsPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentTaskId]);
 
   const activeGap = useMemo(() => gaps.find((gap) => gap.id === activeGapId) ?? gaps[0], [activeGapId, gaps]);
 

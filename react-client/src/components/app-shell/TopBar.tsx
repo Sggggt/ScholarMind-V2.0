@@ -20,6 +20,7 @@ export default function TopBar() {
   const currentStage = useWorkspaceStore((state) => state.currentStage);
   const isWebSocketConnected = useWorkspaceStore((state) => state.isWebSocketConnected);
   const route = routeMeta.find((item) => item.path === location.pathname);
+  const currentStageRoute = routeMeta.find((item) => item.id === currentStage);
 
   return (
     <header className="topbar">
@@ -38,7 +39,7 @@ export default function TopBar() {
           <span className="topbar-divider" />
           <span>{currentTask?.current_module ?? '未选择任务'}</span>
           <span className="topbar-divider" />
-          <span>{route?.section === 'workflow' ? route.title : currentStage}</span>
+          <span>{route?.section === 'workflow' ? route.title : currentStageRoute?.title ?? currentStage}</span>
         </div>
       </div>
 

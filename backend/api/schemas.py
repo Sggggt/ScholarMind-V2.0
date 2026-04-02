@@ -23,6 +23,17 @@ def module_int_to_id(n: int) -> str:
     return f"M{max(n, 1)}"
 
 
+def module_id_to_int(module_id: str) -> int:
+    normalized = (module_id or "").strip().upper()
+    if not normalized.startswith("M"):
+        raise ValueError(f"Invalid module id: {module_id}")
+
+    value = int(normalized[1:])
+    if value < 1 or value > 9:
+        raise ValueError(f"Invalid module id: {module_id}")
+    return value
+
+
 class TaskCreateRequest(BaseModel):
     topic: str = Field(..., description="Research topic")
     description: str = Field("", description="Extra description")
@@ -32,6 +43,20 @@ class TaskCreateRequest(BaseModel):
 class TaskReviewRequest(BaseModel):
     action: str = Field(..., description="approve / reject / revise")
     comment: str = Field("", description="Human review comment")
+
+
+class TaskModuleResetRequest(BaseModel):
+    module_id: str = Field(..., description="Target module id, e.g. M3")
+
+
+class ChatSessionCreateRequest(BaseModel):
+    title: str = Field("", description="Optional session title")
+
+
+class ChatMessageCreateRequest(BaseModel):
+    content: str = Field(..., description="User message content")
+    task_description: str = Field("", description="Optional generated task description")
+    task_config: dict = Field(default_factory=dict, description="Optional task config overrides")
 
 
 class RuntimeSettingsRequest(BaseModel):
@@ -73,6 +98,41 @@ class TaskResponse(BaseModel):
     updated_at: str
     completed_at: Optional[str] = None
     output_url: Optional[str] = None
+
+
+class ChatMessageResponse(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    kind: str = "text"
+    content: str = ""
+    created_at: str
+    metadata: dict = Field(default_factory=dict)
+
+
+class ChatSessionResponse(BaseModel):
+    id: str
+    title: str
+    summary: str = ""
+    task_id: Optional[str] = None
+    task_status: Optional[str] = None
+    created_at: str
+    updated_at: str
+    last_message_preview: str = ""
+
+
+class ChatSessionDetailResponse(BaseModel):
+    session: ChatSessionResponse
+    messages: list[ChatMessageResponse] = []
+    task: Optional[TaskResponse] = None
+
+
+class ChatMessageSendResponse(BaseModel):
+    session: ChatSessionResponse
+    user_message: ChatMessageResponse
+    assistant_message: ChatMessageResponse
+    task: Optional[TaskResponse] = None
+    task_created: bool = False
 
 
 class LogEntryResponse(BaseModel):

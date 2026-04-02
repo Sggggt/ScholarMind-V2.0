@@ -15,6 +15,7 @@ import re
 import subprocess
 import shutil
 import asyncio
+import textwrap
 
 from modules.base import BaseModule
 from modules.llm_client import call_llm
@@ -205,7 +206,9 @@ class PaperWritingModule(BaseModule):
         tracer.step_start()
         await tracer.log(8, "assemble", "组装完整 LaTeX 文档")
 
-        full_latex = self._assemble_paper(idea_title, sections_latex, bib_entries)
+        full_latex = self._normalize_latex_for_compilation(
+            self._assemble_paper(idea_title, sections_latex, bib_entries)
+        )
 
         tex_path = os.path.join(paper_dir, "paper.tex")
         with open(tex_path, "w", encoding="utf-8") as f:
@@ -572,8 +575,6 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 
     def _assemble_paper(self, title: str, sections: dict, bib_entries: list) -> str:
         """组装完整 LaTeX 文档"""
-        bib_content = "\n\n".join(bib_entries)
-
         return f"""\\documentclass[11pt]{{article}}
 \\usepackage[utf8]{{inputenc}}
 \\usepackage{{amsmath,amssymb,amsfonts}}
@@ -581,15 +582,11 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 \\usepackage{{booktabs}}
 \\usepackage{{hyperref}}
 \\usepackage{{natbib}}
-\\usepackage{{algorithm}}
-\\usepackage{{algorithmic}}
 \\usepackage[margin=1in]{{geometry}}
 \\usepackage{{xcolor}}
-
-\\usepackage{{filecontents}}
-\\begin{{filecontents}}{{references.bib}}
-{bib_content}
-\\end{{filecontents}}
+\\usepackage{{tikz}}
+\\usepackage{{pgfplots}}
+\\pgfplotsset{{compat=1.18}}
 
 \\title{{{title}}}
 \\author{{AI Research Agent}}
@@ -617,6 +614,74 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 \\end{{document}}
 """
 
+    def _normalize_latex_for_compilation(self, latex: str) -> str:
+        """Rewrite common LLM-generated LaTeX patterns into a leaner compilable subset."""
+        normalized = latex.replace("\\usepackage{algorithm}\n", "")
+        normalized = normalized.replace("\\usepackage{algorithmic}\n", "")
+        normalized = normalized.replace("\\usepackage{filecontents}\n", "")
+        normalized = re.sub(
+            r"\\begin\{filecontents\}\{references\.bib\}.*?\\end\{filecontents\}\n*",
+            "",
+            normalized,
+            flags=re.DOTALL,
+        )
+        if "\\usepackage{tikz}\n" not in normalized:
+            normalized = normalized.replace(
+                "\\usepackage{xcolor}\n",
+                "\\usepackage{xcolor}\n\\usepackage{tikz}\n\\usepackage{pgfplots}\n\\pgfplotsset{compat=1.18}\n",
+            )
+
+        normalized = re.sub(r"\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}", r"\1", normalized)
+        normalized = re.sub(
+            r"\\begin\{algorithm\}\[[^\]]*\]",
+            r"\\begin{figure}[h]\n\\centering\n\\fbox{\\begin{minipage}{0.92\\linewidth}\\small",
+            normalized,
+        )
+        normalized = re.sub(r"\\end\{algorithm\}", r"\\end{minipage}}\n\\end{figure}", normalized)
+        normalized = re.sub(r"\\begin\{algorithmic\}\[[^\]]*\]", r"\\begin{flushleft}", normalized)
+        normalized = re.sub(r"\\end\{algorithmic\}", r"\\end{flushleft}", normalized)
+        normalized = re.sub(r"\\STATE\s*", r"\\par ", normalized)
+        normalized = re.sub(r"\\FOR\{([^}]*)\}", r"\\par \\textbf{For:} \1", normalized)
+        normalized = re.sub(r"\\ENDFOR", "", normalized)
+        normalized = re.sub(r"\\IF\{([^}]*)\}", r"\\par \\textbf{If:} \1", normalized)
+        normalized = re.sub(r"\\ELSE", r"\\par \\textbf{Else}", normalized)
+        normalized = re.sub(r"\\ENDIF", "", normalized)
+        normalized = re.sub(r"\\WHILE\{([^}]*)\}", r"\\par \\textbf{While:} \1", normalized)
+        normalized = re.sub(r"\\ENDWHILE", "", normalized)
+        normalized = re.sub(r"\\RETURN\{([^}]*)\}", r"\\par \\textbf{Return:} \1", normalized)
+        normalized = re.sub(r"\\REQUIRE\s*", r"\\par \\textbf{Input:} ", normalized)
+        normalized = re.sub(r"\\ENSURE\s*", r"\\par \\textbf{Output:} ", normalized)
+        return self._normalize_tabular_columns(normalized)
+
+    def _normalize_tabular_columns(self, latex: str) -> str:
+        """Expand tabular column specs to match the widest row and avoid alignment errors."""
+
+        def replace_tabular(match: re.Match[str]) -> str:
+            body = match.group("body")
+            max_cols = 0
+
+            for raw_line in body.splitlines():
+                line = raw_line.split("%", 1)[0].strip()
+                if not line or line.startswith(("\\toprule", "\\midrule", "\\bottomrule", "\\cmidrule")):
+                    continue
+                if "&" not in line:
+                    continue
+                col_count = len(re.findall(r"(?<!\\)&", line)) + 1
+                max_cols = max(max_cols, col_count)
+
+            if max_cols <= 0:
+                return match.group(0)
+
+            new_spec = "l" + "c" * (max_cols - 1)
+            return f"\\begin{{tabular}}{{{new_spec}}}{body}\\end{{tabular}}"
+
+        return re.sub(
+            r"\\begin\{tabular\}\{[^}]*\}(?P<body>.*?)\\end\{tabular\}",
+            replace_tabular,
+            latex,
+            flags=re.DOTALL,
+        )
+
     async def _compile_latex(self, paper_dir: str, tracer: Tracer) -> str | None:
         """编译 LaTeX → PDF"""
         commands = [
@@ -641,4 +706,149 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
             return pdf_path
 
         await tracer.log(8, "compile_pdf", "PDF 编译失败", level="warn")
+        tex_path = os.path.join(paper_dir, "paper.tex")
+        if os.path.exists(tex_path):
+            fallback_text = self._latex_to_plain_text(tex_path)
+            if fallback_text:
+                self._create_fallback_pdf(pdf_path, fallback_text)
+                await tracer.log(8, "compile_pdf", "Generated fallback PDF preview")
+                return pdf_path
+
         return None
+
+    def _latex_to_plain_text(self, tex_path: str) -> str:
+        """Convert LaTeX source into readable plain text for preview PDF fallback."""
+        with open(tex_path, "r", encoding="utf-8", errors="ignore") as handle:
+            content = handle.read()
+
+        content = re.sub(r"(?m)^%.*$", "", content)
+        content = re.sub(r"\\begin\{filecontents\}.*?\\end\{filecontents\}", "", content, flags=re.DOTALL)
+        content = re.sub(r"\\bibliographystyle\{.*?\}", "", content)
+        content = re.sub(r"\\bibliography\{.*?\}", "", content)
+        content = re.sub(r"\\documentclass(?:\[[^\]]*\])?\{.*?\}", "", content)
+        content = re.sub(r"\\usepackage(?:\[[^\]]*\])?\{.*?\}", "", content)
+        content = re.sub(r"\\title\{(.*?)\}", r"Title: \1", content, flags=re.DOTALL)
+        content = re.sub(r"\\author\{(.*?)\}", r"Author: \1", content, flags=re.DOTALL)
+        content = re.sub(r"\\date\{(.*?)\}", r"Date: \1", content, flags=re.DOTALL)
+        content = re.sub(r"\\maketitle", "", content)
+        content = re.sub(r"\\section\*?\{(.*?)\}", r"\n\n\1\n", content)
+        content = re.sub(r"\\subsection\*?\{(.*?)\}", r"\n\n\1\n", content)
+        content = re.sub(r"\\subsubsection\*?\{(.*?)\}", r"\n\n\1\n", content)
+        content = re.sub(r"\\begin\{itemize\}|\\end\{itemize\}|\\begin\{enumerate\}|\\end\{enumerate\}", "", content)
+        content = re.sub(r"\\item", "\n- ", content)
+        content = re.sub(r"\\cite[tp]?\{.*?\}", "[citation]", content)
+        content = re.sub(r"\\ref\{.*?\}", "[ref]", content)
+        content = re.sub(r"\\label\{.*?\}", "", content)
+        content = re.sub(r"\\(?:begin|end)\{.*?\}", "", content)
+        content = re.sub(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?(?:\{.*?\})?", "", content)
+        content = content.replace("{", "").replace("}", "").replace("~", " ")
+        content = re.sub(r"[ \t]+", " ", content)
+        content = re.sub(r"\n\s*\n\s*\n+", "\n\n", content)
+
+        lines = [line.strip() for line in content.splitlines()]
+        return "\n".join(line for line in lines if line).strip()
+
+    def _create_fallback_pdf(self, pdf_path: str, plain_text: str) -> None:
+        """Write a minimal PDF so the UI always has a previewable artifact."""
+        page_width = 612
+        page_height = 792
+        margin = 54
+        font_size = 11
+        line_height = 15
+        usable_width = page_width - margin * 2
+        average_char_width = font_size * 0.52
+        wrap_width = max(40, int(usable_width / average_char_width))
+
+        paragraphs = []
+        for block in plain_text.split("\n\n"):
+            stripped = block.strip()
+            if not stripped:
+                continue
+            wrapped = textwrap.wrap(
+                stripped,
+                width=wrap_width,
+                break_long_words=False,
+                replace_whitespace=False,
+            )
+            paragraphs.extend(wrapped or [""])
+            paragraphs.append("")
+        if paragraphs and paragraphs[-1] == "":
+            paragraphs.pop()
+
+        pages = []
+        current_lines = []
+        max_lines = max(1, int((page_height - margin * 2) / line_height))
+        for line in paragraphs or ["Preview unavailable."]:
+            if len(current_lines) >= max_lines:
+                pages.append(current_lines)
+                current_lines = []
+            current_lines.append(line)
+        if current_lines:
+            pages.append(current_lines)
+
+        objects = []
+
+        def add_object(payload: bytes) -> int:
+            objects.append(payload)
+            return len(objects)
+
+        font_id = add_object(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        page_ids = []
+
+        for page_lines in pages:
+            commands = ["BT", f"/F1 {font_size} Tf"]
+            y = page_height - margin
+            for line in page_lines:
+                escaped = (
+                    line.replace("\\", "\\\\")
+                    .replace("(", "\\(")
+                    .replace(")", "\\)")
+                )
+                commands.append(f"1 0 0 1 {margin} {y} Tm ({escaped}) Tj")
+                y -= line_height
+            commands.append("ET")
+            stream = "\n".join(commands).encode("latin-1", errors="replace")
+            content_id = add_object(
+                b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream"
+            )
+            page_id = add_object(
+                (
+                    f"<< /Type /Page /Parent 0 0 R /MediaBox [0 0 {page_width} {page_height}] "
+                    f"/Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+                ).encode("ascii")
+            )
+            page_ids.append(page_id)
+
+        kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
+        pages_id = add_object(f"<< /Type /Pages /Kids [{kids}] /Count {len(page_ids)} >>".encode("ascii"))
+
+        for page_id in page_ids:
+            objects[page_id - 1] = objects[page_id - 1].replace(
+                b"/Parent 0 0 R",
+                f"/Parent {pages_id} 0 R".encode("ascii"),
+            )
+
+        catalog_id = add_object(f"<< /Type /Catalog /Pages {pages_id} 0 R >>".encode("ascii"))
+
+        pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+        offsets = [0]
+        for obj_id, payload in enumerate(objects, start=1):
+            offsets.append(len(pdf))
+            pdf.extend(f"{obj_id} 0 obj\n".encode("ascii"))
+            pdf.extend(payload)
+            pdf.extend(b"\nendobj\n")
+
+        xref_offset = len(pdf)
+        pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+        pdf.extend(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+        pdf.extend(
+            (
+                f"trailer\n<< /Size {len(objects) + 1} /Root {catalog_id} 0 R >>\n"
+                f"startxref\n{xref_offset}\n%%EOF\n"
+            ).encode("ascii")
+        )
+
+        with open(pdf_path, "wb") as handle:
+            handle.write(pdf)

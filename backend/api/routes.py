@@ -1,46 +1,53 @@
-"""REST API 路由 — 与前端类型完全对齐"""
+"""REST API routes aligned with the frontend client."""
 
-from typing import Optional, List
-import asyncio
-import os
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
 import json
 import mimetypes
-from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Query
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 import config
-from db.database import get_db
-from db.models import Task, TraceLog, TaskOutput
 from api.schemas import (
+    ChatMessageCreateRequest,
+    ChatSessionCreateRequest,
     RuntimeSettingsRequest,
-    RuntimeSettingsResponse,
-    TaskCreateRequest, TaskReviewRequest,
-    TaskResponse, ModuleProgress, LogEntryResponse,
-    TaskOutputResponse, ReviewResultResponse, ReviewDimension,
-    module_int_to_id, MODULE_NAMES,
+    TaskCreateRequest,
+    TaskModuleResetRequest,
+    TaskReviewRequest,
+    MODULE_NAMES,
+    module_id_to_int,
+    module_int_to_id,
 )
 from api.ws import manager
-from pipeline.orchestrator import PipelineOrchestrator
+from db.database import get_db
+from db.models import ChatMessage, ChatSession, Task, TraceLog
+from services.conversation_service import create_chat_session, process_user_message
+from services.task_service import (
+    abort_task_execution,
+    create_task_and_start,
+    delete_task_with_dependencies,
+    get_running_orchestrator,
+    pause_task_execution,
+    restart_task_execution,
+    resume_task_execution,
+)
 
 router = APIRouter(prefix="/api")
 
-# 存储运行中的任务 orchestrator 引用
-_running: dict[str, PipelineOrchestrator] = {}
-
-
-# ── 工具函数 ─────────────────────────────────────────
 
 def _task_to_response(task: Task) -> dict:
-    """将 DB Task 转为前端期望的格式"""
     current_mod = task.current_module or 0
-
-    # 构建 modules 数组 (M1-M9)
     modules = []
+
     for i in range(1, 10):
-        mid = f"M{i}"
         if i < current_mod:
             status = "completed"
             percent = 100
@@ -51,25 +58,26 @@ def _task_to_response(task: Task) -> dict:
             status = "waiting"
             percent = 0
 
-        # 如果任务已完成/失败/终止，调整所有模块状态
-        if task.status in ("completed",):
+        if task.status == "completed":
             status = "completed"
             percent = 100
-        elif task.status in ("failed", "aborted") and i > current_mod:
+        elif task.status in {"failed", "aborted"} and i > current_mod:
             status = "waiting"
             percent = 0
-        elif task.status in ("failed",) and i == current_mod:
+        elif task.status == "failed" and i == current_mod:
             status = "failed"
 
-        modules.append({
-            "module_id": mid,
-            "status": status,
-            "percent": percent,
-            "step": task.current_step if i == current_mod else "",
-            "message": MODULE_NAMES.get(i, ""),
-            "started_at": None,
-            "finished_at": None,
-        })
+        modules.append(
+            {
+                "module_id": f"M{i}",
+                "status": status,
+                "percent": percent,
+                "step": task.current_step if i == current_mod else "",
+                "message": MODULE_NAMES.get(i, ""),
+                "started_at": None,
+                "finished_at": None,
+            }
+        )
 
     return {
         "id": task.id,
@@ -87,7 +95,6 @@ def _task_to_response(task: Task) -> dict:
 
 
 def _log_to_response(log: TraceLog) -> dict:
-    """将 DB TraceLog 转为前端期望的格式"""
     return {
         "id": str(log.id),
         "task_id": log.task_id,
@@ -104,10 +111,47 @@ def _log_to_response(log: TraceLog) -> dict:
     }
 
 
-def _get_task_workspace(task_id: str) -> Path:
-    import config as cfg
+def _chat_message_to_response(message: ChatMessage) -> dict:
+    return {
+        "id": str(message.id),
+        "session_id": message.session_id,
+        "role": message.role,
+        "kind": message.kind or "text",
+        "content": message.content or "",
+        "created_at": message.created_at.isoformat() if message.created_at else "",
+        "metadata": message.extra_data or {},
+    }
 
-    workspace = (cfg.WORKSPACE_DIR / task_id).resolve()
+
+def _chat_session_to_response(session: ChatSession) -> dict:
+    last_message = session.messages[-1] if session.messages else None
+    return {
+        "id": session.id,
+        "title": session.title,
+        "summary": session.summary or "",
+        "task_id": session.task_id,
+        "task_status": session.task.status if session.task else None,
+        "created_at": session.created_at.isoformat() if session.created_at else "",
+        "updated_at": session.updated_at.isoformat() if session.updated_at else "",
+        "last_message_preview": last_message.content[:160] if last_message else "",
+    }
+
+
+async def _get_chat_session_or_404(db: AsyncSession, session_id: str) -> ChatSession:
+    stmt = (
+        select(ChatSession)
+        .where(ChatSession.id == session_id)
+        .options(selectinload(ChatSession.messages), selectinload(ChatSession.task))
+    )
+    result = await db.execute(stmt)
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    return session
+
+
+def _get_task_workspace(task_id: str) -> Path:
+    workspace = (config.WORKSPACE_DIR / task_id).resolve()
     if not workspace.exists():
         raise HTTPException(404, "任务工作区不存在")
     return workspace
@@ -147,8 +191,7 @@ def _infer_module_name(path: Path) -> str:
 
 def _find_repo_root(workspace: Path) -> Optional[Path]:
     candidates = sorted(
-        path for path in workspace.iterdir()
-        if path.is_dir() and path.name.startswith("project")
+        path for path in workspace.iterdir() if path.is_dir() and path.name.startswith("project")
     )
     return candidates[0] if candidates else None
 
@@ -171,26 +214,97 @@ def _build_repo_tree(root: Path, current: Path) -> dict:
     }
 
 
-# ── 任务 CRUD ─────────────────────────────────────────
-
 @router.post("/tasks")
 async def create_task(req: TaskCreateRequest, db: AsyncSession = Depends(get_db)):
-    task = Task(
-        title=req.topic[:50],
+    task = await create_task_and_start(
+        db,
         topic=req.topic,
-        domain=req.description,
+        description=req.description,
         config=req.config,
+        title=req.topic[:50],
     )
-    db.add(task)
-    await db.commit()
-    await db.refresh(task)
-
-    # 立即启动流水线(后台运行)
-    orch = PipelineOrchestrator(task.id)
-    _running[task.id] = orch
-    asyncio.create_task(_run_pipeline(orch, task.id))
-
     return _task_to_response(task)
+
+
+@router.get("/chat/sessions")
+async def list_chat_sessions(db: AsyncSession = Depends(get_db)):
+    stmt = (
+        select(ChatSession)
+        .order_by(ChatSession.updated_at.desc())
+        .options(selectinload(ChatSession.messages), selectinload(ChatSession.task))
+    )
+    result = await db.execute(stmt)
+    sessions = result.scalars().all()
+    return [_chat_session_to_response(session) for session in sessions]
+
+
+@router.post("/chat/sessions")
+async def create_new_chat_session(req: ChatSessionCreateRequest, db: AsyncSession = Depends(get_db)):
+    session = await create_chat_session(db, req.title)
+    session = await _get_chat_session_or_404(db, session.id)
+    return {
+        "session": _chat_session_to_response(session),
+        "messages": [_chat_message_to_response(message) for message in session.messages],
+        "task": _task_to_response(session.task) if session.task else None,
+    }
+
+
+@router.get("/chat/sessions/{session_id}")
+async def get_chat_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    session = await _get_chat_session_or_404(db, session_id)
+    return {
+        "session": _chat_session_to_response(session),
+        "messages": [_chat_message_to_response(message) for message in session.messages],
+        "task": _task_to_response(session.task) if session.task else None,
+    }
+
+
+@router.get("/chat/sessions/{session_id}/messages")
+async def list_chat_messages(session_id: str, db: AsyncSession = Depends(get_db)):
+    session = await _get_chat_session_or_404(db, session_id)
+    return [_chat_message_to_response(message) for message in session.messages]
+
+
+@router.post("/chat/sessions/{session_id}/messages")
+async def send_chat_message(
+    session_id: str,
+    req: ChatMessageCreateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_chat_session_or_404(db, session_id)
+    user_message, assistant_message, task, task_created = await process_user_message(
+        db,
+        session=session,
+        content=req.content,
+        task_description=req.task_description,
+        task_config=req.task_config,
+    )
+    session = await _get_chat_session_or_404(db, session_id)
+    if task is not None:
+        task = await db.get(Task, task.id)
+
+    return {
+        "session": _chat_session_to_response(session),
+        "user_message": _chat_message_to_response(user_message),
+        "assistant_message": _chat_message_to_response(assistant_message),
+        "task": _task_to_response(task) if task else None,
+        "task_created": task_created,
+    }
+
+
+@router.delete("/chat/sessions/{session_id}")
+async def delete_chat_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    session = await _get_chat_session_or_404(db, session_id)
+    linked_task = session.task
+    await db.delete(session)
+    await db.commit()
+
+    if linked_task:
+        task = await db.get(Task, linked_task.id)
+        if task is not None:
+            await delete_task_with_dependencies(db, task)
+
+    return {"ok": True}
 
 
 @router.get("/settings/runtime")
@@ -203,13 +317,6 @@ async def update_runtime_settings(req: RuntimeSettingsRequest):
     return config.save_runtime_settings(req.model_dump())
 
 
-async def _run_pipeline(orch: PipelineOrchestrator, task_id: str):
-    try:
-        await orch.run()
-    finally:
-        _running.pop(task_id, None)
-
-
 @router.get("/tasks")
 async def list_tasks(
     status: Optional[str] = Query(None),
@@ -220,7 +327,7 @@ async def list_tasks(
         stmt = stmt.where(Task.status == status)
     result = await db.execute(stmt)
     tasks = result.scalars().all()
-    return [_task_to_response(t) for t in tasks]
+    return [_task_to_response(task) for task in tasks]
 
 
 @router.get("/tasks/{task_id}")
@@ -231,8 +338,6 @@ async def get_task(task_id: str, db: AsyncSession = Depends(get_db)):
     return _task_to_response(task)
 
 
-# ── 任务控制 ──────────────────────────────────────────
-
 @router.post("/tasks/{task_id}/pause")
 async def pause_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(Task, task_id)
@@ -240,10 +345,7 @@ async def pause_task(task_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "任务不存在")
     if task.status != "running":
         raise HTTPException(400, f"当前状态 {task.status} 无法暂停")
-    task.status = "paused"
-    if task_id in _running:
-        _running[task_id].pause()
-    await db.commit()
+    task = await pause_task_execution(db, task)
     return _task_to_response(task)
 
 
@@ -254,10 +356,7 @@ async def resume_task(task_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "任务不存在")
     if task.status != "paused":
         raise HTTPException(400, f"当前状态 {task.status} 无法恢复")
-    task.status = "running"
-    if task_id in _running:
-        _running[task_id].resume()
-    await db.commit()
+    task = await resume_task_execution(db, task)
     return _task_to_response(task)
 
 
@@ -266,10 +365,36 @@ async def abort_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(404, "任务不存在")
-    task.status = "aborted"
-    if task_id in _running:
-        _running[task_id].abort()
-    await db.commit()
+    task = await abort_task_execution(db, task)
+    return _task_to_response(task)
+
+
+@router.post("/tasks/{task_id}/restart")
+async def restart_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(404, "浠诲姟涓嶅瓨鍦?")
+
+    task = await restart_task_execution(db, task, start_module=task.current_module or 1)
+    return _task_to_response(task)
+
+
+@router.post("/tasks/{task_id}/reset-module")
+async def reset_task_module(
+    task_id: str,
+    req: TaskModuleResetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(404, "浠诲姟涓嶅瓨鍦?")
+
+    try:
+        module_number = module_id_to_int(req.module_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    task = await restart_task_execution(db, task, start_module=module_number)
     return _task_to_response(task)
 
 
@@ -278,56 +403,53 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(404, "任务不存在")
-    # Delete related logs and outputs
-    await db.execute(select(TraceLog).where(TraceLog.task_id == task_id).execution_options(synchronize_session=False))
-    from sqlalchemy import delete as sql_delete
-    await db.execute(sql_delete(TraceLog).where(TraceLog.task_id == task_id))
-    await db.execute(sql_delete(TaskOutput).where(TaskOutput.task_id == task_id))
-    await db.delete(task)
-    await db.commit()
+    await delete_task_with_dependencies(db, task)
     return {"ok": True}
 
-
-# ── 人工审阅 ──────────────────────────────────────────
 
 @router.post("/tasks/{task_id}/review")
 async def submit_review(task_id: str, req: TaskReviewRequest, db: AsyncSession = Depends(get_db)):
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(404, "任务不存在")
-    if task_id in _running:
+    orchestrator = get_running_orchestrator(task_id)
+    if orchestrator:
         approved = req.action == "approve"
-        await _running[task_id].submit_review(approved, req.comment)
+        await orchestrator.submit_review(approved, req.comment)
     return {"ok": True}
 
 
-# ── 评审结果 ──────────────────────────────────────────
-
 @router.get("/tasks/{task_id}/review-result")
 async def get_review_result(task_id: str, db: AsyncSession = Depends(get_db)):
-    """获取 M9 评审结果"""
-    # 从 workspace 查找评审报告
-    import config as cfg
-    workspace = os.path.join(cfg.WORKSPACE_DIR, task_id)
+    workspace = os.path.join(config.WORKSPACE_DIR, task_id)
     review_path = os.path.join(workspace, "m9_review_report.json")
 
     if os.path.exists(review_path):
-        with open(review_path) as f:
-            data = json.load(f)
+        with open(review_path, encoding="utf-8") as handle:
+            data = json.load(handle)
 
-        # 转换为前端期望的格式
         meta = data.get("meta_review", {})
         dimensions = []
-        for key in ["Soundness", "Presentation", "Contribution", "Originality",
-                     "Quality", "Clarity", "Significance", "LiteratureGrounding"]:
-            val = meta.get(key, 0) if meta else 0
-            if val:
-                dimensions.append({
-                    "name": key,
-                    "score": float(val),
-                    "max_score": 10.0 if key == "Overall" else 4.0,
-                    "comment": "",
-                })
+        for key in [
+            "Soundness",
+            "Presentation",
+            "Contribution",
+            "Originality",
+            "Quality",
+            "Clarity",
+            "Significance",
+            "LiteratureGrounding",
+        ]:
+            value = meta.get(key, 0) if meta else 0
+            if value:
+                dimensions.append(
+                    {
+                        "name": key,
+                        "score": float(value),
+                        "max_score": 10.0 if key == "Overall" else 4.0,
+                        "comment": "",
+                    }
+                )
 
         decision_map = {
             "Accept": "accept",
@@ -346,7 +468,6 @@ async def get_review_result(task_id: str, db: AsyncSession = Depends(get_db)):
             "created_at": "",
         }
 
-    # 没有评审结果
     return {
         "task_id": task_id,
         "overall_score": 0,
@@ -356,8 +477,6 @@ async def get_review_result(task_id: str, db: AsyncSession = Depends(get_db)):
         "created_at": "",
     }
 
-
-# ── 日志 ─────────────────────────────────────────────
 
 @router.get("/tasks/{task_id}/logs")
 async def get_logs(
@@ -382,37 +501,35 @@ async def get_logs(
     return [_log_to_response(log) for log in logs]
 
 
-# ── 产出物 ────────────────────────────────────────────
-
 @router.get("/tasks/{task_id}/output")
 async def get_outputs(task_id: str, db: AsyncSession = Depends(get_db)):
-    """获取产出物 — 返回前端期望的格式"""
-    import config as cfg
-    workspace = os.path.join(cfg.WORKSPACE_DIR, task_id)
+    workspace = os.path.join(config.WORKSPACE_DIR, task_id)
 
     paper_url = None
     code_url = None
     figures = []
 
-    # 查找论文
     paper_pdf = os.path.join(workspace, "paper", "paper.pdf")
     if os.path.exists(paper_pdf):
         paper_url = f"/api/files/{task_id}/paper/paper.pdf"
 
-    # 查找代码目录
-    project_dirs = [
-        d for d in os.listdir(workspace)
-        if os.path.isdir(os.path.join(workspace, d)) and d.startswith("project")
-    ] if os.path.exists(workspace) else []
+    project_dirs = (
+        [
+            directory
+            for directory in os.listdir(workspace)
+            if os.path.isdir(os.path.join(workspace, directory)) and directory.startswith("project")
+        ]
+        if os.path.exists(workspace)
+        else []
+    )
     if project_dirs:
         code_url = f"/api/files/{task_id}/{project_dirs[0]}"
 
-    # 查找图片
-    for root, dirs, files in os.walk(workspace):
-        for f in files:
-            if f.endswith(".png"):
-                rel = os.path.relpath(os.path.join(root, f), workspace)
-                figures.append(f"/api/files/{task_id}/{rel}")
+    for root, _, files in os.walk(workspace):
+        for filename in files:
+            if filename.endswith(".png"):
+                relative = os.path.relpath(os.path.join(root, filename), workspace)
+                figures.append(f"/api/files/{task_id}/{relative}")
 
     return {
         "paper_url": paper_url,
@@ -435,14 +552,16 @@ async def get_artifacts(task_id: str):
         content_type = _detect_content_type(path)
         url = f"/api/files/{task_id}/{relative.as_posix()}" if not content_type.startswith("application/json") else None
 
-        artifacts.append({
-            "path": relative.as_posix(),
-            "name": path.name,
-            "module": _infer_module_name(relative),
-            "content_type": content_type,
-            "size": path.stat().st_size,
-            "url": url,
-        })
+        artifacts.append(
+            {
+                "path": relative.as_posix(),
+                "name": path.name,
+                "module": _infer_module_name(relative),
+                "content_type": content_type,
+                "size": path.stat().st_size,
+                "url": url,
+            }
+        )
 
     return artifacts
 
@@ -503,28 +622,22 @@ async def get_repo_file(task_id: str, path: str = Query(...)):
 @router.get("/tasks/{task_id}/review-report")
 async def get_review_report(task_id: str):
     _, target = _resolve_workspace_path(task_id, "m9_review_report.json")
-    with open(target, encoding="utf-8") as f:
-        return json.load(f)
+    with open(target, encoding="utf-8") as handle:
+        return json.load(handle)
 
-
-# ── 文件服务 ──────────────────────────────────────────
 
 @router.get("/files/{task_id}/{file_path:path}")
 async def serve_file(task_id: str, file_path: str):
-    """静态文件服务 — 用于下载论文PDF等"""
-    import config as cfg
-    full_path = os.path.join(cfg.WORKSPACE_DIR, task_id, file_path)
+    full_path = os.path.join(config.WORKSPACE_DIR, task_id, file_path)
     if not os.path.exists(full_path) or not os.path.isfile(full_path):
         raise HTTPException(404, "文件不存在")
     return FileResponse(full_path)
 
 
-# ── SSH 配置与测试 ────────────────────────────────────
-
 @router.get("/ssh/status")
 async def ssh_status():
-    """检查 SSH 配置状态"""
     from modules.ssh_runner import ssh_runner
+
     return {
         "enabled": ssh_runner.is_available(),
         "host": config.SSH_HOST or None,
@@ -535,18 +648,17 @@ async def ssh_status():
 
 @router.post("/ssh/test")
 async def ssh_test():
-    """测试 SSH 连接"""
     from modules.ssh_runner import ssh_runner
+
     if not ssh_runner.is_available():
         raise HTTPException(400, "SSH 未配置。请在 .env 中设置 SSH_HOST 和 SSH_USER")
+
     try:
         gpu_info = await ssh_runner.check_gpu()
         return {"ok": True, "gpu": gpu_info}
-    except Exception as e:
-        raise HTTPException(500, f"SSH 连接失败: {e}")
+    except Exception as exc:
+        raise HTTPException(500, f"SSH 连接失败: {exc}") from exc
 
-
-# ── WebSocket ─────────────────────────────────────────
 
 @router.websocket("/ws")
 async def websocket_global(websocket: WebSocket):

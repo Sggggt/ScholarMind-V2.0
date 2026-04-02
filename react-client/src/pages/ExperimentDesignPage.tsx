@@ -17,12 +17,12 @@ const emptyExperimentDesign = {
 
 export default function ExperimentDesignPage() {
   const navigate = useNavigate();
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const [experimentDesign, setExperimentDesign] = useState(emptyExperimentDesign);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setExperimentDesign(emptyExperimentDesign);
       setError(null);
       return;
@@ -32,7 +32,7 @@ export default function ExperimentDesignPage() {
 
     const loadPlan = async () => {
       try {
-        const response = await getArtifactContent(currentSessionId, 'm5_experiment_plan.json');
+        const response = await getArtifactContent(currentTaskId, 'm5_experiment_plan.json');
         if (cancelled) {
           return;
         }
@@ -50,7 +50,7 @@ export default function ExperimentDesignPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentTaskId]);
 
   return (
     <EditorialPage

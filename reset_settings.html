@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>重置 ScholarMind 设置</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px 0; cursor: pointer; }
+        .status { margin: 10px 0; padding: 10px; background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h1>ScholarMind 设置重置工具</h1>
+    <p>如果前端无法连接后端，点击下面的按钮重置配置：</p>
+
+    <button onclick="resetSettings()">重置为默认配置 (/api)</button>
+    <button onclick="setDirectApi()">设置为直连后端</button>
+
+    <div class="status" id="status">当前配置：<pre id="current"></pre></div>
+
+    <script>
+        function showCurrent() {
+            const settings = localStorage.getItem('scholarmind.desktop.settings');
+            document.getElementById('current').textContent = settings || '(无)';
+        }
+
+        function resetSettings() {
+            localStorage.setItem('scholarmind.desktop.settings', JSON.stringify({
+                apiBase: '/api',
+                wsBase: '',
+                backendAccessToken: '',
+                workingDirectoryPath: '',
+                workingDirectoryLabel: '',
+                taskDescriptionTemplate: '研究目标：{{topic}}\n关注点：请优先产出可验证的文献综述、研究缺口、候选想法和实验计划。\n输出要求：保持学术表达，并尽量给出可追踪证据。',
+                taskConfig: { maxIdeas: 5, numReflections: 3, maxRetries: 3 }
+            }));
+            alert('已重置为默认配置！请刷新页面。');
+            showCurrent();
+        }
+
+        function setDirectApi() {
+            localStorage.setItem('scholarmind.desktop.settings', JSON.stringify({
+                apiBase: 'http://127.0.0.1:8000/api',
+                wsBase: 'ws://127.0.0.1:8000',
+                backendAccessToken: '',
+                workingDirectoryPath: '',
+                workingDirectoryLabel: '',
+                taskDescriptionTemplate: '研究目标：{{topic}}\n关注点：请优先产出可验证的文献综述、研究缺口、候选想法和实验计划。\n输出要求：保持学术表达，并尽量给出可追踪证据。',
+                taskConfig: { maxIdeas: 5, numReflections: 3, maxRetries: 3 }
+            }));
+            alert('已设置为直连后端！请刷新页面。');
+            showCurrent();
+        }
+
+        showCurrent();
+    </script>
+</body>
+</html>

@@ -123,8 +123,8 @@ export function DecisionRail({
       <div className="decision-rail-shell">
         <div className="kicker">{title}</div>
         <div className="stack">
-          {items.map((item) => (
-            <div key={item.label} className="rail-item">
+          {items.map((item, index) => (
+            <div key={`${item.label}-${index}`} className="rail-item">
               <div className="space-between">
                 <strong>{item.label}</strong>
                 {item.action}
@@ -257,8 +257,8 @@ export function AnnotationPanel({ title, items }: { title: string; items: string
       <div className="annotation-panel-shell">
         <div className="kicker">{title}</div>
         <div className="stack">
-          {items.map((item) => (
-            <div key={item} className="annotation-pill">
+          {items.map((item, index) => (
+            <div key={`${item}-${index}`} className="annotation-pill">
               <ArrowRight size={14} />
               {item}
             </div>

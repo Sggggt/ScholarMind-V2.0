@@ -20,12 +20,80 @@ const defaultRuntimeSettings: BackendRuntimeSettingsResponse = {
   env_path: 'backend/.env',
 };
 
+type ModelPreset = {
+  id: string;
+  label: string;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  note: string;
+};
+
+const modelPresets: ModelPreset[] = [
+  {
+    id: 'openai-gpt-4o',
+    label: 'OpenAI · GPT-4o',
+    provider: 'openai',
+    model: 'gpt-4o',
+    baseUrl: 'https://api.openai.com/v1',
+    note: '通用主力模型',
+  },
+  {
+    id: 'openai-gpt-4.1',
+    label: 'OpenAI · GPT-4.1',
+    provider: 'openai',
+    model: 'gpt-4.1',
+    baseUrl: 'https://api.openai.com/v1',
+    note: '更偏代码与长上下文',
+  },
+  {
+    id: 'openai-gpt-4.1-mini',
+    label: 'OpenAI · GPT-4.1 mini',
+    provider: 'openai',
+    model: 'gpt-4.1-mini',
+    baseUrl: 'https://api.openai.com/v1',
+    note: '更快更省',
+  },
+  {
+    id: 'deepseek-chat',
+    label: 'DeepSeek · deepseek-chat',
+    provider: 'openai',
+    model: 'deepseek-chat',
+    baseUrl: 'https://api.deepseek.com/v1',
+    note: 'DeepSeek 通用对话模型',
+  },
+  {
+    id: 'deepseek-reasoner',
+    label: 'DeepSeek · deepseek-reasoner',
+    provider: 'openai',
+    model: 'deepseek-reasoner',
+    baseUrl: 'https://api.deepseek.com/v1',
+    note: 'DeepSeek 推理模型',
+  },
+];
+
+const customModelPresetId = 'custom';
+
+function inferPresetId(settings: BackendRuntimeSettingsResponse) {
+  const matched = modelPresets.find(
+    (preset) =>
+      preset.model === settings.model &&
+      preset.baseUrl === settings.provider_base_url &&
+      preset.provider === settings.llm_provider,
+  );
+
+  return matched?.id ?? customModelPresetId;
+}
+
 export default function SettingsPage() {
   const showToast = useWorkspaceStore((state) => state.showToast);
   const [activeTab, setActiveTab] = useState<'connection' | 'runtime' | 'local'>('connection');
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettings>(() => getDesktopSettings());
   const [runtimeSettings, setRuntimeSettings] =
     useState<BackendRuntimeSettingsResponse>(defaultRuntimeSettings);
+  const [selectedModelPresetId, setSelectedModelPresetId] = useState(() =>
+    inferPresetId(defaultRuntimeSettings),
+  );
   const [isLoadingRuntimeSettings, setIsLoadingRuntimeSettings] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -37,6 +105,7 @@ export default function SettingsPage() {
         const nextRuntimeSettings = await getRuntimeSettings();
         if (!cancelled) {
           setRuntimeSettings(nextRuntimeSettings);
+          setSelectedModelPresetId(inferPresetId(nextRuntimeSettings));
         }
       } catch (error) {
         if (!cancelled) {
@@ -74,7 +143,31 @@ export default function SettingsPage() {
     key: K,
     value: BackendRuntimeSettingsResponse[K],
   ) => {
-    setRuntimeSettings((current) => ({ ...current, [key]: value }));
+    setRuntimeSettings((current) => {
+      const nextSettings = { ...current, [key]: value };
+      setSelectedModelPresetId(inferPresetId(nextSettings));
+      return nextSettings;
+    });
+  };
+
+  const applyModelPreset = (presetId: string) => {
+    setSelectedModelPresetId(presetId);
+
+    if (presetId === customModelPresetId) {
+      return;
+    }
+
+    const preset = modelPresets.find((item) => item.id === presetId);
+    if (!preset) {
+      return;
+    }
+
+    setRuntimeSettings((current) => ({
+      ...current,
+      llm_provider: preset.provider,
+      model: preset.model,
+      provider_base_url: preset.baseUrl,
+    }));
   };
 
   const handleSave = async () => {
@@ -195,6 +288,21 @@ export default function SettingsPage() {
           >
             <div className="settings-form">
               <label className="form-row">
+                <span className="form-label">模型预设</span>
+                <select
+                  className="toolbar-input"
+                  value={selectedModelPresetId}
+                  onChange={(event) => applyModelPreset(event.target.value)}
+                >
+                  {modelPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                  <option value={customModelPresetId}>自定义模型</option>
+                </select>
+              </label>
+              <label className="form-row">
                 <span className="form-label">Provider API Key</span>
                 <input
                   className="toolbar-input"
@@ -244,6 +352,16 @@ export default function SettingsPage() {
                   type="text"
                 />
               </label>
+              {selectedModelPresetId !== customModelPresetId ? (
+                <div className="callout-note">
+                  已根据所选模型自动填充 `base_url`
+                  {(() => {
+                    const preset = modelPresets.find((item) => item.id === selectedModelPresetId);
+                    return preset ? `，当前预设：${preset.label} · ${preset.note}` : '';
+                  })()}
+                  。如需接入豆包、智谱或私有兼容网关，请切换到“自定义模型”后手动填写。
+                </div>
+              ) : null}
               <div className="callout-note">
                 {isLoadingRuntimeSettings ? '正在读取后端运行配置...' : `环境文件路径：${runtimeSettings.env_path}`}
               </div>

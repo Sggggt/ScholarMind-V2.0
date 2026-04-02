@@ -39,6 +39,7 @@ class Task(Base):
     # 关系
     logs: Mapped[List["TraceLog"]] = relationship(back_populates="task", cascade="all, delete-orphan")
     outputs: Mapped[List["TaskOutput"]] = relationship(back_populates="task", cascade="all, delete-orphan")
+    chat_sessions: Mapped[List["ChatSession"]] = relationship(back_populates="task")
 
 
 class TraceLog(Base):
@@ -77,3 +78,39 @@ class TaskOutput(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     task: Mapped["Task"] = relationship(back_populates="outputs")
+
+
+class ChatSession(Base):
+    """对话会话，可选绑定一个研究任务。"""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_uuid)
+    title: Mapped[str] = mapped_column(String(200), default="New research conversation")
+    summary: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[Optional[str]] = mapped_column(String(12), ForeignKey("tasks.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    task: Mapped[Optional["Task"]] = relationship(back_populates="chat_sessions")
+    messages: Mapped[List["ChatMessage"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
+    )
+
+
+class ChatMessage(Base):
+    """会话消息。"""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(String(12), ForeignKey("chat_sessions.id"))
+    role: Mapped[str] = mapped_column(String(20))
+    kind: Mapped[str] = mapped_column(String(20), default="text")
+    content: Mapped[str] = mapped_column(Text, default="")
+    extra_data: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    session: Mapped["ChatSession"] = relationship(back_populates="messages")

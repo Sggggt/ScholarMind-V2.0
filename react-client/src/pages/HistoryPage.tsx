@@ -1,8 +1,10 @@
-import { ArrowUpRight, Check, Trash2, X } from 'lucide-react';
+import { ArrowUpRight, Check, RotateCcw, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+
+const restartableTaskStatuses = new Set(['paused', 'review', 'completed', 'failed', 'aborted']);
 
 export default function HistoryPage() {
   const navigate = useNavigate();
@@ -11,6 +13,7 @@ export default function HistoryPage() {
   const isInitializing = useWorkspaceStore((state) => state.isInitializing);
   const selectSession = useWorkspaceStore((state) => state.selectSession);
   const deleteSession = useWorkspaceStore((state) => state.deleteSession);
+  const restartCurrentTask = useWorkspaceStore((state) => state.restartCurrentTask);
   const [query, setQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -58,6 +61,7 @@ export default function HistoryPage() {
 
             {filteredSessions.map((session) => {
               const isCurrent = session.id === currentSessionId;
+              const canRestart = Boolean(session.taskId && session.taskStatus && restartableTaskStatuses.has(session.taskStatus));
 
               return (
                 <div key={session.id} className={`history-row${isCurrent ? ' active' : ''}`}>
@@ -100,10 +104,32 @@ export default function HistoryPage() {
                         </button>
                       </div>
                     ) : (
-                      <button className="history-delete" onClick={() => setDeletingId(session.id)} type="button">
-                        {isCurrent ? <ArrowUpRight size={14} /> : <Trash2 size={14} />}
-                        删除
-                      </button>
+                      <>
+                        {canRestart ? (
+                          <button
+                            className="history-delete"
+                            onClick={() => {
+                              if (!window.confirm('确认重启该历史任务吗？这会开始一轮新的执行。')) {
+                                return;
+                              }
+
+                              void (async () => {
+                                await selectSession(session.id);
+                                navigate('/workspace');
+                                await restartCurrentTask();
+                              })();
+                            }}
+                            type="button"
+                          >
+                            <RotateCcw size={14} />
+                            重启
+                          </button>
+                        ) : null}
+                        <button className="history-delete" onClick={() => setDeletingId(session.id)} type="button">
+                          {isCurrent ? <ArrowUpRight size={14} /> : <Trash2 size={14} />}
+                          删除
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

@@ -23,7 +23,7 @@ function findFirstFile(nodes: BackendRepoTreeNode[]): string {
 }
 
 export default function RepositoryPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const [tree, setTree] = useState<BackendRepoTreeNode[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
   const [activeFilePath, setActiveFilePath] = useState('');
@@ -31,7 +31,7 @@ export default function RepositoryPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setTree([]);
       setExpandedFolders([]);
       setActiveFilePath('');
@@ -44,7 +44,7 @@ export default function RepositoryPage() {
 
     const loadRepo = async () => {
       try {
-        const nextTree = await getRepoTree(currentSessionId);
+        const nextTree = await getRepoTree(currentTaskId);
         if (cancelled) {
           return;
         }
@@ -66,10 +66,10 @@ export default function RepositoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentTaskId]);
 
   useEffect(() => {
-    if (!currentSessionId || !activeFilePath) {
+    if (!currentTaskId || !activeFilePath) {
       setActivePreview('');
       return;
     }
@@ -78,7 +78,7 @@ export default function RepositoryPage() {
 
     const loadFile = async () => {
       try {
-        const response = await getRepoFile(currentSessionId, activeFilePath);
+        const response = await getRepoFile(currentTaskId, activeFilePath);
         if (!cancelled) {
           setActivePreview(response.content);
           setError(null);
@@ -95,7 +95,7 @@ export default function RepositoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeFilePath, currentSessionId]);
+  }, [activeFilePath, currentTaskId]);
 
   const renderNode = (node: BackendRepoTreeNode, depth = 0) => {
     const expanded = expandedFolders.includes(node.path);

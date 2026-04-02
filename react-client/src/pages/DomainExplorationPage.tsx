@@ -15,7 +15,7 @@ const emptyExploration = {
 };
 
 export default function DomainExplorationPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const currentTask = useWorkspaceStore((state) => state.currentTask);
   const [exploration, setExploration] = useState(emptyExploration);
 
@@ -30,8 +30,8 @@ export default function DomainExplorationPage() {
     const loadExploration = async () => {
       try {
         const [sourcesResponse, reviewResponse] = await Promise.all([
-          getArtifactContent(currentSessionId, 'm1_sources.json'),
-          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
+          getArtifactContent(currentTaskId, 'm1_sources.json'),
+          getArtifactContent(currentTaskId, 'm1_literature_review.md'),
         ]);
         if (cancelled) {
           return;
@@ -70,7 +70,7 @@ export default function DomainExplorationPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, currentTask]);
+  }, [currentTaskId, currentTask]);
 
   return (
     <EditorialPage

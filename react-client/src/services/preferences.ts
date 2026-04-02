@@ -144,13 +144,44 @@ export function resolveBackendAccessToken() {
   return getDesktopSettings().backendAccessToken.trim();
 }
 
+function normalizeInlineText(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function compactTaskBriefLines(value: string, topic: string) {
+  const normalizedTopic = normalizeInlineText(topic);
+
+  return value
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/^[\s\-*•]+/, '').replace(/^[^:：]{0,12}[：:]\s*/, '').trim())
+    .map(normalizeInlineText)
+    .filter(Boolean)
+    .filter((line) => line !== normalizedTopic)
+    .filter((line, index, lines) => lines.indexOf(line) === index);
+}
+
 export function buildTaskDescription(topic: string) {
-  const template = getDesktopSettings().taskDescriptionTemplate.trim();
-  if (!template) {
+  const normalizedTopic = normalizeInlineText(topic);
+  if (!normalizedTopic) {
     return '';
   }
 
-  return template.split('{{topic}}').join(topic.trim());
+  const template = getDesktopSettings().taskDescriptionTemplate.trim();
+  if (!template) {
+    return normalizedTopic;
+  }
+
+  const resolved = template.split('{{topic}}').join(normalizedTopic);
+  const defaultResolved = defaultDesktopSettings.taskDescriptionTemplate.split('{{topic}}').join(normalizedTopic);
+
+  if (normalizeInlineText(resolved) === normalizeInlineText(defaultResolved)) {
+    return normalizedTopic.slice(0, 240);
+  }
+
+  const compactLines = compactTaskBriefLines(resolved, normalizedTopic).slice(0, 2);
+  const brief = [normalizedTopic, ...compactLines].join(' | ');
+
+  return brief.slice(0, 280);
 }
 
 export function buildTaskConfigOverrides() {

@@ -5,8 +5,17 @@ import { adaptGapArtifacts, adaptLiteratureArtifacts, adaptTrendArtifacts } from
 import { getArtifactContent } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
+function extractTrendMagnitude(title: string, index: number) {
+  const match = title.match(/(\d+)/);
+  if (match) {
+    return Number(match[1]);
+  }
+
+  return index + 1;
+}
+
 export default function TrendAnalysisPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const currentTask = useWorkspaceStore((state) => state.currentTask);
   const [trendRange, setTrendRange] = useState<'3y' | '5y' | 'all'>('5y');
   const [trendEvents, setTrendEvents] = useState<Array<any>>([]);
@@ -16,7 +25,7 @@ export default function TrendAnalysisPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId || !currentTask) {
+    if (!currentTaskId || !currentTask) {
       setTrendEvents([]);
       setHotDirections([]);
       setRankedPapers([]);
@@ -29,9 +38,9 @@ export default function TrendAnalysisPage() {
     const loadArtifacts = async () => {
       try {
         const [sourcesResponse, reviewResponse, gapResponse] = await Promise.all([
-          getArtifactContent(currentSessionId, 'm1_sources.json'),
-          getArtifactContent(currentSessionId, 'm1_literature_review.md'),
-          getArtifactContent(currentSessionId, 'm2_gap_analysis.json').catch(() => null),
+          getArtifactContent(currentTaskId, 'm1_sources.json'),
+          getArtifactContent(currentTaskId, 'm1_literature_review.md'),
+          getArtifactContent(currentTaskId, 'm2_gap_analysis.json').catch(() => null),
         ]);
         if (cancelled) {
           return;
@@ -62,17 +71,33 @@ export default function TrendAnalysisPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, currentTask]);
+  }, [currentTaskId, currentTask]);
+
+  const filteredTrendEvents = useMemo(() => {
+    if (trendRange === 'all') {
+      return trendEvents;
+    }
+
+    const keep = trendRange === '3y' ? 3 : 5;
+    return trendEvents.slice(-keep);
+  }, [trendEvents, trendRange]);
 
   const activePaper = rankedPapers.find((paper) => paper.id === activeRankedPaperId) ?? rankedPapers[0];
-  const trendSignals = useMemo(
-    () =>
-      trendEvents.map((event, index) => ({
-        year: event.year,
-        value: Math.min(92, 25 + index * 18),
-      })),
-    [trendEvents],
-  );
+  const trendSignals = useMemo(() => {
+    const source = filteredTrendEvents.length ? filteredTrendEvents : [{ year: '--', title: '1 个信号', summary: '等待趋势数据' }];
+    const magnitudes = source.map((event, index) => extractTrendMagnitude(String(event.title ?? ''), index));
+    const maxMagnitude = Math.max(...magnitudes, 1);
+
+    return source.map((event, index) => {
+      const magnitude = magnitudes[index];
+      return {
+        year: String(event.year ?? '--'),
+        count: magnitude,
+        value: Math.max(18, Math.round((magnitude / maxMagnitude) * 100)),
+        summary: String(event.summary ?? ''),
+      };
+    });
+  }, [filteredTrendEvents]);
 
   return (
     <EditorialPage
@@ -97,9 +122,12 @@ export default function TrendAnalysisPage() {
 
         <div className="trend-figure">
           <div className="trend-chart">
-            {(trendSignals.length ? trendSignals : [{ year: '--', value: 18 }]).map((signal) => (
+            {trendSignals.map((signal) => (
               <div key={signal.year} className="trend-chart-point">
-                <div className="trend-chart-value" style={{ height: `${signal.value}%` }} />
+                <div className="trend-chart-bar-shell">
+                  <div className="trend-chart-value" style={{ height: `${signal.value}%` }} />
+                </div>
+                <div className="trend-chart-count">{signal.count} 篇</div>
                 <div className="trend-chart-year">{signal.year}</div>
               </div>
             ))}
@@ -107,7 +135,7 @@ export default function TrendAnalysisPage() {
           <div className="figure-caption">{error ?? '趋势强度由当前已解析文献与缺口分析共同生成。'}</div>
         </div>
 
-        <TimelineFlow items={trendEvents} />
+        <TimelineFlow items={filteredTrendEvents} />
       </SectionBlock>
 
       <div className="grid-two">

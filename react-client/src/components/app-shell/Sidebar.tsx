@@ -32,9 +32,11 @@ export default function Sidebar() {
 
       <button
         className="sidebar-create-button"
-        onClick={() => {
-          createSession();
-          navigate('/workspace');
+        onClick={async () => {
+          const sessionId = await createSession();
+          if (sessionId) {
+            navigate('/workspace');
+          }
         }}
         type="button"
       >

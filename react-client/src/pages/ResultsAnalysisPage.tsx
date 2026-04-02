@@ -19,13 +19,13 @@ const normalizeMetric = (metric: string, value: string) => {
 };
 
 export default function ResultsAnalysisPage() {
-  const currentSessionId = useWorkspaceStore((state) => state.currentSessionId);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const [results, setResults] = useState<Array<any>>([]);
   const [activeResultId, setActiveResultId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentSessionId) {
+    if (!currentTaskId) {
       setResults([]);
       setActiveResultId('');
       setError(null);
@@ -36,7 +36,7 @@ export default function ResultsAnalysisPage() {
 
     const loadResults = async () => {
       try {
-        const response = await getArtifactContent(currentSessionId, 'm7_analysis.json');
+        const response = await getArtifactContent(currentTaskId, 'm7_analysis.json');
         if (cancelled) {
           return;
         }
@@ -57,7 +57,7 @@ export default function ResultsAnalysisPage() {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentTaskId]);
 
   const activeResult = useMemo(
     () => results.find((result) => result.id === activeResultId) ?? results[0],
