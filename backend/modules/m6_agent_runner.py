@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import asyncio
 from subprocess import TimeoutExpired
 
 from modules.base import BaseModule
@@ -25,6 +26,27 @@ import config
 MAX_ITERS = 4
 MAX_RUNS = 5
 MAX_STDERR_OUTPUT = 1500
+
+
+def _aider_available() -> bool:
+    """检查 Aider 是否可用"""
+    # 先检查 OpenAI 版本兼容性 - Aider 需要 openai < 1.0
+    try:
+        import openai
+        # 如果是新版 OpenAI SDK (>=1.0)，api_base 属性不存在，Aider 不可用
+        if not hasattr(openai, 'api_base'):
+            return False
+    except ImportError:
+        pass
+    # 尝试导入 Aider
+    try:
+        import importlib
+        importlib.import_module('aider.coders')
+        importlib.import_module('aider.models')
+        importlib.import_module('aider.io')
+        return True
+    except (ImportError, AttributeError):
+        return False
 
 
 class AgentRunnerModule(BaseModule):
@@ -261,14 +283,15 @@ class AgentRunnerModule(BaseModule):
 
             if coder:
                 try:
-                    coder_out = coder.run(next_prompt)
+                    coder_out = await asyncio.to_thread(coder.run, next_prompt)
                     if "ALL_COMPLETED" in str(coder_out):
                         break
                 except Exception:
                     pass
 
             await tracer.log(6, f"run_{run_num}", f"执行 run_{run_num}")
-            returncode, next_prompt, metrics = self._run_experiment_local(
+            returncode, next_prompt, metrics = await asyncio.to_thread(
+                self._run_experiment_local,
                 project_dir, run_num, timeout
             )
 
@@ -293,7 +316,7 @@ class AgentRunnerModule(BaseModule):
                 current_iter += 1
 
         # 运行 plot.py
-        self._run_plotting(project_dir)
+        await asyncio.to_thread(self._run_plotting, project_dir)
 
         return results
 
@@ -320,7 +343,7 @@ class AgentRunnerModule(BaseModule):
                 eval="accuracy",
             )
 
-            best_solution = exp.run(steps=3)
+            best_solution = await asyncio.to_thread(exp.run, steps=3)
 
             if best_solution:
                 # 保存 AIDE 结果
@@ -354,7 +377,10 @@ class AgentRunnerModule(BaseModule):
 
         try:
             result = subprocess.run(
-                command, cwd=cwd, stderr=subprocess.PIPE, text=True, timeout=timeout
+                command, cwd=cwd, stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,  # 捕获 stdout
+                encoding="utf-8", errors="replace",  # Windows 兼容
+                timeout=timeout
             )
 
             if result.returncode != 0:
@@ -390,13 +416,18 @@ Implement the next experiment or respond with 'ALL_COMPLETED'."""
             subprocess.run(
                 ["python", "plot.py"],
                 cwd=os.path.abspath(folder_name),
-                stderr=subprocess.PIPE, text=True, timeout=timeout,
+                stderr=subprocess.PIPE,
+                encoding="utf-8", errors="replace",  # Windows 兼容
+                timeout=timeout,
             )
         except Exception:
             pass
 
     async def _init_coder(self, project_dir):
         """初始化 Aider"""
+        if not _aider_available():
+            return None
+
         try:
             from aider.coders import Coder
             from aider.models import Model

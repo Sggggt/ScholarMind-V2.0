@@ -388,9 +388,15 @@ export function adaptIdeaArtifacts(payload: unknown): IdeaCandidate[] {
 
   return ideas.map((idea, index) => {
     const scores = asObject(idea.scores);
+    const rawId = pickText(idea, ['Name', 'name', 'title', 'Title'], `idea-${index + 1}`);
+    const stableId =
+      rawId
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || `idea-${index + 1}`;
 
     return {
-      id: `idea-${index + 1}`,
+      id: stableId,
       title: pickText(idea, ['title', 'Title'], `候选想法 ${index + 1}`),
       premise: pickText(
         idea,

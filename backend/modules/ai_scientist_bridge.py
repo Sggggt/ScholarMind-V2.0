@@ -3,9 +3,12 @@
 让 AI-Scientist 的函数能用我们的智谱AI (OpenAI兼容API)。
 提供 create_client / get_response_from_llm / extract_json_between_markers
 等函数的适配版本。
+
+新增: 异步原生重试机制，解决线程超时无法中断的问题
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -33,18 +36,36 @@ MAX_NUM_TOKENS = 4096
 
 
 def create_client_zhipu():
-    """创建指向智谱AI的 OpenAI 兼容客户端"""
+    """创建指向智谱AI的 OpenAI 兼容客户端（同步版本）"""
     client = openai.OpenAI(
         api_key=config.OPENAI_API_KEY,
         base_url=config.OPENAI_BASE_URL,
+        timeout=config.AI_SCIENTIST_TIMEOUT,
     )
     return client, config.OPENAI_MODEL
 
 
+def create_async_client_zhipu():
+    """创建指向智谱AI的 OpenAI 兼容客户端（异步版本）
+
+    重要: 不设置客户端级别的超时，只依赖 asyncio.wait_for 来控制超时
+    这样可以避免双重超时冲突，确保 asyncio.wait_for 能正确中断操作
+    """
+    client = openai.AsyncOpenAI(
+        api_key=config.OPENAI_API_KEY,
+        base_url=config.OPENAI_BASE_URL,
+        timeout=None,  # 不设置超时，由 asyncio.wait_for 控制
+    )
+    return client, config.OPENAI_MODEL
+
+
+# ── 同步版本（保留向后兼容） ──
+
 @backoff.on_exception(
     backoff.expo,
     (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError),
-    max_tries=5,
+    max_tries=3,  # 减少重试次数，避免长时间挂起
+    max_time=60,  # 添加总时间限制
 )
 def get_response_from_llm(
     msg,
@@ -55,7 +76,7 @@ def get_response_from_llm(
     msg_history=None,
     temperature=0.75,
 ):
-    """AI-Scientist 兼容的 LLM 调用函数 (适配 OpenAI 兼容API)"""
+    """AI-Scientist 兼容的 LLM 调用函数 (同步版本，适配 OpenAI 兼容API)"""
     if msg_history is None:
         msg_history = []
 
@@ -82,6 +103,96 @@ def get_response_from_llm(
         print()
 
     return content, new_msg_history
+
+
+# ── 异步版本（方案B：原生异步重试） ──
+
+async def get_response_from_llm_async(
+    msg: str,
+    client: openai.AsyncOpenAI,
+    model: str,
+    system_message: str,
+    print_debug: bool = False,
+    msg_history: List[Dict] | None = None,
+    temperature: float = 0.75,
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+) -> tuple[str, List[Dict]]:
+    """异步版本的 LLM 调用函数，使用原生异步重试机制
+
+    优点:
+    - 完全异步，可被 asyncio.wait_for 正确中断
+    - 重试逻辑在外部控制，透明可见
+    - 支持取消操作
+
+    Args:
+        msg: 用户消息
+        client: 异步 OpenAI 客户端
+        model: 模型名称
+        system_message: 系统消息
+        print_debug: 是否打印调试信息
+        msg_history: 消息历史
+        temperature: 温度参数
+        max_retries: 最大重试次数（默认3次）
+        initial_delay: 初始延迟秒数（指数退避起始值）
+
+    Returns:
+        (content, new_msg_history)
+    """
+    if msg_history is None:
+        msg_history = []
+
+    new_msg_history = msg_history + [{"role": "user", "content": msg}]
+
+    for attempt in range(max_retries):
+        try:
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_message},
+                        *new_msg_history,
+                    ],
+                    temperature=temperature,
+                    max_tokens=MAX_NUM_TOKENS,
+                    n=1,
+                ),
+                timeout=config.AI_SCIENTIST_TIMEOUT,
+            )
+            content = response.choices[0].message.content
+            new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+
+            if print_debug:
+                print()
+                print("*" * 20 + " LLM START (ASYNC) " + "*" * 20)
+                for j, m in enumerate(new_msg_history):
+                    print(f'{j}, {m["role"]}: {m["content"][:200]}...')
+                print("*" * 21 + " LLM END " + "*" * 21)
+                print()
+
+            return content, new_msg_history
+
+        except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError) as e:
+            if attempt < max_retries - 1:
+                # 指数退避
+                delay = initial_delay * (2 ** attempt)
+                delay = min(delay, 30)  # 最多等待30秒
+                print(f"[LLM Async] API 错误 ({type(e).__name__}), {delay:.1f}秒后重试... (尝试 {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+            else:
+                raise  # 最后一次尝试失败，抛出异常
+
+        except asyncio.TimeoutError:
+            if attempt < max_retries - 1:
+                delay = initial_delay * (2 ** attempt)
+                delay = min(delay, 30)
+                print(f"[LLM Async] 请求超时，{delay:.1f}秒后重试... (尝试 {attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+            else:
+                raise TimeoutError(f"LLM 请求在 {max_retries} 次尝试后超时")
+
+    # 理论上不会到达这里
+    raise RuntimeError("意外的代码路径")
 
 
 def get_batch_responses_from_llm(

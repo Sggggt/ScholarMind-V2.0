@@ -25,6 +25,7 @@ import {
   saveWorkingDirectoryPreference,
 } from '../services/preferences';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+import { sanitizeErrorMessage } from '../utils/errorMessage';
 
 const promptSuggestions = [
   {
@@ -184,7 +185,7 @@ export default function MainChatWorkspacePage() {
         <AppLogo compact subtitle="Digital Research Atelier" />
         <div className="workspace-chat-header-copy">
           <div className="hero-eyebrow">Conversation First Research Agent</div>
-          <h1 className="workspace-chat-title">用对话推进研究，而不是先手动拼装工作流</h1>
+          <h1 className="workspace-chat-title">今天想研究什么？</h1>
           <p className="workspace-chat-copy">
             你只需要描述研究目标、约束和想要的产出。ScholarMind 会先用自然语言澄清需求，再在时机合适时创建真实任务并持续反馈。
           </p>
@@ -202,7 +203,7 @@ export default function MainChatWorkspacePage() {
         </div>
         <div className="workspace-task-line">
           <span className="kicker">已完成阶段</span>
-          <strong>{currentTask ? `${completedStages}/12` : '0/12'}</strong>
+          <strong>{currentTask ? `${completedStages}/9` : '0/9'}</strong>
         </div>
         <div className="workspace-task-line">
           <span className="kicker">总进度</span>
@@ -246,7 +247,7 @@ export default function MainChatWorkspacePage() {
         </button>
         <button className="workspace-shortcut-button" onClick={() => navigate('/repository')} type="button">
           <FolderOpen size={15} />
-          代码仓库
+          代码生成
         </button>
         <button className="workspace-shortcut-button" onClick={() => navigate('/agent-run')} type="button">
           <Bot size={15} />
@@ -305,7 +306,7 @@ export default function MainChatWorkspacePage() {
             </div>
           );
         })}
-        {taskError ? <div className="error-alert-academic">{taskError}</div> : null}
+        {taskError ? <div className="error-alert-academic">{sanitizeErrorMessage(taskError, '请求失败，请稍后重试。')}</div> : null}
         <div ref={threadEndRef} />
       </div>
 

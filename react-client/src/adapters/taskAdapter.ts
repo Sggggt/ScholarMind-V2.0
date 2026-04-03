@@ -226,17 +226,17 @@ export function buildThinkingMessage(): ChatMessage {
 export function buildTaskControlActions(runStatus: RunStatus): ChatQuickAction[] {
   if (runStatus === 'running') {
     return [
+      { label: '重启任务', command: 'restart' },
       { label: '暂停任务', command: 'pause' },
       { label: '终止任务', command: 'abort' },
-      { label: '重启任务', command: 'restart' },
     ];
   }
 
   if (runStatus === 'paused') {
     return [
+      { label: '重启任务', command: 'restart' },
       { label: '恢复任务', command: 'resume' },
       { label: '终止任务', command: 'abort' },
-      { label: '重启任务', command: 'restart' },
     ];
   }
 

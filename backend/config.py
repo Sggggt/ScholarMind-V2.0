@@ -73,6 +73,8 @@ def refresh_runtime_config() -> None:
     global SANDBOX_ENABLED
     global SANDBOX_IMAGE
     global SANDBOX_TIMEOUT
+    global AI_SCIENTIST_TIMEOUT
+    global PAPERQA_TIMEOUT
     global DEFAULT_MAX_PAPERS
     global DEFAULT_MAX_IDEAS
     global DEFAULT_EXPERIMENT_RETRIES
@@ -111,6 +113,8 @@ def refresh_runtime_config() -> None:
     SANDBOX_ENABLED = _read_bool("SANDBOX_ENABLED", False)
     SANDBOX_IMAGE = _read_str("SANDBOX_IMAGE", "research-sandbox:latest")
     SANDBOX_TIMEOUT = _read_int("SANDBOX_TIMEOUT", 600)
+    AI_SCIENTIST_TIMEOUT = _read_int("AI_SCIENTIST_TIMEOUT", 120)
+    PAPERQA_TIMEOUT = _read_int("PAPERQA_TIMEOUT", 45)
 
     DEFAULT_MAX_PAPERS = _read_int("DEFAULT_MAX_PAPERS", 20)
     DEFAULT_MAX_IDEAS = _read_int("DEFAULT_MAX_IDEAS", 5)
@@ -129,19 +133,42 @@ def get_runtime_settings() -> dict[str, str]:
         "model": OPENAI_MODEL,
         "provider_base_url": OPENAI_BASE_URL,
         "search_provider": SEARCH_PROVIDER,
+        "search_api_key": _get_search_api_key(),
         "env_path": str(ENV_FILE),
     }
 
 
+def _get_search_api_key() -> str:
+    """根据当前搜索引擎获取对应的 API key"""
+    if SEARCH_PROVIDER == "brave":
+        return BRAVE_API_KEY
+    elif SEARCH_PROVIDER == "tavily":
+        return TAVILY_API_KEY
+    elif SEARCH_PROVIDER == "serper":
+        return SERPER_API_KEY
+    return ""
+
+
 def save_runtime_settings(settings: dict[str, str]) -> dict[str, str]:
     """Persist runtime settings into backend/.env and apply them immediately."""
+    search_provider = settings.get("search_provider", SEARCH_PROVIDER).strip().lower() or DEFAULT_SEARCH_PROVIDER
+
     updates = {
         "LLM_PROVIDER": settings.get("llm_provider", LLM_PROVIDER).strip() or "openai",
         "OPENAI_API_KEY": settings.get("api_key", OPENAI_API_KEY).strip(),
         "OPENAI_MODEL": settings.get("model", OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL,
         "OPENAI_BASE_URL": settings.get("provider_base_url", OPENAI_BASE_URL).strip() or DEFAULT_OPENAI_BASE_URL,
-        "SEARCH_PROVIDER": settings.get("search_provider", SEARCH_PROVIDER).strip().lower() or DEFAULT_SEARCH_PROVIDER,
+        "SEARCH_PROVIDER": search_provider,
     }
+
+    # 根据搜索引擎保存对应的 API key
+    search_api_key = settings.get("search_api_key", "").strip()
+    if search_provider == "brave":
+        updates["BRAVE_API_KEY"] = search_api_key
+    elif search_provider == "tavily":
+        updates["TAVILY_API_KEY"] = search_api_key
+    elif search_provider == "serper":
+        updates["SERPER_API_KEY"] = search_api_key
 
     if not ENV_FILE.exists():
         ENV_FILE.write_text("", encoding="utf-8")

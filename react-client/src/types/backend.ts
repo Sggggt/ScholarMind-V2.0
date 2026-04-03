@@ -39,6 +39,17 @@ export interface BackendTaskCreateRequest {
   config?: Record<string, unknown>;
 }
 
+export interface BackendSelectIdeaRequest {
+  idea_index: number;
+  replace_existing?: boolean; // 是否在现有代码基础上修改
+}
+
+export interface BackendSelectIdeaResponse {
+  ok: boolean;
+  selected_idea: Record<string, unknown>;
+  task: BackendTaskResponse;
+}
+
 export interface BackendChatSessionResponse {
   id: string;
   title: string;
@@ -86,6 +97,7 @@ export interface BackendRuntimeSettingsRequest {
   model: string;
   provider_base_url: string;
   search_provider: string;
+  search_api_key: string;
 }
 
 export interface BackendRuntimeSettingsResponse extends BackendRuntimeSettingsRequest {
@@ -182,5 +194,6 @@ export interface BackendWsMessage {
   step?: string;
   percent?: number;
   message: string;
+  timestamp?: string;
   data?: Record<string, unknown> | null;
 }

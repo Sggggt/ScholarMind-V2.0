@@ -1,6 +1,8 @@
 import { ArrowLeft, ArrowRight, Check, ChevronRight } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import type { PropsWithChildren, ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { WorkflowTaskActions } from './TaskCommandBar';
 import { routeMeta } from '../../data/routeData';
 import type { RunLog, RunStep, WorkflowStage, WorkflowStatus } from '../../types/app';
 
@@ -31,6 +33,8 @@ export function EditorialPage({
   const navigate = useNavigate();
   const route = routeMeta.find((item) => item.path === location.pathname);
   const isStagePage = !!route && route.section === 'workflow' && route.id !== 'workflow';
+  const shouldShowWorkflowTaskActions = !!route && route.section === 'workflow';
+  const hasPageActions = shouldShowWorkflowTaskActions || !!actions;
 
   return (
     <div className="canvas editorial-page" aria-label={title}>
@@ -45,7 +49,12 @@ export function EditorialPage({
             ) : null}
             <div className="eyebrow">{eyebrow}</div>
           </div>
-          {actions ? <div className="page-actions">{actions}</div> : null}
+          {hasPageActions ? (
+            <div className="page-actions">
+              {shouldShowWorkflowTaskActions ? <WorkflowTaskActions /> : null}
+              {actions}
+            </div>
+          ) : null}
         </div>
         <h1 className="page-title">{title}</h1>
         <div className="page-intro">{description}</div>
@@ -236,8 +245,16 @@ export function TimelineFlow({
 }
 
 export function RunLogStream({ logs }: { logs: RunLog[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs]);
+
   return (
-    <div className="log-stream">
+    <div className="log-stream" ref={scrollRef}>
       {logs.map((log) => (
         <div key={log.id} className={`log-entry${log.level === 'info' ? '' : ` ${log.level}`}`}>
           <div className="space-between">

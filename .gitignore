@@ -78,3 +78,6 @@ id_ed25519.*
 # Aider
 .aider*
 *.db-journal
+
+# Temporary files
+tmp/

@@ -65,6 +65,7 @@ class RuntimeSettingsRequest(BaseModel):
     model: str = Field("gpt-4o", description="Provider model name")
     provider_base_url: str = Field("https://api.openai.com/v1", description="Provider base URL")
     search_provider: str = Field("brave", description="Preferred search provider")
+    search_api_key: str = Field("", description="Search provider API key (Brave/Tavily/Serper)")
 
 
 class RuntimeSettingsResponse(BaseModel):
@@ -73,6 +74,7 @@ class RuntimeSettingsResponse(BaseModel):
     model: str
     provider_base_url: str
     search_provider: str
+    search_api_key: str
     env_path: str
 
 
@@ -175,4 +177,5 @@ class WSMessage(BaseModel):
     step: str = ""
     percent: float = 0
     message: str = ""
+    timestamp: str = ""
     data: Optional[dict] = None

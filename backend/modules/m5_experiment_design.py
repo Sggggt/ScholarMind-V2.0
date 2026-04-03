@@ -8,19 +8,41 @@ from __future__ import annotations
 核心依赖: AI-Scientist perform_experiments.py
 """
 
+import asyncio
 import json
 import os
 import shutil
 
 from modules.base import BaseModule
 from modules.ai_scientist_bridge import (
-    create_client_zhipu,
-    get_response_from_llm,
+    create_async_client_zhipu,
+    get_response_from_llm_async,
     extract_json_between_markers,
 )
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
 import config
+
+
+def _aider_available() -> bool:
+    """检查 Aider 是否可用"""
+    # 先检查 OpenAI 版本兼容性 - Aider 需要 openai < 1.0
+    try:
+        import openai
+        # 如果是新版 OpenAI SDK (>=1.0)，api_base 属性不存在，Aider 不可用
+        if not hasattr(openai, 'api_base'):
+            return False
+    except ImportError:
+        pass
+    # 尝试导入 Aider
+    try:
+        import importlib
+        importlib.import_module('aider.coders')
+        importlib.import_module('aider.models')
+        importlib.import_module('aider.io')
+        return True
+    except (ImportError, AttributeError):
+        return False
 
 # AI-Scientist 的实验 prompt (共享常量，M6 也会引用)
 CODER_PROMPT = """Your goal is to implement the following idea: {title}.
@@ -60,7 +82,7 @@ class ExperimentDesignModule(BaseModule):
         tracer.step_start()
         await tracer.log(5, "design_experiments", "设计实验方案 (AI-Scientist coder_prompt)")
 
-        client, model = create_client_zhipu()
+        client, model = create_async_client_zhipu()
 
         prompt = CODER_PROMPT.format(
             title=idea_title,
@@ -69,7 +91,7 @@ class ExperimentDesignModule(BaseModule):
             baseline_results=json.dumps(baseline_results, indent=2),
         )
 
-        text, _ = get_response_from_llm(
+        text, _ = await get_response_from_llm_async(
             prompt + "\n\nPlease output your experiment plan as a JSON with the following format:\n"
             '```json\n{"experiments": [{"run_num": 1, "description": "...", '
             '"changes": "what to modify in experiment.py", "expected_outcome": "..."}], '
@@ -89,40 +111,44 @@ class ExperimentDesignModule(BaseModule):
         tracer.step_start()
         await tracer.log(5, "implement_experiments", "使用 Aider 实现实验代码修改")
 
-        try:
-            from aider.coders import Coder
-            from aider.models import Model
-            from aider.io import InputOutput
-
-            os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
-            os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
-
-            aider_model = Model(f"openai/{config.OPENAI_MODEL}")
-            io = InputOutput(yes=True)
-            fnames = [os.path.join(project_dir, "experiment.py")]
-
-            coder = Coder.create(
-                main_model=aider_model,
-                fnames=fnames,
-                io=io,
-                stream=False,
-                use_git=True,
-                edit_format="diff",
-            )
-
-            # 发送完整实验计划给 Aider
-            full_prompt = CODER_PROMPT.format(
-                title=idea_title,
-                idea=idea_experiment,
-                max_runs=self.MAX_RUNS,
-                baseline_results=json.dumps(baseline_results, indent=2),
-            )
-            coder_out = coder.run(full_prompt)
-            await tracer.log(5, "implement_experiments", "Aider 完成实验代码修改")
-
-        except Exception as e:
+        if not _aider_available():
             await tracer.log(5, "implement_experiments",
-                             f"Aider 失败，实验将使用当前代码: {e}", level="warn")
+                             "Aider 未安装，跳过 Aider 实现，实验将使用当前代码", level="warn")
+        else:
+            try:
+                from aider.coders import Coder
+                from aider.models import Model
+                from aider.io import InputOutput
+
+                os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
+                os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
+
+                aider_model = Model(f"openai/{config.OPENAI_MODEL}")
+                io = InputOutput(yes=True)
+                fnames = [os.path.join(project_dir, "experiment.py")]
+
+                coder = Coder.create(
+                    main_model=aider_model,
+                    fnames=fnames,
+                    io=io,
+                    stream=False,
+                    use_git=True,
+                    edit_format="diff",
+                )
+
+                # 发送完整实验计划给 Aider (使用 asyncio.to_thread 包装同步调用)
+                full_prompt = CODER_PROMPT.format(
+                    title=idea_title,
+                    idea=idea_experiment,
+                    max_runs=self.MAX_RUNS,
+                    baseline_results=json.dumps(baseline_results, indent=2),
+                )
+                coder_out = await asyncio.to_thread(coder.run, full_prompt)
+                await tracer.log(5, "implement_experiments", "Aider 完成实验代码修改")
+
+            except Exception as e:
+                await tracer.log(5, "implement_experiments",
+                                 f"Aider 失败，实验将使用当前代码: {e}", level="warn")
 
         # ── 保存产出 ──
         plan_path = os.path.join(workspace, "m5_experiment_plan.json")

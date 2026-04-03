@@ -578,8 +578,9 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
         return f"""\\documentclass[11pt]{{article}}
 \\usepackage[utf8]{{inputenc}}
 \\usepackage{{amsmath,amssymb,amsfonts}}
+\\usepackage{{amsthm}}  % 提供 definition, theorem 等环境
 \\usepackage{{graphicx}}
-\\usepackage{{booktabs}}
+\\usepackage{{booktabs}}  % 提供 toprule, midrule, bottomrule
 \\usepackage{{hyperref}}
 \\usepackage{{natbib}}
 \\usepackage[margin=1in]{{geometry}}
@@ -630,6 +631,47 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
                 "\\usepackage{xcolor}\n",
                 "\\usepackage{xcolor}\n\\usepackage{tikz}\n\\usepackage{pgfplots}\n\\pgfplotsset{compat=1.18}\n",
             )
+
+        # 修复 definition/theorem 环境问题 - 如果内容有问题，移除环境标记
+        normalized = re.sub(
+            r"\\begin\{definition\}\s*\[.*?\]\s*(.*?)\\end\{definition\}",
+            r"\n\\textbf{Definition:} \1\n",
+            normalized,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(
+            r"\\begin\{definition\}(.*?)\\end\{definition\}",
+            r"\n\\textbf{Definition:} \1\n",
+            normalized,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(
+            r"\\begin\{theorem\}(.*?)\\end\{theorem\}",
+            r"\n\\textbf{Theorem:} \1\n",
+            normalized,
+            flags=re.DOTALL,
+        )
+
+        # 修复表格中的 toprule/midrule/bottomrule 位置问题
+        # 确保它们只在 tabular 环境内使用
+        normalized = re.sub(
+            r"(\\begin\{tabular\}.*?)(\\toprule)",
+            r"\1\\hline",
+            normalized,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(
+            r"(\\begin\{tabular\}.*?)(\\midrule)",
+            r"\1\\hline",
+            normalized,
+            flags=re.DOTALL,
+        )
+        normalized = re.sub(
+            r"(\\begin\{tabular\}.*?)(\\bottomrule)",
+            r"\1\\hline",
+            normalized,
+            flags=re.DOTALL,
+        )
 
         normalized = re.sub(r"\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}", r"\1", normalized)
         normalized = re.sub(
@@ -695,17 +737,31 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
                 await asyncio.to_thread(
                     subprocess.run, cmd, cwd=paper_dir,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, timeout=30,
+                    encoding="utf-8", errors="replace",  # Windows 兼容
+                    timeout=30,
                 )
             except Exception:
                 pass
 
         pdf_path = os.path.join(paper_dir, "paper.pdf")
         if os.path.exists(pdf_path):
-            await tracer.log(8, "compile_pdf", "PDF 编译成功")
-            return pdf_path
+            # 检查 PDF 是否有效（至少 5KB 且有正确的 PDF 头）
+            try:
+                with open(pdf_path, "rb") as f:
+                    header = f.read(5)
+                    size = os.path.getsize(pdf_path)
+                if header == b"%PDF" and size > 5000:
+                    await tracer.log(8, "compile_pdf", "PDF 编译成功")
+                    return pdf_path
+                else:
+                    await tracer.log(8, "compile_pdf", f"PDF 不完整 (size={size}), 使用 fallback", level="warn")
+                    os.remove(pdf_path)  # 删除损坏的 PDF
+            except Exception as e:
+                await tracer.log(8, "compile_pdf", f"PDF 验证失败: {e}", level="warn")
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
 
-        await tracer.log(8, "compile_pdf", "PDF 编译失败", level="warn")
+        await tracer.log(8, "compile_pdf", "PDF 编译失败，使用 fallback", level="warn")
         tex_path = os.path.join(paper_dir, "paper.tex")
         if os.path.exists(tex_path):
             fallback_text = self._latex_to_plain_text(tex_path)

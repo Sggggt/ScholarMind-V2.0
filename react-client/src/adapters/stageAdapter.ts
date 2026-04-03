@@ -1,6 +1,7 @@
 import { initialStages } from '../data/routeData';
 import type { BackendModuleProgress, BackendTaskResponse, BackendTaskStatus } from '../types/backend';
 import type { RunStatus, RunStep, StageId, WorkflowStage, WorkflowStatus } from '../types/app';
+import { sanitizeDisplayText } from '../utils/errorMessage';
 
 const runModuleLabels: Record<string, string> = {
   M1: 'M1 文献研究',
@@ -13,6 +14,23 @@ const runModuleLabels: Record<string, string> = {
   M8: 'M8 论文写作',
   M9: 'M9 评审验证',
 };
+
+const genericProgressSteps = new Set(['start', 'done', 'retry', 'max_retries', 'review', 'pipeline_error']);
+
+function summarizeRunningStage(title: string, module: BackendModuleProgress) {
+  const sanitizedStep = sanitizeDisplayText(module.step);
+  const sanitizedMessage = sanitizeDisplayText(module.message, `${title}正在执行。`);
+
+  if (!sanitizedStep) {
+    return sanitizedMessage;
+  }
+
+  if (genericProgressSteps.has(sanitizedStep) || /^[a-z0-9_:-]+$/i.test(sanitizedStep)) {
+    return sanitizedMessage;
+  }
+
+  return sanitizedStep;
+}
 
 function normalizeModuleStatus(status?: string): WorkflowStatus {
   switch (status) {
@@ -44,14 +62,14 @@ function summarizeStage(title: string, task: BackendTaskResponse, module?: Backe
   }
 
   if (module.status === 'running') {
-    return module.step || module.message || `${title}正在执行。`;
+    return summarizeRunningStage(title, module);
   }
 
   if (module.status === 'failed') {
-    return module.message || `${title}执行失败，请检查日志。`;
+    return sanitizeDisplayText(module.message, `${title}执行失败，请检查日志。`);
   }
 
-  return `${title}尚未开始。`;
+  return sanitizeDisplayText(module.message, `${title}尚未开始。`);
 }
 
 export function buildIdleStages() {

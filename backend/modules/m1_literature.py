@@ -255,7 +255,16 @@ class LiteratureModule(BaseModule):
             verbose=True,
         )
 
-        await researcher.conduct_research()
+        # 添加超时控制（默认10分钟）
+        research_timeout = config.PAPERQA_TIMEOUT * 2  # 使用 PaperQA 超时的 2 倍
+        try:
+            await asyncio.wait_for(
+                researcher.conduct_research(),
+                timeout=research_timeout
+            )
+        except asyncio.TimeoutError:
+            await tracer.log(1, "deep_research", f"文献调研超时({research_timeout}s)，使用降级方案", level="warn")
+            raise  # 触发降级到 _run_fallback_research
 
         await tracer.log(
             1,
@@ -269,7 +278,14 @@ class LiteratureModule(BaseModule):
 
         tracer.step_start()
         await tracer.log(1, "write_report", "生成文献综述报告")
-        report = await researcher.write_report()
+        try:
+            report = await asyncio.wait_for(
+                researcher.write_report(),
+                timeout=300  # 5分钟超时
+            )
+        except asyncio.TimeoutError:
+            await tracer.log(1, "write_report", "报告生成超时，使用基础报告", level="warn")
+            report = researcher.get_research_summary() or "# 文献综述\n\n调研未在规定时间内完成。"
         await tracer.log(
             1,
             "write_report",

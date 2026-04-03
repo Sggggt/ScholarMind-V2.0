@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Pause, Play, Square } from 'lucide-react';
 import { EditorialPage, ProcessStepper, RunLogStream, SectionBlock, StatusBadge } from '../components/ui/Primitives';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+import { sanitizeErrorMessage } from '../utils/errorMessage';
 
 const runStatusLabelMap = {
   idle: '待命',
@@ -14,19 +14,19 @@ const runStatusLabelMap = {
   aborted: '已终止',
 } as const;
 
+function isTaskFinished(status: string): boolean {
+  return status === 'completed' || status === 'failed' || status === 'aborted';
+}
+
 export default function AgentRunPage() {
   const navigate = useNavigate();
   const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
+  const currentTask = useWorkspaceStore((state) => state.currentTask);
   const runSteps = useWorkspaceStore((state) => state.runSteps);
   const runLogs = useWorkspaceStore((state) => state.runLogs);
   const runLogsBySession = useWorkspaceStore((state) => state.runLogsBySession);
   const runProgress = useWorkspaceStore((state) => state.runProgress);
   const runStatus = useWorkspaceStore((state) => state.runStatus);
-  const isTaskLoading = useWorkspaceStore((state) => state.isTaskLoading);
-  const currentTask = useWorkspaceStore((state) => state.currentTask);
-  const pauseCurrentTask = useWorkspaceStore((state) => state.pauseCurrentTask);
-  const resumeCurrentTask = useWorkspaceStore((state) => state.resumeCurrentTask);
-  const abortCurrentTask = useWorkspaceStore((state) => state.abortCurrentTask);
   const refreshCurrentTask = useWorkspaceStore((state) => state.refreshCurrentTask);
   const refreshLogs = useWorkspaceStore((state) => state.refreshLogs);
   const taskError = useWorkspaceStore((state) => state.taskError);
@@ -51,18 +51,15 @@ export default function AgentRunPage() {
     <EditorialPage
       eyebrow="Live Orchestration"
       title="实时查看多阶段研究任务的执行状态"
-      description="这一页直接映射后端 orchestrator 的真实运行过程。左侧是模块阶段，右侧是日志流，顶部是当前任务总状态。"
+      description="这一页直接映射后端 orchestrator 的真实运行过程。左侧是模块阶段，右侧是日志流，页头统一提供重启、暂停、恢复与终止控制。"
       actions={
-        runProgress >= 100 || runStatus === 'completed' ? (
+        runProgress >= 100 && runStatus === 'completed' ? (
           <button className="button-primary" onClick={() => navigate('/results')} type="button">
             查看结果分析
           </button>
-        ) : (
-          <StatusBadge
-            status={runStatus === 'failed' || runStatus === 'aborted' ? 'risk' : 'in-progress'}
-            label={runStatusLabelMap[runStatus]}
-          />
-        )
+        ) : !isTaskFinished(runStatus) ? (
+          <StatusBadge status="in-progress" label={runStatusLabelMap[runStatus]} />
+        ) : undefined
       }
     >
       <div className="cockpit-canvas">
@@ -80,39 +77,9 @@ export default function AgentRunPage() {
                 <div className="progress-fill-modern" style={{ width: `${runProgress}%` }} />
               </div>
             </div>
-
-            <div className="control-button-group">
-              {runStatus === 'running' ? (
-                <button className="control-btn" onClick={() => void pauseCurrentTask()} disabled={isTaskLoading} type="button">
-                  <Pause size={14} />
-                  暂停
-                </button>
-              ) : null}
-              {runStatus === 'paused' ? (
-                <button className="control-btn primary" onClick={() => void resumeCurrentTask()} disabled={isTaskLoading} type="button">
-                  <Play size={14} />
-                  恢复
-                </button>
-              ) : null}
-              {runStatus === 'running' || runStatus === 'paused' ? (
-                <button
-                  className="control-btn danger"
-                  onClick={() => {
-                    if (window.confirm('确认终止当前任务吗？')) {
-                      void abortCurrentTask();
-                    }
-                  }}
-                  disabled={isTaskLoading}
-                  type="button"
-                >
-                  <Square size={14} />
-                  终止
-                </button>
-              ) : null}
-            </div>
           </SectionBlock>
 
-          <SectionBlock title="阶段推进" description="每个模块节点都来自当前任务的模块进度状态。">
+          <SectionBlock title="阶段推进" description="每个模块节点都来自当前任务的真实模块进度状态。">
             <ProcessStepper items={runSteps} />
           </SectionBlock>
         </div>
@@ -131,7 +98,7 @@ export default function AgentRunPage() {
               {runLogs.length ? <RunLogStream logs={runLogs} /> : <div className="terminal-placeholder">等待 orchestrator 输出日志...</div>}
             </div>
           </div>
-          {taskError ? <div className="inline-error-fixed">{taskError}</div> : null}
+          {taskError ? <div className="inline-error-fixed">{sanitizeErrorMessage(taskError, '任务执行失败，请稍后重试。')}</div> : null}
         </SectionBlock>
       </div>
     </EditorialPage>

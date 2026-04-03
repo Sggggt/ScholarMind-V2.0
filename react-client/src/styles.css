@@ -1172,6 +1172,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 22px;
+  min-height: 100vh;
 }
 
 .workspace-chat-header {
@@ -1304,6 +1305,9 @@ textarea {
   flex-direction: column;
   gap: 28px;
   padding: 10px 0 0;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
 }
 
 .claude-message {
@@ -2415,11 +2419,16 @@ textarea {
 .task-command-bar-title-row,
 .task-command-bar-meta,
 .task-command-bar-actions,
-.workflow-node-actions {
+.workflow-node-actions,
+.workflow-task-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.workflow-task-actions {
+  justify-content: flex-end;
 }
 
 .task-command-bar-title-row {
@@ -2718,5 +2727,15 @@ textarea {
     transform: none;
     padding-top: 28px;
     flex-wrap: wrap;
+  }
+}
+
+/* PDF Recompile Spinner Animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }

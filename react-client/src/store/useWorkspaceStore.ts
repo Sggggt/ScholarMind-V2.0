@@ -48,6 +48,7 @@ import {
   sendChatMessage,
 } from '../services/api';
 import { buildTaskConfigOverrides, buildTaskDescription } from '../services/preferences';
+import { toDisplayErrorMessage } from '../utils/errorMessage';
 
 interface WorkspaceState {
   isAuthenticated: boolean;
@@ -130,11 +131,7 @@ function resetTransitionTimer() {
 }
 
 function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return '请求失败，请稍后重试。';
+  return toDisplayErrorMessage(error, '请求失败，请稍后重试。');
 }
 
 function nowTime() {
@@ -748,7 +745,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
 
       if (message.type === 'error') {
-        patch.taskError = message.message;
+        patch.taskError = toDisplayErrorMessage(message.message, '任务执行失败，请查看日志后重试。');
       }
 
       const targetSessionId = findSessionIdByTask(state, message.task_id);

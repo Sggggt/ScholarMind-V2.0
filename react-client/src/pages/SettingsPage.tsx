@@ -17,8 +17,16 @@ const defaultRuntimeSettings: BackendRuntimeSettingsResponse = {
   model: 'gpt-4o',
   provider_base_url: 'https://api.openai.com/v1',
   search_provider: 'brave',
+  search_api_key: '',
   env_path: 'backend/.env',
 };
+
+const searchEngines = [
+  { id: 'duckduckgo', label: 'DuckDuckGo', keyLabel: '无需 API Key', needsKey: false },
+  { id: 'brave', label: 'Brave Search', keyLabel: 'Brave API Key', needsKey: true, url: 'https://search.brave.com/search-api' },
+  { id: 'tavily', label: 'Tavily', keyLabel: 'Tavily API Key', needsKey: true, url: 'https://tavily.com' },
+  { id: 'serper', label: 'Serper', keyLabel: 'Serper API Key', needsKey: true, url: 'https://serper.dev' },
+];
 
 type ModelPreset = {
   id: string;
@@ -181,6 +189,7 @@ export default function SettingsPage() {
         model: runtimeSettings.model,
         provider_base_url: runtimeSettings.provider_base_url,
         search_provider: runtimeSettings.search_provider,
+        search_api_key: runtimeSettings.search_api_key,
       });
 
       saveDesktopSettings(nextDesktopSettings);
@@ -342,16 +351,55 @@ export default function SettingsPage() {
                   type="text"
                 />
               </label>
+
+              {/* 搜索引擎配置 */}
               <label className="form-row">
-                <span className="form-label">Search Provider</span>
-                <input
+                <span className="form-label">搜索引擎</span>
+                <select
                   className="toolbar-input"
                   value={runtimeSettings.search_provider}
-                  onChange={(event) => updateRuntimeSettings('search_provider', event.target.value)}
-                  placeholder="brave / tavily / serper / duckduckgo"
-                  type="text"
-                />
+                  onChange={(event) => {
+                    const newProvider = event.target.value;
+                    updateRuntimeSettings('search_provider', newProvider);
+                    // 切换搜索引擎时清空 API key
+                    updateRuntimeSettings('search_api_key', '');
+                  }}
+                >
+                  {searchEngines.map((engine) => (
+                    <option key={engine.id} value={engine.id}>
+                      {engine.label}
+                    </option>
+                  ))}
+                </select>
               </label>
+
+              {(() => {
+                const currentEngine = searchEngines.find(e => e.id === runtimeSettings.search_provider) || searchEngines[0];
+                if (!currentEngine.needsKey) {
+                  return (
+                    <div className="callout-note">
+                      {currentEngine.label} 不需要 API Key，可直接使用
+                    </div>
+                  );
+                }
+                return (
+                  <>
+                    <label className="form-row">
+                      <span className="form-label">{currentEngine.keyLabel}</span>
+                      <input
+                        className="toolbar-input"
+                        value={runtimeSettings.search_api_key}
+                        onChange={(event) => updateRuntimeSettings('search_api_key', event.target.value)}
+                        placeholder={`输入 ${currentEngine.label} API Key`}
+                        type="password"
+                      />
+                    </label>
+                    <div className="callout-note">
+                      获取 API Key: <a href={currentEngine.url} target="_blank" rel="noopener noreferrer">{currentEngine.url}</a>
+                    </div>
+                  </>
+                );
+              })()}
               {selectedModelPresetId !== customModelPresetId ? (
                 <div className="callout-note">
                   已根据所选模型自动填充 `base_url`

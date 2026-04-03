@@ -106,14 +106,23 @@ class PipelineOrchestrator:
 
     def _restore_context(self, task: Task) -> dict:
         workspace = Path(config.WORKSPACE_DIR / self.task_id)
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        # 从任务配置中获取自定义代码目录（前端设置的本地文件夹）
+        custom_work_dir = task.config.get("work_dir") if task.config else None
+        code_dir = None
+        if custom_work_dir:
+            code_dir = Path(custom_work_dir) / self.task_id / "code"
+            code_dir.mkdir(parents=True, exist_ok=True)
+
         context = {
             "task_id": self.task_id,
             "topic": task.topic,
             "domain": task.domain,
             "config": task.config,
             "workspace": str(workspace),
+            "code_dir": str(code_dir) if code_dir else None,
         }
-        workspace.mkdir(parents=True, exist_ok=True)
 
         if self.start_module <= 1:
             return context
@@ -150,6 +159,23 @@ class PipelineOrchestrator:
         context["best_idea_index"] = best_index
         context["best_idea"] = scored_ideas[best_index] if scored_ideas else {}
         context["all_ideas_raw"] = self._read_json(ai_scientist_dir / "ideas.json", [])
+
+        # ── 读取 Idea 选择信息（用于替换模式）──
+        selection_path = workspace / "idea_selection.json"
+        if selection_path.exists():
+            selection_info = self._read_json(selection_path, {})
+            context["is_replacing_idea"] = selection_info.get("replace_mode", False)
+            context["previous_idea_title"] = selection_info.get("idea_title", "")
+            if selection_info.get("replace_mode"):
+                context["selected_idea_index"] = selection_info.get("idea_index", best_index)
+                # 如果是替换模式，使用新选择的 idea
+                if selection_info.get("idea_index", best_index) != best_index:
+                    new_index = selection_info.get("idea_index", best_index)
+                    if 0 <= new_index < len(scored_ideas):
+                        context["best_idea"] = scored_ideas[new_index]
+                        context["best_idea_index"] = new_index
+        else:
+            context["is_replacing_idea"] = False
 
         if self.start_module <= 4:
             return context
@@ -249,7 +275,42 @@ class PipelineOrchestrator:
         context = self._restore_context(task)
 
         try:
-            if self.start_module <= 6:
+            # M1-M2: 文献和缺口分析，线性执行
+            if self.start_module <= 2:
+                context = await self._run_linear_modules(context, self.start_module, 2)
+
+            # M3: 构思生成，执行后暂停等待用户选择
+            if self.start_module <= 3:
+                if self.state.is_aborted:
+                    await self.state.set_status("aborted")
+                    return
+
+                await self.state.wait_if_paused()
+
+                mod3 = self.modules[2]
+                await self.state.set_progress(3, mod3.name, 10)
+                await self.tracer.log(3, "start", f"开始{mod3.name}")
+                self.tracer.step_start()
+
+                context = await mod3.execute(context, self.tracer, self.state)
+
+                await self.state.set_progress(3, mod3.name, 100)
+                await self.tracer.log(
+                    3,
+                    "done",
+                    f"{mod3.name} 完成，等待用户选择 Idea 推进到下一阶段",
+                    duration_ms=self.tracer.step_elapsed_ms(),
+                )
+
+                # M3 完成后暂停，等待用户调用 select-idea API
+                await self.state.set_status("paused")
+                await self.tracer.log(3, "paused", "M3 已完成，任务暂停等待用户选择 Idea")
+
+                # M3 完成后不再自动执行后续模块
+                return
+
+            # M4-M6: 代码生成、实验设计、Agent运行（由 select-idea 触发）
+            if 4 <= self.start_module <= 6:
                 context = await self._run_linear_modules(context, self.start_module, 6)
 
             max_retries = context.get("config", {}).get(

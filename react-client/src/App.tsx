@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './components/app-shell/AppLayout';
 import AgentRunPage from './pages/AgentRunPage';
+import CodeGenerationPage from './pages/CodeGenerationPage';
 import ExperimentDesignPage from './pages/ExperimentDesignPage';
 import HistoryPage from './pages/HistoryPage';
 import IdeaGenerationPage from './pages/IdeaGenerationPage';
@@ -48,7 +49,7 @@ export default function App() {
           <Route path="/trends" element={<Navigate to="/gaps" replace />} />
           <Route path="/gaps" element={<ResearchGapsPage />} />
           <Route path="/ideas" element={<IdeaGenerationPage />} />
-          <Route path="/repository" element={<RepositoryPage />} />
+          <Route path="/repository" element={<CodeGenerationPage />} />
           <Route path="/experiment" element={<ExperimentDesignPage />} />
           <Route path="/agent-run" element={<AgentRunPage />} />
           <Route path="/results" element={<ResultsAnalysisPage />} />

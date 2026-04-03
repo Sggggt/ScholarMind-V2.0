@@ -1,8 +1,8 @@
-import { Copy, FileText } from 'lucide-react';
+import { Copy, FileText, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AnnotationPanel, EditorialPage, SectionBlock, SideIndex } from '../components/ui/Primitives';
 import { adaptWritingSections } from '../adapters/artifactAdapter';
-import { getArtifactContent, getTaskOutput } from '../services/api';
+import { getArtifactContent, getTaskOutput, recompilePaperPdf } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 
 export default function WritingPage() {
@@ -12,6 +12,7 @@ export default function WritingPage() {
   const [activeWritingSectionId, setActiveWritingSectionId] = useState('');
   const [paperUrl, setPaperUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isRecompiling, setIsRecompiling] = useState(false);
 
   useEffect(() => {
     if (!currentTaskId) {
@@ -71,6 +72,34 @@ export default function WritingPage() {
     }
   };
 
+  const recompilePdf = async () => {
+    if (!currentTaskId || isRecompiling) {
+      return;
+    }
+
+    setIsRecompiling(true);
+    try {
+      const result = await recompilePaperPdf(currentTaskId);
+      if (result.ok) {
+        showToast(result.message || 'PDF 编译成功');
+        // 刷新 PDF URL
+        const outputResponse = await getTaskOutput(currentTaskId);
+        setPaperUrl(outputResponse.paper_url ?? null);
+        // 添加时间戳强制刷新
+        setPaperUrl((prev) => {
+          const baseUrl = prev?.split('?')[0] ?? '/api/files/' + currentTaskId + '/paper/paper.pdf';
+          return `${baseUrl}?t=${Date.now()}`;
+        });
+      } else {
+        showToast('PDF 编译失败: ' + (result.message || '未知错误'));
+      }
+    } catch (err) {
+      showToast('PDF 编译请求失败，请稍后重试');
+    } finally {
+      setIsRecompiling(false);
+    }
+  };
+
   return (
     <EditorialPage
       eyebrow="Paper Draft"
@@ -78,24 +107,48 @@ export default function WritingPage() {
       description={error ?? '这里展示 AI 生成的 LaTeX 章节草稿。左侧用于导航，中间阅读正文，右侧保留证据栏位。'}
       actions={
         <div className="chip-row">
+          {paperUrl ? (
+            <a
+              className="button-primary"
+              href={paperUrl.startsWith('http') ? paperUrl : `${import.meta.env.VITE_API_BASE ?? ''}${paperUrl}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', cursor: 'pointer' }}
+            >
+              <FileText size={14} />
+              预览 PDF
+            </a>
+          ) : (
+            <>
+              <button className="button-primary" disabled type="button">
+                <FileText size={14} />
+                预览 PDF
+              </button>
+              <span className="tiny muted">PDF 编译中...</span>
+            </>
+          )}
           <button
-            className="button-primary"
-            onClick={() => {
-              if (!paperUrl) {
-                return;
-              }
-              const fullUrl = paperUrl.startsWith('http')
-                ? paperUrl
-                : `${import.meta.env.VITE_API_BASE ?? ''}${paperUrl}`;
-              window.open(fullUrl, '_blank', 'noopener,noreferrer');
-            }}
+            className="button-secondary"
+            onClick={() => void recompilePdf()}
+            disabled={isRecompiling || !currentTaskId}
             type="button"
-            disabled={!paperUrl}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 14px',
+              cursor: isRecompiling ? 'wait' : 'pointer',
+              opacity: isRecompiling ? 0.7 : 1,
+            }}
           >
-            <FileText size={14} />
-            预览 PDF
+            <RefreshCw
+              size={14}
+              style={{
+                animation: isRecompiling ? 'spin 1s linear infinite' : 'none',
+              }}
+            />
+            {isRecompiling ? '编译中...' : '重新编译 PDF'}
           </button>
-          {!paperUrl ? <span className="tiny muted">PDF 编译中...</span> : null}
         </div>
       }
     >

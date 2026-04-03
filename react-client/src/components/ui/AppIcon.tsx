@@ -1,6 +1,7 @@
 import {
   Bell,
   Bot,
+  Code2,
   Compass,
   FlaskConical,
   FolderGit2,
@@ -30,6 +31,7 @@ const iconMap = {
   TrendingUp,
   SearchCode,
   Lightbulb,
+  Code2,
   FolderGit2,
   FlaskConical,
   Bot,

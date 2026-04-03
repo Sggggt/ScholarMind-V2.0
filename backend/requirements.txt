@@ -13,6 +13,7 @@ requests==2.33.1
 
 openai==2.30.0
 backoff==2.2.1
+aider-chat>=0.45.0
 
 semanticscholar==0.8.4
 numpy==2.4.4

@@ -1,19 +1,14 @@
 from __future__ import annotations
-"""全程追溯日志系统
 
-每个模块的每一步操作都被记录：输入/输出/耗时/token用量。
-同时通过 WebSocket 推送给手机端和桌面端。
-"""
+"""Pipeline trace logging and WebSocket fan-out."""
 
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from db.database import async_session
-from db.models import TraceLog, TaskOutput
-from api.ws import manager
 from api.schemas import WSMessage, module_int_to_id
+from api.ws import manager
+from db.database import async_session
+from db.models import Task, TaskOutput, TraceLog
 
 MODULE_NAMES = {
     1: "文献调研",
@@ -29,7 +24,7 @@ MODULE_NAMES = {
 
 
 class Tracer:
-    """追溯记录器，绑定到一个 task"""
+    """Persist trace logs and mirror them to subscribed clients."""
 
     def __init__(self, task_id: str):
         self.task_id = task_id
@@ -38,11 +33,21 @@ class Tracer:
     def _module_name(self, module: int) -> str:
         return MODULE_NAMES.get(module, f"模块{module}")
 
+    def _timestamp(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
     def step_start(self):
         self._step_start = time.time()
 
     def step_elapsed_ms(self) -> int:
         return int((time.time() - self._step_start) * 1000)
+
+    async def _read_task_progress(self) -> tuple[float, str]:
+        async with async_session() as db:
+            task = await db.get(Task, self.task_id)
+            if not task:
+                return 0.0, "M1"
+            return float(task.progress or 0.0), module_int_to_id(task.current_module or 1)
 
     async def log(
         self,
@@ -58,7 +63,6 @@ class Tracer:
         if duration_ms is None:
             duration_ms = self.step_elapsed_ms() if self._step_start else 0
 
-        # 写数据库
         async with async_session() as db:
             log = TraceLog(
                 task_id=self.task_id,
@@ -75,24 +79,35 @@ class Tracer:
             db.add(log)
             await db.commit()
 
-        # WebSocket 推送
-        await manager.send(WSMessage(
-            type="progress",
-            task_id=self.task_id,
-            module=module_int_to_id(module),
-            step=step,
-            message=f"[{self._module_name(module)}] {message}",
-        ))
+        progress, current_module = await self._read_task_progress()
+        await manager.send(
+            WSMessage(
+                type="progress",
+                task_id=self.task_id,
+                module=module_int_to_id(module),
+                step=step,
+                percent=progress,
+                message=f"[{self._module_name(module)}] {message}",
+                timestamp=self._timestamp(),
+                data={"current_module": current_module},
+            )
+        )
 
     async def log_error(self, module: int, step: str, error: str):
         await self.log(module, step, error, level="error")
-        await manager.send(WSMessage(
-            type="error",
-            task_id=self.task_id,
-            module=module_int_to_id(module),
-            step=step,
-            message=error,
-        ))
+        progress, current_module = await self._read_task_progress()
+        await manager.send(
+            WSMessage(
+                type="error",
+                task_id=self.task_id,
+                module=module_int_to_id(module),
+                step=step,
+                percent=progress,
+                message=error,
+                timestamp=self._timestamp(),
+                data={"current_module": current_module},
+            )
+        )
 
     async def save_output(
         self,
@@ -114,26 +129,48 @@ class Tracer:
             db.add(out)
             await db.commit()
 
-        await manager.send(WSMessage(
-            type="result",
-            task_id=self.task_id,
-            module=module_int_to_id(module),
-            message=f"产出: {output_type}",
-            data={"output_type": output_type, "file_path": file_path},
-        ))
+        progress, current_module = await self._read_task_progress()
+        await manager.send(
+            WSMessage(
+                type="result",
+                task_id=self.task_id,
+                module=module_int_to_id(module),
+                percent=progress,
+                message=f"产出: {output_type}",
+                timestamp=self._timestamp(),
+                data={
+                    "output_type": output_type,
+                    "file_path": file_path,
+                    "current_module": current_module,
+                },
+            )
+        )
 
     async def request_review(self, module: int, content: dict):
-        await manager.send(WSMessage(
-            type="need_review",
-            task_id=self.task_id,
-            module=module_int_to_id(module),
-            message="需要人工审阅",
-            data=content,
-        ))
+        progress, current_module = await self._read_task_progress()
+        await manager.send(
+            WSMessage(
+                type="need_review",
+                task_id=self.task_id,
+                module=module_int_to_id(module),
+                step="review",
+                percent=progress,
+                message="需要人工审阅",
+                timestamp=self._timestamp(),
+                data={**content, "current_module": current_module},
+            )
+        )
 
     async def mark_completed(self):
-        await manager.send(WSMessage(
-            type="completed",
-            task_id=self.task_id,
-            message="研究任务全部完成",
-        ))
+        progress, current_module = await self._read_task_progress()
+        await manager.send(
+            WSMessage(
+                type="completed",
+                task_id=self.task_id,
+                module=current_module,
+                percent=max(progress, 100.0),
+                message="研究任务全部完成",
+                timestamp=self._timestamp(),
+                data={"current_module": current_module},
+            )
+        )

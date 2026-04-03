@@ -10,6 +10,8 @@ import type {
   BackendRepoTreeNode,
   BackendRuntimeSettingsRequest,
   BackendRuntimeSettingsResponse,
+  BackendSelectIdeaRequest,
+  BackendSelectIdeaResponse,
   BackendSshStatusResponse,
   BackendSshTestResponse,
   BackendReviewReportResponse,
@@ -19,6 +21,7 @@ import type {
   BackendTaskResponse,
 } from '../types/backend';
 import { resolveApiBase, resolveBackendAccessToken } from './preferences';
+import { sanitizeErrorMessage } from '../utils/errorMessage';
 
 const REQUEST_TIMEOUT_MS = 20000;
 const responseCache = new Map<string, unknown>();
@@ -77,7 +80,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       : `Bearer ${apiKey}`
     : '';
   const method = (init?.method ?? 'GET').toUpperCase();
-  const shouldCache = method === 'GET' && !init?.body;
+  const shouldCache = method === 'GET' && !init?.body && init?.cache === 'force-cache';
   const cacheKey = shouldCache ? buildRequestCacheKey(path, method, authorizationHeader) : '';
 
   if (cacheKey && responseCache.has(cacheKey)) {
@@ -95,6 +98,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const response = await fetch(buildUrl(path), {
         ...init,
+        cache: init?.cache ?? 'no-store',
         headers: {
           'Content-Type': 'application/json',
           ...(authorizationHeader ? { Authorization: authorizationHeader } : {}),
@@ -105,7 +109,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new ApiError(errorText || `Request failed with status ${response.status}`, response.status);
+        const fallback =
+          response.status === 404
+            ? '请求的资源不存在。'
+            : response.status >= 500
+              ? '后端服务暂时不可用，请稍后重试。'
+              : `请求失败 (${response.status})，请稍后重试。`;
+        throw new ApiError(sanitizeErrorMessage(errorText, fallback), response.status);
       }
 
       if (response.status === 204) {
@@ -244,6 +254,13 @@ export async function resetTaskModule(taskId: string, moduleId: string) {
   });
 }
 
+export async function selectIdea(taskId: string, ideaIndex: number, replaceExisting = false) {
+  return request<BackendSelectIdeaResponse>(`/tasks/${taskId}/select-idea`, {
+    method: 'POST',
+    body: JSON.stringify({ idea_index: ideaIndex, replace_existing: replaceExisting }),
+  });
+}
+
 export async function deleteTask(taskId: string) {
   return request<{ ok: boolean }>(`/tasks/${taskId}`, { method: 'DELETE' });
 }
@@ -254,6 +271,10 @@ export async function getTaskLogs(taskId: string, limit = 200) {
 
 export async function getTaskOutput(taskId: string) {
   return request<BackendTaskOutputResponse>(`/tasks/${taskId}/output`);
+}
+
+export async function recompilePaperPdf(taskId: string) {
+  return request<{ ok: boolean; message: string }>(`/tasks/${taskId}/recompile-pdf`, { method: 'POST' });
 }
 
 export async function getReviewResult(taskId: string) {

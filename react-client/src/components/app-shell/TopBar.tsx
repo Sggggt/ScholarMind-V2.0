@@ -1,5 +1,7 @@
-import { History, Radio, Settings2, Workflow } from 'lucide-react';
+import { History, Radio, RefreshCw, Settings2, Workflow } from 'lucide-react';
+import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { clearApiCache } from '../../services/api';
 import { routeMeta } from '../../data/routeData';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
@@ -17,10 +19,39 @@ export default function TopBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentTask = useWorkspaceStore((state) => state.currentTask);
+  const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const currentStage = useWorkspaceStore((state) => state.currentStage);
   const isWebSocketConnected = useWorkspaceStore((state) => state.isWebSocketConnected);
+  const initializeWorkspaceData = useWorkspaceStore((state) => state.initializeWorkspaceData);
+  const refreshCurrentTask = useWorkspaceStore((state) => state.refreshCurrentTask);
+  const refreshLogs = useWorkspaceStore((state) => state.refreshLogs);
+  const showToast = useWorkspaceStore((state) => state.showToast);
   const route = routeMeta.find((item) => item.path === location.pathname);
   const currentStageRoute = routeMeta.find((item) => item.id === currentStage);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+    clearApiCache();
+
+    try {
+      await initializeWorkspaceData();
+
+      if (currentTaskId) {
+        await Promise.all([refreshCurrentTask(), refreshLogs(currentTaskId)]);
+      }
+
+      showToast('已同步最新任务状态');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '刷新失败');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <header className="topbar">
@@ -44,6 +75,15 @@ export default function TopBar() {
       </div>
 
       <div className="topbar-tools">
+        <button
+          className="topbar-icon-button"
+          disabled={isRefreshing}
+          onClick={() => void handleRefresh()}
+          type="button"
+          aria-label="刷新页面"
+        >
+          <RefreshCw size={16} />
+        </button>
         <button className="topbar-icon-button" onClick={() => navigate('/workflow')} type="button" aria-label="研究流程">
           <Workflow size={16} />
         </button>

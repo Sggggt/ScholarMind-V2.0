@@ -1,36 +1,48 @@
 from __future__ import annotations
-"""M2: 研究空白识别与选题开题模块 (V2 - PaperQA2 RAG)
 
-升级点：
-1. 用 PaperQA2 索引 M1 发现的论文，建立本地知识库
-2. 发定向查询获取 grounded gap analysis
-3. 用真实文献证据构建研究空白
-4. 保持输出格式 (seed_ideas.json + prompt.json)
+"""M2: grounded gap analysis with PaperQA2 timeout and fallback protection."""
 
-核心依赖: paper-qa (PaperQA2)
-"""
-
+import asyncio
 import json
 import os
-import asyncio
 import tempfile
 
+import config
+from modules.ai_scientist_bridge import extract_json_between_markers, search_for_papers
 from modules.base import BaseModule
 from modules.llm_client import call_llm, call_llm_json
-from modules.ai_scientist_bridge import (
-    create_client_zhipu,
-    get_response_from_llm,
-    extract_json_between_markers,
-    search_for_papers,
-)
-from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
-import config
+from pipeline.tracer import Tracer
 
 
 class GapAnalysisModule(BaseModule):
     module_id = 2
     name = "研究空白识别"
+
+    async def _run_with_timeout(self, awaitable, *, timeout: int | None = None):
+        return await asyncio.wait_for(awaitable, timeout=timeout or config.PAPERQA_TIMEOUT)
+
+    def _paperqa_llm_model(self) -> str:
+        return os.getenv("PAPERQA_LLM_MODEL", config.OPENAI_MODEL).strip() or config.OPENAI_MODEL
+
+    def _paperqa_embedding_model(self) -> str:
+        override = os.getenv("PAPERQA_EMBEDDING_MODEL", "").strip()
+        if override:
+            return override
+
+        if "open.bigmodel.cn" in config.OPENAI_BASE_URL:
+            return "embedding-3"
+
+        return "text-embedding-3-small"
+
+    def _paperqa_local_citation(self, topic: str, domain: str) -> str:
+        domain_suffix = f", {domain}" if domain else ""
+        return f"ScholarMind Local Review, {topic[:80]}{domain_suffix}, 2026"
+
+    async def _build_docs(self):
+        from paperqa import Docs
+
+        return await asyncio.wait_for(asyncio.to_thread(Docs), timeout=config.PAPERQA_TIMEOUT)
 
     async def execute(self, context: dict, tracer: Tracer, state: TaskStateMachine) -> dict:
         topic = context["topic"]
@@ -39,26 +51,18 @@ class GapAnalysisModule(BaseModule):
         research_sources = context.get("research_sources", [])
         workspace = context["workspace"]
 
-        # ── Step 1: 用 PaperQA2 建立文献知识库 ──
         tracer.step_start()
         await tracer.log(2, "build_index", "用 PaperQA2 建立文献知识库")
+        pqa_answers = await self._query_with_paperqa(topic, domain, literature_review, research_sources, tracer)
+        await tracer.log(2, "build_index", f"PaperQA2 返回 {len(pqa_answers)} 条 grounded 回答")
 
-        pqa_answers = await self._query_with_paperqa(
-            topic, domain, literature_review, research_sources, tracer
-        )
-
-        await tracer.log(2, "build_index",
-                         f"PaperQA2 返回 {len(pqa_answers)} 条 grounded 回答")
-
-        # ── Step 2: 用 grounded answers 识别研究空白 ──
         tracer.step_start()
         await tracer.log(2, "identify_gaps", "基于 grounded 文献分析识别研究空白")
-
-        # 构建增强的 gap 分析 prompt
-        grounded_context = "\n\n".join(
-            f"Q: {qa['query']}\nA (grounded in literature): {qa['answer']}"
-            for qa in pqa_answers
-        ) if pqa_answers else "No PaperQA results available."
+        grounded_context = (
+            "\n\n".join(f"Q: {qa['query']}\nA (grounded in literature): {qa['answer']}" for qa in pqa_answers)
+            if pqa_answers
+            else "No PaperQA results available."
+        )
 
         gap_prompt = f"""You are a senior researcher identifying research gaps.
 
@@ -77,27 +81,24 @@ from the literature as evidence.
 
 Return JSON:
 {{
-    "gaps": [
-        {{
-            "category": "methodology/theory/application/data/cross-disciplinary",
-            "description": "Specific description of the research gap",
-            "evidence": "Which papers/findings support this gap (cite specific works)",
-            "potential_impact": "high/medium/low",
-            "difficulty": "high/medium/low"
-        }}
-    ],
-    "summary": "Overall summary of research gaps (200 words)"
+  "gaps": [
+    {{
+      "category": "methodology/theory/application/data/cross-disciplinary",
+      "description": "Specific description of the research gap",
+      "evidence": "Which papers/findings support this gap (cite specific works)",
+      "potential_impact": "high/medium/low",
+      "difficulty": "high/medium/low"
+    }}
+  ],
+  "summary": "Overall summary of research gaps (200 words)"
 }}"""
 
         gaps_data, _ = await call_llm_json(gap_prompt, max_tokens=4096)
         gaps = gaps_data.get("gaps", [])
-
         await tracer.log(2, "identify_gaps", f"识别出 {len(gaps)} 个研究空白")
 
-        # ── Step 3: 生成 seed ideas (AI-Scientist 格式) ──
         tracer.step_start()
         await tracer.log(2, "generate_seeds", "生成种子研究方向")
-
         seed_prompt = f"""Based on the research gaps below, propose 2-3 initial seed ideas for novel research.
 
 Research Topic: {topic}
@@ -109,14 +110,14 @@ Research Gaps:
 Return JSON array:
 ```json
 [
-    {{
-        "Name": "lowercase_no_spaces_descriptor",
-        "Title": "A Descriptive Title for the Research Idea",
-        "Experiment": "Outline: components to build, how to evaluate, datasets, baselines.",
-        "Interestingness": 8,
-        "Feasibility": 7,
-        "Novelty": 8
-    }}
+  {{
+    "Name": "lowercase_no_spaces_descriptor",
+    "Title": "A Descriptive Title for the Research Idea",
+    "Experiment": "Outline: components to build, how to evaluate, datasets, baselines.",
+    "Interestingness": 8,
+    "Feasibility": 7,
+    "Novelty": 8
+  }}
 ]
 ```
 Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."""
@@ -127,13 +128,10 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
             seed_ideas = []
         elif isinstance(seed_ideas, dict):
             seed_ideas = seed_ideas.get("ideas", [seed_ideas])
-
         await tracer.log(2, "generate_seeds", f"生成了 {len(seed_ideas)} 个种子 idea")
 
-        # ── Step 4: 准备 AI-Scientist 模板文件 ──
         tracer.step_start()
         await tracer.log(2, "prepare_template", "准备 AI-Scientist 模板文件")
-
         ai_scientist_dir = os.path.join(workspace, "ai_scientist_workspace")
         os.makedirs(ai_scientist_dir, exist_ok=True)
 
@@ -150,65 +148,82 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
             ),
         }
 
-        with open(os.path.join(ai_scientist_dir, "prompt.json"), "w") as f:
-            json.dump(prompt_json, f, indent=2)
-        with open(os.path.join(ai_scientist_dir, "seed_ideas.json"), "w") as f:
-            json.dump(seed_ideas, f, indent=4)
-        with open(os.path.join(ai_scientist_dir, "experiment.py"), "w") as f:
+        with open(os.path.join(ai_scientist_dir, "prompt.json"), "w", encoding="utf-8") as f:
+            json.dump(prompt_json, f, ensure_ascii=False, indent=2)
+        with open(os.path.join(ai_scientist_dir, "seed_ideas.json"), "w", encoding="utf-8") as f:
+            json.dump(seed_ideas, f, ensure_ascii=False, indent=2)
+        with open(os.path.join(ai_scientist_dir, "experiment.py"), "w", encoding="utf-8") as f:
             f.write(self._generate_base_experiment(topic, domain))
 
         await tracer.log(2, "prepare_template", "模板准备完成")
 
-        # ── 保存产出 ──
         gap_path = os.path.join(workspace, "m2_gap_analysis.json")
         with open(gap_path, "w", encoding="utf-8") as f:
             json.dump(gaps_data, f, ensure_ascii=False, indent=2)
 
-        await tracer.save_output(2, "gap_analysis", file_path=gap_path,
-                                  metadata={"gap_count": len(gaps), "grounded_answers": len(pqa_answers)})
+        await tracer.save_output(
+            2,
+            "gap_analysis",
+            file_path=gap_path,
+            metadata={"gap_count": len(gaps), "grounded_answers": len(pqa_answers)},
+        )
 
         context["research_gaps"] = gaps
         context["seed_ideas"] = seed_ideas
         context["ai_scientist_dir"] = ai_scientist_dir
         context["prompt_json"] = prompt_json
-
         return context
 
     async def _query_with_paperqa(self, topic, domain, literature_review, sources, tracer):
-        """用 PaperQA2 做 RAG 查询"""
-        answers = []
+        answers: list[dict[str, str]] = []
 
         try:
-            from paperqa import Docs, Settings
+            from paperqa import Settings
+            from paperqa.settings import ParsingSettings
 
-            # 配置 PaperQA 使用智谱AI
-            # embedding 用 litellm 支持的格式，或留空用默认
+            paperqa_llm_model = self._paperqa_llm_model()
+            paperqa_embedding_model = self._paperqa_embedding_model()
+
             settings = Settings(
-                llm=f"openai/{config.OPENAI_MODEL}",
-                summary_llm=f"openai/{config.OPENAI_MODEL}",
+                llm=f"openai/{paperqa_llm_model}",
+                summary_llm=f"openai/{paperqa_llm_model}",
+                embedding=f"openai/{paperqa_embedding_model}",
+                parsing=ParsingSettings(use_doc_details=False),
             )
 
-            # 设置 OpenAI 兼容环境变量
             os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
             os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
 
-            docs = Docs()
+            await tracer.log(
+                2,
+                "paperqa",
+                f"初始化 PaperQA2 (llm={paperqa_llm_model}, embedding={paperqa_embedding_model})",
+            )
+            docs = await self._build_docs()
+            await tracer.log(2, "paperqa", "PaperQA2 初始化完成")
 
-            # 将文献综述作为文本添加到索引
             if literature_review and len(literature_review) > 200:
-                # 保存为临时文本文件让 PaperQA 索引
-                tmp_dir = tempfile.mkdtemp()
+                tmp_dir = tempfile.mkdtemp(prefix="scholarmind_paperqa_")
                 review_path = os.path.join(tmp_dir, "literature_review.txt")
-                with open(review_path, "w") as f:
+                with open(review_path, "w", encoding="utf-8") as f:
                     f.write(literature_review)
 
                 try:
-                    await docs.aadd(review_path, settings=settings)
-                    await tracer.log(2, "paperqa", "文献综述已索引")
-                except Exception as e:
-                    await tracer.log(2, "paperqa", f"索引失败: {e}", level="warn")
+                    await tracer.log(2, "paperqa", "开始写入文献综述到 PaperQA2 索引")
+                    await self._run_with_timeout(
+                        docs.aadd(
+                            review_path,
+                            citation=self._paperqa_local_citation(topic, domain),
+                            docname="scholarmind_local_review",
+                            settings=settings,
+                        )
+                    )
+                    await tracer.log(2, "paperqa", "文献综述已建立索引")
+                except asyncio.TimeoutError:
+                    await tracer.log(2, "paperqa", "PaperQA2 建索引超时，降级到后备检索", level="warn")
+                except Exception as exc:
+                    await tracer.log(2, "paperqa", f"索引失败: {exc}", level="warn")
 
-            # 定向查询
             queries = [
                 f"What are the main limitations and open problems in {topic}?",
                 f"What methods have been proposed for {topic} and what are their weaknesses?",
@@ -218,24 +233,25 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
 
             for query in queries:
                 try:
-                    response = await docs.aquery(query, settings=settings)
-                    if response and hasattr(response, 'answer') and response.answer:
-                        answers.append({
-                            "query": query,
-                            "answer": response.answer,
-                        })
+                    await tracer.log(2, "paperqa", f"开始查询: {query[:60]}...")
+                    response = await self._run_with_timeout(docs.aquery(query, settings=settings))
+                    if response and hasattr(response, "answer") and response.answer:
+                        answers.append({"query": query, "answer": response.answer})
                         await tracer.log(2, "paperqa", f"查询成功: {query[:50]}...")
                     else:
                         await tracer.log(2, "paperqa", f"无结果: {query[:50]}...", level="warn")
-                except Exception as e:
-                    await tracer.log(2, "paperqa", f"查询失败: {e}", level="warn")
+                except asyncio.TimeoutError:
+                    await tracer.log(2, "paperqa", f"查询超时: {query[:50]}...", level="warn")
+                except Exception as exc:
+                    await tracer.log(2, "paperqa", f"查询失败: {exc}", level="warn")
 
         except ImportError:
             await tracer.log(2, "paperqa", "paper-qa 未安装，降级到纯LLM分析", level="warn")
-        except Exception as e:
-            await tracer.log(2, "paperqa", f"PaperQA2 初始化失败: {e}，降级到纯LLM分析", level="warn")
+        except asyncio.TimeoutError:
+            await tracer.log(2, "paperqa", "PaperQA2 初始化超时，降级到纯LLM分析", level="warn")
+        except Exception as exc:
+            await tracer.log(2, "paperqa", f"PaperQA2 初始化失败: {exc}，降级到纯LLM分析", level="warn")
 
-        # 降级：如果 PaperQA 失败，用 Semantic Scholar 搜索补充
         if not answers:
             await tracer.log(2, "fallback_search", "使用 Semantic Scholar 做降级文献搜索")
             search_queries = [
@@ -243,23 +259,21 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
                 f"{topic} survey benchmark",
                 f"{topic} {domain} recent advances",
             ]
+
             for sq in search_queries:
                 try:
-                    papers = await asyncio.to_thread(search_for_papers, sq, 5)
+                    papers = await asyncio.wait_for(asyncio.to_thread(search_for_papers, sq, 5), timeout=20)
                     if papers:
                         paper_summaries = []
-                        for p in papers:
-                            abstract = p.get("abstract", "")
+                        for paper in papers:
+                            abstract = paper.get("abstract", "")
                             if abstract:
                                 paper_summaries.append(
-                                    f"- {p.get('title', 'N/A')} ({p.get('year', '')}, "
-                                    f"citations: {p.get('citationCount', 0)}): {abstract[:200]}"
+                                    f"- {paper.get('title', 'N/A')} ({paper.get('year', '')}, "
+                                    f"citations: {paper.get('citationCount', 0)}): {abstract[:200]}"
                                 )
                         if paper_summaries:
-                            answers.append({
-                                "query": sq,
-                                "answer": "Relevant papers found:\n" + "\n".join(paper_summaries),
-                            })
+                            answers.append({"query": sq, "answer": "Relevant papers found:\n" + "\n".join(paper_summaries)})
                 except Exception:
                     pass
                 await asyncio.sleep(1.0)
@@ -267,7 +281,6 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
         return answers
 
     def _generate_base_experiment(self, topic, domain):
-        """生成真实实验模板 — 使用 HuggingFace datasets + sklearn/torch"""
         return f'''"""
 Baseline experiment for: {topic}
 Domain: {domain}
@@ -287,7 +300,6 @@ from collections import Counter
 
 def load_dataset_safe():
     """Load a real dataset. Try HuggingFace first, fallback to sklearn."""
-    # Try HuggingFace datasets
     try:
         from datasets import load_dataset
         ds = load_dataset("ag_news", split="train[:2000]")
@@ -297,16 +309,17 @@ def load_dataset_safe():
     except Exception:
         pass
 
-    # Fallback to sklearn
     try:
         from sklearn.datasets import fetch_20newsgroups
-        data = fetch_20newsgroups(subset="train", categories=["sci.med", "sci.space", "comp.graphics", "rec.sport.baseball"],
-                                  remove=("headers", "footers", "quotes"))
+        data = fetch_20newsgroups(
+            subset="train",
+            categories=["sci.med", "sci.space", "comp.graphics", "rec.sport.baseball"],
+            remove=("headers", "footers", "quotes"),
+        )
         return data.data[:2000], data.target[:2000].tolist(), "20newsgroups"
     except Exception:
         pass
 
-    # Last resort: generate synthetic but structured data
     np.random.seed(42)
     n = 1000
     texts = [f"sample text {{i}} with features" for i in range(n)]
@@ -315,7 +328,6 @@ def load_dataset_safe():
 
 def extract_features(texts, max_features=5000):
     """Simple TF-IDF-like feature extraction."""
-    # Build vocabulary
     word_counts = Counter()
     for text in texts:
         words = text.lower().split()
@@ -323,14 +335,12 @@ def extract_features(texts, max_features=5000):
 
     vocab = {{w: i for i, (w, _) in enumerate(word_counts.most_common(max_features))}}
 
-    # Convert to bag-of-words
     features = np.zeros((len(texts), len(vocab)), dtype=np.float32)
     for i, text in enumerate(texts):
         words = text.lower().split()
         for w in words:
             if w in vocab:
                 features[i, vocab[w]] += 1
-        # L2 normalize
         norm = np.linalg.norm(features[i])
         if norm > 0:
             features[i] /= norm
@@ -354,7 +364,6 @@ def train_and_evaluate(X_train, y_train, X_test, y_test):
             "recall": recall_score(y_test, y_pred, average="weighted"),
         }}
     except ImportError:
-        # Manual accuracy calculation without sklearn
         correct = sum(1 for a, b in zip(y_test, y_pred) if a == b)
         return {{"accuracy": correct / len(y_test), "f1": 0.0, "precision": 0.0, "recall": 0.0}}
 
@@ -364,15 +373,12 @@ def run_experiment(args):
     start_time = time.time()
     np.random.seed(args.seed)
 
-    # Load real data
     texts, labels, dataset_name = load_dataset_safe()
     print(f"Dataset: {{dataset_name}}, samples: {{len(texts)}}")
 
-    # Feature extraction
     features = extract_features(texts)
     print(f"Features shape: {{features.shape}}")
 
-    # Train/test split (80/20)
     n = len(texts)
     split = int(n * 0.8)
     indices = np.random.permutation(n)
@@ -380,11 +386,9 @@ def run_experiment(args):
     y_train = [labels[i] for i in indices[:split]]
     y_test = [labels[i] for i in indices[split:]]
 
-    # Train and evaluate
     metrics = train_and_evaluate(X_train, y_train, X_test, y_test)
     runtime = time.time() - start_time
 
-    # Save in AI-Scientist format
     for k, v in metrics.items():
         results[f"baseline_{{k}}"] = {{"means": float(v), "stds": 0.0}}
     results["runtime"] = {{"means": runtime, "stds": 0.0}}
