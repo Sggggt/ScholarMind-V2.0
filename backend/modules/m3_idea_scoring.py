@@ -169,6 +169,30 @@ class IdeaScoringModule(BaseModule):
             "_raw": idea,
         }
 
+    @classmethod
+    def _ensure_scored_idea(cls, idea: dict) -> dict:
+        """Accept either raw AI-Scientist ideas or already-scored frontend-ready ideas."""
+        if not isinstance(idea, dict):
+            return cls._build_scored_idea({})
+
+        nested_raw = idea.get("_raw")
+        if isinstance(nested_raw, dict):
+            top_level_empty = not any(idea.get(key) for key in ("problem", "method", "experiment_plan", "key_innovation"))
+            nested_has_content = any(nested_raw.get(key) for key in ("problem", "method", "experiment_plan", "key_innovation", "Experiment", "Title"))
+            default_scores = idea.get("scores") == {"novelty": 5.0, "feasibility": 5.0, "interestingness": 5.0}
+            if nested_has_content and (top_level_empty or default_scores):
+                return cls._ensure_scored_idea(nested_raw)
+
+        has_scored_shape = (
+            isinstance(idea.get("scores"), dict)
+            and "overall_score" in idea
+            and any(key in idea for key in ("title", "Name", "_raw"))
+        )
+        if has_scored_shape:
+            return idea
+
+        return cls._build_scored_idea(idea)
+
     def _write_idea_snapshot(
         self,
         workspace: str,
@@ -178,7 +202,7 @@ class IdeaScoringModule(BaseModule):
         novel_count: int | None = None,
         best_idea_index: int | None = None,
     ) -> list[dict]:
-        scored_ideas = [self._build_scored_idea(idea) for idea in ideas]
+        scored_ideas = [self._ensure_scored_idea(idea) for idea in ideas]
 
         if best_idea_index is None:
             if scored_ideas:

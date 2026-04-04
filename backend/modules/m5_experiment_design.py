@@ -19,9 +19,11 @@ from modules.ai_scientist_bridge import (
     get_response_from_llm_async,
     extract_json_between_markers,
 )
+from modules.experiment_guard import is_valid_python_file, rewrite_experiment_with_llm, validate_experiment_file
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
 import config
+from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 
 def _aider_available() -> bool:
@@ -111,19 +113,31 @@ class ExperimentDesignModule(BaseModule):
         tracer.step_start()
         await tracer.log(5, "implement_experiments", "使用 Aider 实现实验代码修改")
 
+        experiment_path = os.path.join(project_dir, "experiment.py")
+        used_llm_rewrite = False
+
         if not _aider_available():
             await tracer.log(5, "implement_experiments",
-                             "Aider 未安装，跳过 Aider 实现，实验将使用当前代码", level="warn")
+                             "Aider 不可用，改为 LLM 全量重写 experiment.py", level="warn")
+            code = await rewrite_experiment_with_llm(
+                idea_title=idea_title,
+                idea_experiment=idea_experiment,
+                baseline_results=baseline_results,
+                plan_data=plan_data,
+            )
+            with open(experiment_path, "w", encoding="utf-8") as handle:
+                handle.write(code)
+            used_llm_rewrite = True
         else:
             try:
                 from aider.coders import Coder
                 from aider.models import Model
                 from aider.io import InputOutput
 
-                os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
-                os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
+                os.environ["OPENAI_API_KEY"] = get_openai_api_key()
+                os.environ["OPENAI_API_BASE"] = get_openai_base_url()
 
-                aider_model = Model(f"openai/{config.OPENAI_MODEL}")
+                aider_model = Model(f"openai/{get_openai_model()}")
                 io = InputOutput(yes=True)
                 fnames = [os.path.join(project_dir, "experiment.py")]
 
@@ -148,7 +162,60 @@ class ExperimentDesignModule(BaseModule):
 
             except Exception as e:
                 await tracer.log(5, "implement_experiments",
-                                 f"Aider 失败，实验将使用当前代码: {e}", level="warn")
+                                 f"Aider 失败，改为 LLM 全量重写: {e}", level="warn")
+                code = await rewrite_experiment_with_llm(
+                    idea_title=idea_title,
+                    idea_experiment=idea_experiment,
+                    baseline_results=baseline_results,
+                    plan_data=plan_data,
+                )
+                with open(experiment_path, "w", encoding="utf-8") as handle:
+                    handle.write(code)
+                used_llm_rewrite = True
+
+        if not is_valid_python_file(experiment_path) and not used_llm_rewrite:
+            await tracer.log(
+                5,
+                "implement_experiments",
+                "代码未通过语法校验，改为 LLM 全量重写",
+                level="warn",
+            )
+            code = await rewrite_experiment_with_llm(
+                idea_title=idea_title,
+                idea_experiment=idea_experiment,
+                baseline_results=baseline_results,
+                plan_data=plan_data,
+            )
+            with open(experiment_path, "w", encoding="utf-8") as handle:
+                handle.write(code)
+            used_llm_rewrite = True
+
+        if not is_valid_python_file(experiment_path):
+            raise RuntimeError("M5 generated experiment.py is not valid Python")
+
+        validation = validate_experiment_file(experiment_path, idea_title, idea_experiment)
+        if not validation.ok and not used_llm_rewrite:
+            await tracer.log(
+                5,
+                "implement_experiments",
+                f"代码未通过静态门禁，改为 LLM 全量重写: {validation.summary()}",
+                level="warn",
+            )
+            code = await rewrite_experiment_with_llm(
+                idea_title=idea_title,
+                idea_experiment=idea_experiment,
+                baseline_results=baseline_results,
+                plan_data=plan_data,
+            )
+            with open(experiment_path, "w", encoding="utf-8") as handle:
+                handle.write(code)
+            if not is_valid_python_file(experiment_path):
+                raise RuntimeError("M5 LLM rewrite produced invalid Python")
+            validation = validate_experiment_file(experiment_path, idea_title, idea_experiment)
+
+        if not validation.ok:
+            raise RuntimeError(f"M5 experiment gate failed: {validation.summary()}")
+        await tracer.log(5, "implement_experiments", "experiment.py 通过静态门禁")
 
         # ── 保存产出 ──
         plan_path = os.path.join(workspace, "m5_experiment_plan.json")

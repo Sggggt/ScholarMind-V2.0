@@ -18,6 +18,15 @@ from modules.base import BaseModule
 from modules.llm_client import call_llm
 from pipeline.state import TaskStateMachine
 from pipeline.tracer import Tracer
+from runtime_config import (
+    get_brave_api_key,
+    get_openai_api_key,
+    get_openai_base_url,
+    get_openai_model,
+    get_search_provider,
+    get_serper_api_key,
+    get_tavily_api_key,
+)
 
 
 GOAL_HINT_KEYWORDS = (
@@ -130,7 +139,7 @@ class LiteratureModule(BaseModule):
         self._configure_environment()
 
         retriever = os.environ.get("RETRIEVER", "duckduckgo")
-        await tracer.log(1, "configure", f"搜索引擎: {retriever}, 模型: {config.OPENAI_MODEL}")
+        await tracer.log(1, "configure", f"搜索引擎: {retriever}, 模型: {get_openai_model()}")
 
         try:
             report, sources, visited_urls, costs = await self._run_gpt_researcher(
@@ -201,34 +210,35 @@ class LiteratureModule(BaseModule):
         return context
 
     def _configure_environment(self) -> None:
-        os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
-        os.environ["OPENAI_BASE_URL"] = config.OPENAI_BASE_URL
-        os.environ["FAST_LLM"] = f"openai:{config.OPENAI_MODEL}"
-        os.environ["SMART_LLM"] = f"openai:{config.OPENAI_MODEL}"
-        os.environ["STRATEGIC_LLM"] = f"openai:{config.OPENAI_MODEL}"
+        openai_model = get_openai_model()
+        os.environ["OPENAI_API_KEY"] = get_openai_api_key()
+        os.environ["OPENAI_BASE_URL"] = get_openai_base_url()
+        os.environ["FAST_LLM"] = f"openai:{openai_model}"
+        os.environ["SMART_LLM"] = f"openai:{openai_model}"
+        os.environ["STRATEGIC_LLM"] = f"openai:{openai_model}"
 
-        preferred_retriever = getattr(config, "SEARCH_PROVIDER", "brave").strip().lower()
-        brave_key = os.getenv("BRAVE_API_KEY", getattr(config, "BRAVE_API_KEY", ""))
+        preferred_retriever = get_search_provider()
+        brave_key = os.getenv("BRAVE_API_KEY", get_brave_api_key())
 
         if preferred_retriever == "brave" and brave_key:
             os.environ["BRAVE_API_KEY"] = brave_key
             os.environ["RETRIEVER"] = "brave"
-        elif preferred_retriever == "tavily" and config.TAVILY_API_KEY:
-            os.environ["TAVILY_API_KEY"] = config.TAVILY_API_KEY
+        elif preferred_retriever == "tavily" and get_tavily_api_key():
+            os.environ["TAVILY_API_KEY"] = get_tavily_api_key()
             os.environ["RETRIEVER"] = "tavily"
-        elif preferred_retriever == "serper" and config.SERPER_API_KEY:
-            os.environ["SERPER_API_KEY"] = config.SERPER_API_KEY
+        elif preferred_retriever == "serper" and get_serper_api_key():
+            os.environ["SERPER_API_KEY"] = get_serper_api_key()
             os.environ["RETRIEVER"] = "serper"
         elif preferred_retriever == "duckduckgo":
             os.environ["RETRIEVER"] = "duckduckgo"
         elif brave_key:
             os.environ["BRAVE_API_KEY"] = brave_key
             os.environ["RETRIEVER"] = "brave"
-        elif config.TAVILY_API_KEY:
-            os.environ["TAVILY_API_KEY"] = config.TAVILY_API_KEY
+        elif get_tavily_api_key():
+            os.environ["TAVILY_API_KEY"] = get_tavily_api_key()
             os.environ["RETRIEVER"] = "tavily"
-        elif config.SERPER_API_KEY:
-            os.environ["SERPER_API_KEY"] = config.SERPER_API_KEY
+        elif get_serper_api_key():
+            os.environ["SERPER_API_KEY"] = get_serper_api_key()
             os.environ["RETRIEVER"] = "serper"
         else:
             os.environ["RETRIEVER"] = "duckduckgo"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import delete as sql_delete
@@ -11,14 +12,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import config
 from db.models import ChatMessage, ChatSession, Task, TaskOutput, TraceLog
 from pipeline.orchestrator import PipelineOrchestrator
+from runtime_config import ensure_runtime_settings
 
 
 _running: dict[str, PipelineOrchestrator] = {}
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def _normalize_start_module(task: Task, start_module: int | None = None) -> int:
     module = start_module or task.current_module or 1
     return max(1, min(9, int(module)))
+
+
+def _normalize_restart_module(task: Task, start_module: int | None = None) -> int:
+    module = _normalize_start_module(task, start_module)
+
+    if module in {1, 2, 3}:
+        return module
+    if 4 <= module <= 7:
+        return 4
+    return module
 
 
 def _safe_remove_path(path: Path) -> None:
@@ -96,6 +112,31 @@ def _cleanup_workspace_from_module(task_id: str, start_module: int) -> None:
             _cleanup_project_outputs(project_dir, keep_baseline=start_module >= 5)
 
 
+def _spawn_orchestrator(
+    task_id: str,
+    *,
+    start_module: int,
+    review_submission: tuple[bool, str] | None = None,
+) -> PipelineOrchestrator:
+    orchestrator = PipelineOrchestrator(task_id, start_module=start_module)
+    if review_submission is not None:
+        approved, comment = review_submission
+        asyncio.create_task(orchestrator.submit_review(approved, comment))
+    _running[task_id] = orchestrator
+    asyncio.create_task(_run_pipeline(orchestrator, task_id))
+    return orchestrator
+
+
+async def _ensure_task_runtime_settings(db: AsyncSession, task: Task) -> Task:
+    normalized = ensure_runtime_settings(task.config if isinstance(task.config, dict) else {})
+    if normalized != (task.config or {}):
+        task.config = normalized
+        task.updated_at = _utcnow()
+        await db.commit()
+        await db.refresh(task)
+    return task
+
+
 async def create_task_and_start(
     db: AsyncSession,
     *,
@@ -104,19 +145,18 @@ async def create_task_and_start(
     config: dict | None = None,
     title: str | None = None,
 ) -> Task:
+    task_config = ensure_runtime_settings(config if isinstance(config, dict) else {})
     task = Task(
         title=(title or topic[:50]).strip() or topic[:50],
         topic=topic,
         domain=description,
-        config=config or {},
+        config=task_config,
     )
     db.add(task)
     await db.commit()
     await db.refresh(task)
 
-    orchestrator = PipelineOrchestrator(task.id)
-    _running[task.id] = orchestrator
-    asyncio.create_task(_run_pipeline(orchestrator, task.id))
+    _spawn_orchestrator(task.id, start_module=1)
     return task
 
 
@@ -133,7 +173,9 @@ def get_running_orchestrator(task_id: str) -> PipelineOrchestrator | None:
 
 
 async def pause_task_execution(db: AsyncSession, task: Task) -> Task:
+    task = await _ensure_task_runtime_settings(db, task)
     task.status = "paused"
+    task.updated_at = _utcnow()
     orchestrator = get_running_orchestrator(task.id)
     if orchestrator:
         orchestrator.pause()
@@ -143,17 +185,24 @@ async def pause_task_execution(db: AsyncSession, task: Task) -> Task:
 
 
 async def resume_task_execution(db: AsyncSession, task: Task) -> Task:
+    task = await _ensure_task_runtime_settings(db, task)
     task.status = "running"
     orchestrator = get_running_orchestrator(task.id)
     if orchestrator:
         orchestrator.resume()
+    else:
+        start_module = _normalize_start_module(task)
+        _spawn_orchestrator(task.id, start_module=start_module)
+    task.updated_at = _utcnow()
     await db.commit()
     await db.refresh(task)
     return task
 
 
 async def abort_task_execution(db: AsyncSession, task: Task) -> Task:
+    task = await _ensure_task_runtime_settings(db, task)
     task.status = "aborted"
+    task.updated_at = _utcnow()
     orchestrator = get_running_orchestrator(task.id)
     if orchestrator:
         orchestrator.abort()
@@ -168,7 +217,8 @@ async def restart_task_execution(
     *,
     start_module: int | None = None,
 ) -> Task:
-    normalized_module = _normalize_start_module(task, start_module)
+    task = await _ensure_task_runtime_settings(db, task)
+    normalized_module = _normalize_restart_module(task, start_module)
 
     existing = get_running_orchestrator(task.id)
     if existing:
@@ -194,13 +244,71 @@ async def restart_task_execution(
     task.current_step = ""
     task.progress = 0
     task.retry_count = 0
+    task.updated_at = _utcnow()
     await db.commit()
     await db.refresh(task)
 
-    orchestrator = PipelineOrchestrator(task.id, start_module=normalized_module)
-    _running[task.id] = orchestrator
-    asyncio.create_task(_run_pipeline(orchestrator, task.id))
+    _spawn_orchestrator(task.id, start_module=normalized_module)
     return task
+
+
+async def recover_running_tasks() -> dict[str, int]:
+    from db.database import async_session
+
+    recovered = 0
+    pending_review = 0
+    paused = 0
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(Task).where(Task.status.in_(("running", "paused", "review")))
+        )
+        tasks = result.scalars().all()
+
+        for task in tasks:
+            await _ensure_task_runtime_settings(db, task)
+
+            if task.status == "running" and not get_running_orchestrator(task.id):
+                start_module = _normalize_start_module(task)
+                _spawn_orchestrator(task.id, start_module=start_module)
+                recovered += 1
+            elif task.status == "review":
+                pending_review += 1
+            elif task.status == "paused":
+                paused += 1
+
+    return {
+        "recovered": recovered,
+        "pending_review": pending_review,
+        "paused": paused,
+    }
+
+
+async def recover_review_execution(
+    db: AsyncSession,
+    task: Task,
+    *,
+    approved: bool,
+    comment: str,
+) -> PipelineOrchestrator:
+    task = await _ensure_task_runtime_settings(db, task)
+
+    orchestrator = get_running_orchestrator(task.id)
+    if orchestrator:
+        await orchestrator.submit_review(approved, comment)
+        return orchestrator
+
+    task.status = "running"
+    task.updated_at = _utcnow()
+    await db.commit()
+    await db.refresh(task)
+
+    start_module = max(_normalize_start_module(task), 9)
+    return _spawn_orchestrator(
+        task.id,
+        start_module=start_module,
+        review_submission=(approved, comment),
+    )
 
 
 async def delete_task_with_dependencies(db: AsyncSession, task: Task) -> None:

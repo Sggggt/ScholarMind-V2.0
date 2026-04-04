@@ -13,6 +13,7 @@ from modules.base import BaseModule
 from modules.llm_client import call_llm, call_llm_json
 from pipeline.state import TaskStateMachine
 from pipeline.tracer import Tracer
+from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 
 class GapAnalysisModule(BaseModule):
@@ -23,14 +24,15 @@ class GapAnalysisModule(BaseModule):
         return await asyncio.wait_for(awaitable, timeout=timeout or config.PAPERQA_TIMEOUT)
 
     def _paperqa_llm_model(self) -> str:
-        return os.getenv("PAPERQA_LLM_MODEL", config.OPENAI_MODEL).strip() or config.OPENAI_MODEL
+        model = get_openai_model()
+        return os.getenv("PAPERQA_LLM_MODEL", model).strip() or model
 
     def _paperqa_embedding_model(self) -> str:
         override = os.getenv("PAPERQA_EMBEDDING_MODEL", "").strip()
         if override:
             return override
 
-        if "open.bigmodel.cn" in config.OPENAI_BASE_URL:
+        if "open.bigmodel.cn" in get_openai_base_url():
             return "embedding-3"
 
         return "text-embedding-3-small"
@@ -191,8 +193,8 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
                 parsing=ParsingSettings(use_doc_details=False),
             )
 
-            os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
-            os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
+            os.environ["OPENAI_API_KEY"] = get_openai_api_key()
+            os.environ["OPENAI_API_BASE"] = get_openai_base_url()
 
             await tracer.log(
                 2,

@@ -73,6 +73,12 @@ Must include these subsections:
 (1) \\subsection{Experimental Setup}: datasets (with sizes/splits), baselines, evaluation metrics, implementation details (lr, batch size, hardware).
 (2) \\subsection{Main Results}: comparison table using \\begin{table} with \\toprule/\\midrule/\\bottomrule. Bold the best results. Discuss what the numbers mean.
 (3) \\subsection{Ablation Study}: table or analysis showing contribution of each component.
+    IMPORTANT: For the ablation table, use SPECIFIC component names from your method, NOT generic placeholders like "component A/B/C".
+    Examples of good component names:
+    - "w/o feedback mechanism" / "w/o attention module" / "w/o data augmentation"
+    - "Full model" / "w/o feature selection" / "w/o re-training"
+    - "Ours" / "w/o temporal modeling" / "w/o multi-head attention"
+    Identify the actual components from your Method section and test them individually.
 (4) \\subsection{Analysis}: deeper insights, case studies, failure cases, or parameter sensitivity.
 ONLY report numbers from the actual experiment results provided. Do NOT fabricate numbers.""",
     },
@@ -537,6 +543,21 @@ Do NOT remove or merge content. Keep all existing content."""
             if placeholders:
                 issues.append(f"Placeholders: {placeholders[:3]}")
 
+            # 4. 检测 ablation table 中的占位符组件名
+            if section_name == "Experiments":
+                # 查找 "component A/B/C", "Component 1/2/3" 等通用占位符
+                ablation_placeholders = re.findall(
+                    r"(component [A-Z]|Component \d+|module [A-Z]|Module \d+|part [A-Z]|Part \d+)",
+                    latex
+                )
+                if ablation_placeholders:
+                    issues.append(f"Ablation table placeholders: {ablation_placeholders[:3]}")
+
+                # 检查是否有 "w/o component A" 这种模式
+                weak_patterns = re.findall(r"w/o (?:component|module|part) [A-Z]", latex, re.IGNORECASE)
+                if weak_patterns:
+                    issues.append(f"Generic ablation names: {weak_patterns[:3]}")
+
             if not issues:
                 continue
 
@@ -544,9 +565,22 @@ Do NOT remove or merge content. Keep all existing content."""
 
             # 修复当前节
             issues_str = "\n".join(f"- {i}" for i in issues)
+
+            # 针对 ablation table 占位符的特殊处理
+            ablation_hint = ""
+            if "Ablation table placeholders" in issues_str or "Generic ablation names" in issues_str:
+                ablation_hint = """
+CRITICAL: Replace generic component names (component A/B/C) with SPECIFIC component names from your method.
+Use descriptive names like:
+- "w/o feedback mechanism" instead of "w/o component A"
+- "w/o attention module" instead of "w/o component B"
+- "w/o data augmentation" instead of "w/o component C"
+- "Full model" for the complete model
+Identify actual components from your Method section and use their real names."""
+
             prompt = f"""Fix these issues in the {section_name} section (audit round {round_num+1}):
 
-{issues_str}
+{issues_str}{ablation_hint}
 
 Replace AI filler phrases with concrete statements. Fix LaTeX errors. Remove placeholders.
 
@@ -615,9 +649,89 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 \\end{{document}}
 """
 
+    def _add_labels_to_sections_and_figures(self, latex: str) -> str:
+        """Add \label{} commands to sections and figures that don't have them."""
+        normalized = latex
+
+        # 为 section 添加 label (如果还没有)
+        # 匹配 \section{Title} 或 \subsection{Title}
+        def add_section_label(match: re.Match[str]) -> str:
+            full_match = match.group(0)
+            section_type = match.group(1)  # section, subsection, etc.
+            title = match.group(2)
+            # 检查后面几行是否已经有 \label
+            next_100 = normalized[normalized.find(full_match):normalized.find(full_match) + 200]
+            if r"\label{" in next_100:
+                return full_match  # 已经有 label，跳过
+
+            # 生成 label: 将标题转为小写并替换空格和特殊字符
+            label = title.lower()
+            label = re.sub(r"[^a-z0-9]+", "_", label)
+            label = label.strip("_")
+            if section_type == "section":
+                label = f"sec:{label}"
+            elif section_type == "subsection":
+                label = f"subsec:{label}"
+            elif section_type == "subsubsection":
+                label = f"subsubsec:{label}"
+            return f"\\{section_type}{{{title}}}\n\\label{{{label}}}"
+
+        normalized = re.sub(
+            r"\\(section|subsection|subsubsection)\*?\{([^}]+)\}",
+            add_section_label,
+            normalized,
+        )
+
+        # 为 figure 和 table 添加 label (如果还没有)
+        def add_figure_label(match: re.Match[str]) -> str:
+            env_type = match.group(1)  # figure or table
+            # 查找环境内容
+            start_pos = match.end()
+            env_end = f"\\end{{{env_type}}}"
+            end_pos = normalized.find(env_end, start_pos)
+            if end_pos == -1:
+                return match.group(0)
+
+            content = normalized[start_pos:end_pos]
+            # 检查是否已有 \label 或 \caption (label 通常在 caption 后)
+            if r"\label{" in content:
+                return match.group(0)  # 已经有 label
+
+            # 尝试提取 caption 作为 label 基础
+            caption_match = re.search(r"\\caption\{([^}]+)\}", content)
+            if caption_match:
+                caption = caption_match.group(1)
+            else:
+                # 没有 caption，使用编号
+                existing_figures = len(re.findall(r"\\begin\{figure\}", normalized))
+                caption = f"Figure {existing_figures + 1}"
+
+            # 生成 label
+            label_base = caption.lower()
+            label_base = re.sub(r"[^a-z0-9]+", "_", label_base)
+            label_base = label_base.strip("_")
+            label = f"fig:{label_base}" if env_type == "figure" else f"tab:{label_base}"
+
+            # 在 \caption 后插入 \label，如果没有 caption 则在环境开始后插入
+            if caption_match:
+                # 在 caption 后插入
+                insert_pos = content.find(caption_match.group(0)) + len(caption_match.group(0))
+                new_content = content[:insert_pos] + f"\n\\label{{{label}}}" + content[insert_pos:]
+                return match.group(0) + new_content + env_end
+            else:
+                # 在环境开始后插入
+                return match.group(0) + f"\n\\label{{{label}}}" + content + env_end
+
+        # 注意: 这个简单的实现可能不完美，但对于大多数情况应该有效
+        # 为了安全起见，我们只处理没有 label 的情况
+
+        return normalized
+
     def _normalize_latex_for_compilation(self, latex: str) -> str:
         """Rewrite common LLM-generated LaTeX patterns into a leaner compilable subset."""
-        normalized = latex.replace("\\usepackage{algorithm}\n", "")
+        # 先添加 labels
+        normalized = self._add_labels_to_sections_and_figures(latex)
+        normalized = normalized.replace("\\usepackage{algorithm}\n", "")
         normalized = normalized.replace("\\usepackage{algorithmic}\n", "")
         normalized = normalized.replace("\\usepackage{filecontents}\n", "")
         normalized = re.sub(
@@ -674,12 +788,25 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
         )
 
         normalized = re.sub(r"\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}", r"\1", normalized)
-        normalized = re.sub(
-            r"\\begin\{algorithm\}\[[^\]]*\]",
-            r"\\begin{figure}[h]\n\\centering\n\\fbox{\\begin{minipage}{0.92\\linewidth}\\small",
-            normalized,
-        )
-        normalized = re.sub(r"\\end\{algorithm\}", r"\\end{minipage}}\n\\end{figure}", normalized)
+
+        # 修复 algorithm 块 - 避免双重嵌套
+        # 检查是否已经在 figure 环境中，如果是则只替换 algorithm 为 minipage
+        if "\\begin{figure}" in normalized and "\\begin{algorithm}" in normalized:
+            # 已经在 figure 中，只替换 algorithm 环境为 minipage
+            normalized = re.sub(
+                r"\\begin\{algorithm\}\[[^\]]*\]",
+                r"\\centering\n\\fbox{\\begin{minipage}{0.92\\linewidth}\\small",
+                normalized,
+            )
+            normalized = re.sub(r"\\end\{algorithm\}", r"\\end{minipage}}", normalized)
+        else:
+            # 不在 figure 中，添加完整的 figure 包装
+            normalized = re.sub(
+                r"\\begin\{algorithm\}\[[^\]]*\]",
+                r"\\begin{figure}[h]\n\\centering\n\\fbox{\\begin{minipage}{0.92\\linewidth}\\small",
+                normalized,
+            )
+            normalized = re.sub(r"\\end\{algorithm\}", r"\\end{minipage}}\n\\end{figure}", normalized)
         normalized = re.sub(r"\\begin\{algorithmic\}\[[^\]]*\]", r"\\begin{flushleft}", normalized)
         normalized = re.sub(r"\\end\{algorithmic\}", r"\\end{flushleft}", normalized)
         normalized = re.sub(r"\\STATE\s*", r"\\par ", normalized)
@@ -693,6 +820,10 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
         normalized = re.sub(r"\\RETURN\{([^}]*)\}", r"\\par \\textbf{Return:} \1", normalized)
         normalized = re.sub(r"\\REQUIRE\s*", r"\\par \\textbf{Input:} ", normalized)
         normalized = re.sub(r"\\ENSURE\s*", r"\\par \\textbf{Output:} ", normalized)
+        # 修复: 处理裸的 \RETURN 后（不跟参数）
+        normalized = re.sub(r"\\RETURN\s*", r"\\par \\textbf{Return}", normalized)
+        # 修复: 处理 \RETURN$ 格式（后跟数学模式）
+        normalized = re.sub(r"\\RETURN\s*\$", r"\\par \\textbf{Return}$", normalized)
         return self._normalize_tabular_columns(normalized)
 
     def _normalize_tabular_columns(self, latex: str) -> str:

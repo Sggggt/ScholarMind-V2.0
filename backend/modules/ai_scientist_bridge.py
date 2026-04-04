@@ -21,6 +21,7 @@ import openai
 import requests
 
 import config
+from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 # ── 把 AI-Scientist 加到 sys.path ──
 AI_SCIENTIST_ROOT = os.path.join(
@@ -38,11 +39,11 @@ MAX_NUM_TOKENS = 4096
 def create_client_zhipu():
     """创建指向智谱AI的 OpenAI 兼容客户端（同步版本）"""
     client = openai.OpenAI(
-        api_key=config.OPENAI_API_KEY,
-        base_url=config.OPENAI_BASE_URL,
+        api_key=get_openai_api_key(),
+        base_url=get_openai_base_url(),
         timeout=config.AI_SCIENTIST_TIMEOUT,
     )
-    return client, config.OPENAI_MODEL
+    return client, get_openai_model()
 
 
 def create_async_client_zhipu():
@@ -52,11 +53,11 @@ def create_async_client_zhipu():
     这样可以避免双重超时冲突，确保 asyncio.wait_for 能正确中断操作
     """
     client = openai.AsyncOpenAI(
-        api_key=config.OPENAI_API_KEY,
-        base_url=config.OPENAI_BASE_URL,
+        api_key=get_openai_api_key(),
+        base_url=get_openai_base_url(),
         timeout=None,  # 不设置超时，由 asyncio.wait_for 控制
     )
-    return client, config.OPENAI_MODEL
+    return client, get_openai_model()
 
 
 # ── 同步版本（保留向后兼容） ──
@@ -306,6 +307,7 @@ def _search_brave(query, result_limit=10) -> Union[None, List[Dict]]:
                 "abstract": description,
                 "citationCount": 0,
                 "citationStyles": {},
+                "url": url,  # 修复: 添加 URL 字段
             })
 
         return papers if papers else None

@@ -9,6 +9,7 @@ import httpx
 import base64
 
 import config
+from runtime_config import get_gpt_api_base, get_gpt_api_key, get_openai_api_key, get_openai_base_url, get_openai_model
 
 
 async def generate_realistic_results(
@@ -75,9 +76,10 @@ Return JSON:
 }}"""
 
     # 用 GPT API 生成（如果可用），否则用智谱
-    api_key = config.GPT_API_KEY or config.OPENAI_API_KEY
-    base_url = config.GPT_API_BASE if config.GPT_API_KEY else config.OPENAI_BASE_URL
-    model = "gpt-4o" if config.GPT_API_KEY else config.OPENAI_MODEL
+    gpt_api_key = get_gpt_api_key()
+    api_key = gpt_api_key or get_openai_api_key()
+    base_url = get_gpt_api_base() if gpt_api_key else get_openai_base_url()
+    model = "gpt-4o" if gpt_api_key else get_openai_model()
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
@@ -105,7 +107,7 @@ async def generate_experiment_figures(
     output_dir: str,
 ) -> list[str]:
     """用 GPT Image API 生成论文图表"""
-    if not config.GPT_API_KEY:
+    if not get_gpt_api_key():
         return []
 
     figures = []
@@ -140,8 +142,8 @@ async def generate_experiment_figures(
         try:
             async with httpx.AsyncClient(timeout=120) as client:
                 resp = await client.post(
-                    f"{config.GPT_API_BASE}/images/generations",
-                    headers={"Authorization": f"Bearer {config.GPT_API_KEY}", "Content-Type": "application/json"},
+                    f"{get_gpt_api_base()}/images/generations",
+                    headers={"Authorization": f"Bearer {get_gpt_api_key()}", "Content-Type": "application/json"},
                     json={
                         "model": "gpt-image-1",
                         "prompt": fig_info["prompt"],

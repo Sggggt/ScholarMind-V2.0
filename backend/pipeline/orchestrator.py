@@ -23,6 +23,7 @@ from pipeline.state import TaskStateMachine
 from pipeline.tracer import Tracer
 
 import config
+from runtime_config import bind_runtime_settings, reset_runtime_settings, resolve_runtime_settings
 
 
 class PipelineOrchestrator:
@@ -120,6 +121,7 @@ class PipelineOrchestrator:
             "topic": task.topic,
             "domain": task.domain,
             "config": task.config,
+            "runtime_settings": resolve_runtime_settings(task.config),
             "workspace": str(workspace),
             "code_dir": str(code_dir) if code_dir else None,
         }
@@ -273,6 +275,7 @@ class PipelineOrchestrator:
             return
 
         context = self._restore_context(task)
+        runtime_token = bind_runtime_settings(context.get("runtime_settings"))
 
         try:
             # M1-M2: 文献和缺口分析，线性执行
@@ -391,3 +394,5 @@ class PipelineOrchestrator:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             await self.tracer.log_error(0, "pipeline_error", error_msg)
             await self.state.set_status("failed")
+        finally:
+            reset_runtime_settings(runtime_token)

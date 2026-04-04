@@ -23,6 +23,13 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
 DEFAULT_GPT_API_BASE = "https://api.gptsapi.net/v1"
 DEFAULT_SEARCH_PROVIDER = "brave"
 
+DEFAULT_LOCAL_LLM_ENGINE = "lm-studio"
+DEFAULT_LOCAL_LLM_SERVER_URL = "http://127.0.0.1:1234/v1"
+DEFAULT_LOCAL_LLM_MODEL = "local-gguf"
+DEFAULT_LOCAL_LLM_CONTEXT_SIZE = 4096
+DEFAULT_LOCAL_LLM_GPU_LAYERS = 0
+LOCAL_GGUF_PROVIDER = "local-gguf"
+
 
 def _read_str(key: str, fallback: str = "") -> str:
     value = os.getenv(key)
@@ -46,6 +53,46 @@ def _read_bool(key: str, fallback: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _coerce_int(value: object, fallback: int) -> int:
+    if value is None:
+        return fallback
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _infer_local_model_alias(path: str, fallback: str = "") -> str:
+    candidate = (fallback or "").strip()
+    if candidate:
+        return candidate
+
+    normalized_path = (path or "").strip()
+    if normalized_path:
+        stem = Path(normalized_path).stem.strip()
+        if stem:
+            return stem
+
+    return DEFAULT_LOCAL_LLM_MODEL
+
+
+def _normalize_base_url(url: str, fallback: str) -> str:
+    normalized = (url or "").strip().rstrip("/")
+    if not normalized:
+        return fallback
+    return normalized
+
+
+def is_local_gguf_provider(provider: str | None = None) -> bool:
+    return (provider or LLM_PROVIDER).strip().lower() == LOCAL_GGUF_PROVIDER
+
+
+def has_llm_completion_config() -> bool:
+    if is_local_gguf_provider():
+        return bool(OPENAI_MODEL and OPENAI_BASE_URL)
+    return bool(OPENAI_API_KEY and OPENAI_MODEL and OPENAI_BASE_URL)
+
+
 def refresh_runtime_config() -> None:
     """Reload exported module globals from the current process environment."""
     global LLM_PROVIDER
@@ -61,6 +108,12 @@ def refresh_runtime_config() -> None:
     global BRAVE_API_KEY
     global GPT_API_KEY
     global GPT_API_BASE
+    global LOCAL_LLM_ENGINE
+    global LOCAL_LLM_SERVER_URL
+    global LOCAL_LLM_MODEL_PATH
+    global LOCAL_LLM_MODEL_ALIAS
+    global LOCAL_LLM_CONTEXT_SIZE
+    global LOCAL_LLM_GPU_LAYERS
     global SSH_HOST
     global SSH_PORT
     global SSH_USER
@@ -84,7 +137,10 @@ def refresh_runtime_config() -> None:
 
     LLM_PROVIDER = _read_str("LLM_PROVIDER", "openai")
     OPENAI_API_KEY = _read_str("OPENAI_API_KEY", "")
-    OPENAI_BASE_URL = _read_str("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)
+    OPENAI_BASE_URL = _normalize_base_url(
+        _read_str("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL),
+        DEFAULT_OPENAI_BASE_URL,
+    )
     OPENAI_MODEL = _read_str("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
 
     ANTHROPIC_API_KEY = _read_str("ANTHROPIC_API_KEY", "")
@@ -98,6 +154,17 @@ def refresh_runtime_config() -> None:
 
     GPT_API_KEY = _read_str("GPT_API_KEY", "")
     GPT_API_BASE = _read_str("GPT_API_BASE", DEFAULT_GPT_API_BASE)
+
+    LOCAL_LLM_ENGINE = _read_str("LOCAL_LLM_ENGINE", DEFAULT_LOCAL_LLM_ENGINE)
+    LOCAL_LLM_MODEL_PATH = _read_str("LOCAL_LLM_MODEL_PATH", "")
+    LOCAL_LLM_MODEL_ALIAS = _read_str("LOCAL_LLM_MODEL_ALIAS", "")
+    LOCAL_LLM_CONTEXT_SIZE = _read_int("LOCAL_LLM_CONTEXT_SIZE", DEFAULT_LOCAL_LLM_CONTEXT_SIZE)
+    LOCAL_LLM_GPU_LAYERS = _read_int("LOCAL_LLM_GPU_LAYERS", DEFAULT_LOCAL_LLM_GPU_LAYERS)
+    local_server_fallback = OPENAI_BASE_URL if is_local_gguf_provider(LLM_PROVIDER) else DEFAULT_LOCAL_LLM_SERVER_URL
+    LOCAL_LLM_SERVER_URL = _normalize_base_url(
+        _read_str("LOCAL_LLM_SERVER_URL", local_server_fallback),
+        local_server_fallback,
+    )
 
     SSH_HOST = _read_str("SSH_HOST", "")
     SSH_PORT = _read_int("SSH_PORT", 22)
@@ -125,7 +192,7 @@ def refresh_runtime_config() -> None:
     PORT = _read_int("PORT", 8000)
 
 
-def get_runtime_settings() -> dict[str, str]:
+def get_runtime_settings() -> dict[str, str | int]:
     """Return the runtime model/provider settings exposed to the frontend."""
     return {
         "llm_provider": LLM_PROVIDER,
@@ -134,35 +201,72 @@ def get_runtime_settings() -> dict[str, str]:
         "provider_base_url": OPENAI_BASE_URL,
         "search_provider": SEARCH_PROVIDER,
         "search_api_key": _get_search_api_key(),
+        "local_engine": LOCAL_LLM_ENGINE,
+        "local_server_url": LOCAL_LLM_SERVER_URL,
+        "local_model_path": LOCAL_LLM_MODEL_PATH,
+        "local_model_alias": LOCAL_LLM_MODEL_ALIAS or OPENAI_MODEL,
+        "local_context_size": LOCAL_LLM_CONTEXT_SIZE,
+        "local_gpu_layers": LOCAL_LLM_GPU_LAYERS,
         "env_path": str(ENV_FILE),
     }
 
 
 def _get_search_api_key() -> str:
-    """根据当前搜索引擎获取对应的 API key"""
     if SEARCH_PROVIDER == "brave":
         return BRAVE_API_KEY
-    elif SEARCH_PROVIDER == "tavily":
+    if SEARCH_PROVIDER == "tavily":
         return TAVILY_API_KEY
-    elif SEARCH_PROVIDER == "serper":
+    if SEARCH_PROVIDER == "serper":
         return SERPER_API_KEY
     return ""
 
 
-def save_runtime_settings(settings: dict[str, str]) -> dict[str, str]:
+def save_runtime_settings(settings: dict[str, str | int]) -> dict[str, str | int]:
     """Persist runtime settings into backend/.env and apply them immediately."""
-    search_provider = settings.get("search_provider", SEARCH_PROVIDER).strip().lower() or DEFAULT_SEARCH_PROVIDER
+    provider = str(settings.get("llm_provider", LLM_PROVIDER)).strip().lower() or "openai"
+    search_provider = str(settings.get("search_provider", SEARCH_PROVIDER)).strip().lower() or DEFAULT_SEARCH_PROVIDER
+
+    local_engine = str(settings.get("local_engine", LOCAL_LLM_ENGINE)).strip() or DEFAULT_LOCAL_LLM_ENGINE
+    local_model_path = str(settings.get("local_model_path", LOCAL_LLM_MODEL_PATH)).strip()
+    local_model_alias = _infer_local_model_alias(
+        local_model_path,
+        str(settings.get("local_model_alias", LOCAL_LLM_MODEL_ALIAS)).strip(),
+    )
+    local_server_url = _normalize_base_url(
+        str(settings.get("local_server_url", LOCAL_LLM_SERVER_URL)).strip(),
+        DEFAULT_LOCAL_LLM_SERVER_URL,
+    )
+    local_context_size = _coerce_int(settings.get("local_context_size"), LOCAL_LLM_CONTEXT_SIZE)
+    local_gpu_layers = _coerce_int(settings.get("local_gpu_layers"), LOCAL_LLM_GPU_LAYERS)
+
+    requested_model = str(settings.get("model", OPENAI_MODEL)).strip()
+    requested_api_key = str(settings.get("api_key", OPENAI_API_KEY)).strip()
+    requested_base_url = str(settings.get("provider_base_url", OPENAI_BASE_URL)).strip()
+
+    if provider == LOCAL_GGUF_PROVIDER:
+        effective_model = _infer_local_model_alias(local_model_path, requested_model or local_model_alias)
+        effective_base_url = local_server_url
+        effective_api_key = requested_api_key or "not-needed"
+    else:
+        effective_model = requested_model or DEFAULT_OPENAI_MODEL
+        effective_base_url = _normalize_base_url(requested_base_url, DEFAULT_OPENAI_BASE_URL)
+        effective_api_key = requested_api_key
 
     updates = {
-        "LLM_PROVIDER": settings.get("llm_provider", LLM_PROVIDER).strip() or "openai",
-        "OPENAI_API_KEY": settings.get("api_key", OPENAI_API_KEY).strip(),
-        "OPENAI_MODEL": settings.get("model", OPENAI_MODEL).strip() or DEFAULT_OPENAI_MODEL,
-        "OPENAI_BASE_URL": settings.get("provider_base_url", OPENAI_BASE_URL).strip() or DEFAULT_OPENAI_BASE_URL,
+        "LLM_PROVIDER": provider,
+        "OPENAI_API_KEY": effective_api_key,
+        "OPENAI_MODEL": effective_model,
+        "OPENAI_BASE_URL": effective_base_url,
         "SEARCH_PROVIDER": search_provider,
+        "LOCAL_LLM_ENGINE": local_engine,
+        "LOCAL_LLM_SERVER_URL": local_server_url,
+        "LOCAL_LLM_MODEL_PATH": local_model_path,
+        "LOCAL_LLM_MODEL_ALIAS": local_model_alias,
+        "LOCAL_LLM_CONTEXT_SIZE": str(max(local_context_size, 512)),
+        "LOCAL_LLM_GPU_LAYERS": str(max(local_gpu_layers, 0)),
     }
 
-    # 根据搜索引擎保存对应的 API key
-    search_api_key = settings.get("search_api_key", "").strip()
+    search_api_key = str(settings.get("search_api_key", "")).strip()
     if search_provider == "brave":
         updates["BRAVE_API_KEY"] = search_api_key
     elif search_provider == "tavily":

@@ -17,6 +17,12 @@ import subprocess
 import asyncio
 
 from modules.base import BaseModule
+from modules.experiment_guard import (
+    build_fallback_experiment_code,
+    rewrite_experiment_with_llm,
+    validate_experiment_code,
+    validate_experiment_file,
+)
 from modules.llm_client import call_llm
 from modules.ai_scientist_bridge import (
     create_client_zhipu,
@@ -26,6 +32,7 @@ from modules.ai_scientist_bridge import (
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
 import config
+from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 
 def _aider_available() -> bool:
@@ -135,7 +142,47 @@ class CodeGenModule(BaseModule):
                 if success:
                     await tracer.log(4, "replace_mode", "Idea 替换完成，代码已更新")
                 else:
-                    await tracer.log(4, "replace_mode", "Aider 修改失败，代码保持不变", level="warn")
+                    await tracer.log(4, "replace_mode", "Aider 修改失败，改为 LLM 全量重写", level="warn")
+                    await self._generate_code_with_llm(
+                        project_dir,
+                        idea_title,
+                        idea_experiment,
+                        tracer,
+                        baseline_results=baseline_results,
+                    )
+
+                if not _is_valid_code(exp_path):
+                    await tracer.log(4, "replace_mode", "替换后代码语法无效，改为 LLM 全量重写", level="warn")
+                    await self._generate_code_with_llm(
+                        project_dir,
+                        idea_title,
+                        idea_experiment,
+                        tracer,
+                        baseline_results=baseline_results,
+                    )
+
+                replacement_validation = validate_experiment_file(exp_path, idea_title, idea_experiment)
+                if not replacement_validation.ok:
+                    await tracer.log(
+                        4,
+                        "replace_mode",
+                        f"替换后代码未通过静态门禁，改为 LLM 全量重写: {replacement_validation.summary()}",
+                        level="warn",
+                    )
+                    await self._generate_code_with_llm(
+                        project_dir,
+                        idea_title,
+                        idea_experiment,
+                        tracer,
+                        baseline_results=baseline_results,
+                    )
+                    replacement_validation = validate_experiment_file(exp_path, idea_title, idea_experiment)
+
+                if not _is_valid_code(exp_path):
+                    raise RuntimeError("M4 replacement produced invalid experiment.py")
+
+                if not replacement_validation.ok:
+                    raise RuntimeError(f"M4 replacement gate failed: {replacement_validation.summary()}")
 
                 # 更新 notes.txt 记录新的 idea
                 notes_path = os.path.join(project_dir, "notes.txt")
@@ -269,21 +316,38 @@ class CodeGenModule(BaseModule):
         else:
             await tracer.log(4, "copy_template", "模板不存在，使用降级方案", level="warn")
 
-        # 检查生成的代码是否有效
-        if not _is_valid_code(exp_path):
-            await tracer.log(4, "validate_code", "模板代码无效，尝试 LLM 生成", level="warn")
-
-            # 使用 LLM 生成完整代码（改进版 prompt）
-            await self._generate_code_with_llm(
-                project_dir, idea_title, idea_experiment, tracer, ai_scientist_dir
-            )
+        needs_rewrite = not _is_valid_code(exp_path)
+        if needs_rewrite:
+            await tracer.log(4, "validate_code", "模板代码无效，尝试 LLM 全量重写", level="warn")
         else:
-            await tracer.log(4, "validate_code", "模板代码有效，使用模板继续")
+            initial_validation = validate_experiment_file(exp_path, idea_title, idea_experiment)
+            if initial_validation.ok:
+                await tracer.log(4, "validate_code", "模板代码通过静态门禁")
+            else:
+                needs_rewrite = True
+                await tracer.log(
+                    4,
+                    "validate_code",
+                    f"模板代码未通过静态门禁，开始 LLM 全量重写: {initial_validation.summary()}",
+                    level="warn",
+                )
 
-        # 最终验证
+        if needs_rewrite:
+            await self._generate_code_with_llm(
+                project_dir,
+                idea_title,
+                idea_experiment,
+                tracer,
+                baseline_results=baseline_results,
+            )
+
         if not _is_valid_code(exp_path):
-            await tracer.log(4, "final_check", "代码仍无效，使用最小模板", level="warn")
-            self._write_minimal_template(exp_path, idea_title, idea_experiment)
+            raise RuntimeError("M4 generated experiment.py is not valid Python")
+
+        final_validation = validate_experiment_file(exp_path, idea_title, idea_experiment)
+        if not final_validation.ok:
+            raise RuntimeError(f"M4 experiment gate failed: {final_validation.summary()}")
+        await tracer.log(4, "validate_code", "experiment.py 通过静态门禁")
 
         # ── 统计生成的文件 ──
         code_files = []
@@ -338,10 +402,10 @@ class CodeGenModule(BaseModule):
             from aider.io import InputOutput
 
             # 配置 Aider 使用智谱AI (litellm 需要 openai/ 前缀)
-            os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
-            os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
+            os.environ["OPENAI_API_KEY"] = get_openai_api_key()
+            os.environ["OPENAI_API_BASE"] = get_openai_base_url()
 
-            model_name = f"openai/{config.OPENAI_MODEL}"
+            model_name = f"openai/{get_openai_model()}"
             model = Model(model_name)
             io = InputOutput(yes=True)
 
@@ -612,69 +676,16 @@ TODO
 
     async def _generate_code_with_llm(
         self, project_dir: str, idea_title: str, idea_experiment: str,
-        tracer: Tracer, ai_scientist_dir: str = None
+        tracer: Tracer, baseline_results: dict | None = None
     ):
         """使用 LLM 生成完整的实验代码"""
-        prompt = f"""You are an expert ML engineer. Write a complete, runnable Python experiment script for:
-
-Research Title: {idea_title}
-
-Experiment Plan:
-{idea_experiment}
-
-**CRITICAL REQUIREMENTS:**
-
-1. The script MUST accept these command-line arguments:
-   --out_dir: output directory path
-   --seed: random seed for reproducibility
-
-2. Results MUST be saved to `<out_dir>/final_info.json` in this EXACT format:
-   ```json
-   {{
-     "metric_1": {{"means": 0.85, "stds": 0.02}},
-     "metric_2": {{"means": 0.72, "stds": 0.03}}
-   }}
-   ```
-
-3. Use ONLY these imports (standard library only):
-   import argparse
-   import json
-   import os
-   import numpy as np
-   from collections import Counter
-
-4. Include os.makedirs(args.out_dir, exist_ok=True)
-
-5. Generate meaningful results based on the research idea:
-   - Simulate or compute something relevant
-   - Use numpy.random.seed(args.seed) for reproducibility
-   - Include at least 3 different metrics
-
-Output ONLY the complete Python code. No markdown, no explanations, no ```python``` wrapper."""
-
-        text, tokens = await call_llm(
-            prompt,
-            system="You are an expert ML engineer. Write complete, runnable Python code. No markdown, just code.",
-            temperature=0.2,
-            max_tokens=8000,
+        code = await rewrite_experiment_with_llm(
+            idea_title=idea_title,
+            idea_experiment=idea_experiment,
+            baseline_results=baseline_results,
         )
 
-        await tracer.log(4, "llm_gen", f"LLM 返回 {len(text)} 字符")
-
-        # 清理响应
-        code = text.strip()
-
-        # 移除 markdown 包装
-        if "```python" in code:
-            parts = code.split("```python")
-            if len(parts) > 1:
-                code = parts[1].split("```")[0].strip()
-        elif "```" in code:
-            parts = code.split("```")
-            if len(parts) > 1:
-                code = parts[1].split("```")[0].strip()
-
-        # 写入文件
+        await tracer.log(4, "llm_gen", f"LLM 返回 {len(code)} 字符")
         exp_path = os.path.join(project_dir, "experiment.py")
         with open(exp_path, "w", encoding="utf-8") as f:
             f.write(code)
@@ -716,5 +727,45 @@ def main():
 if __name__ == "__main__":
     main()
 '''
+        with open(exp_path, "w", encoding="utf-8") as f:
+            f.write(template)
+
+    async def _generate_code_with_llm(
+        self, project_dir: str, idea_title: str, idea_experiment: str,
+        tracer: Tracer, baseline_results: dict | None = None
+    ):
+        """Generate experiment.py with LLM and fall back locally if needed."""
+        exp_path = os.path.join(project_dir, "experiment.py")
+        generation_mode = "llm"
+
+        try:
+            code = await rewrite_experiment_with_llm(
+                idea_title=idea_title,
+                idea_experiment=idea_experiment,
+                baseline_results=baseline_results,
+            )
+            ast.parse(code)
+            validation = validate_experiment_code(code, idea_title, idea_experiment)
+            if not validation.ok:
+                raise RuntimeError(f"generated code failed validation: {validation.summary()}")
+            await tracer.log(4, "llm_gen", f"LLM returned {len(code)} chars")
+        except Exception as exc:
+            generation_mode = "fallback"
+            code = build_fallback_experiment_code(idea_title, idea_experiment)
+            await tracer.log(
+                4,
+                "llm_gen_fallback",
+                f"LLM generation failed, using local fallback template: {type(exc).__name__}: {exc}",
+                level="warn",
+            )
+
+        with open(exp_path, "w", encoding="utf-8") as f:
+            f.write(code)
+
+        await tracer.log(4, "llm_gen", f"Generated experiment.py ({len(code)} chars, mode={generation_mode})")
+
+    def _write_minimal_template(self, exp_path: str, idea_title: str, idea_experiment: str):
+        """Write the deterministic local fallback template."""
+        template = build_fallback_experiment_code(idea_title, idea_experiment)
         with open(exp_path, "w", encoding="utf-8") as f:
             f.write(template)

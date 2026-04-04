@@ -182,9 +182,11 @@ export interface RunLog {
 export interface ExperimentResult {
   id: string;
   label: string;
+  description?: string;
   metrics: Record<string, string>;
   interpretation: string;
   errorCases: string[];
+  isSimulated?: boolean;
 }
 
 export interface WritingSection {

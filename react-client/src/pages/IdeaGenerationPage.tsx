@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, ListChecks, RotateCcw } from 'lucide-react';
+import { ArrowRight, CheckCircle2, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
@@ -20,6 +20,7 @@ export default function IdeaGenerationPage() {
   const [error, setError] = useState<string | null>(null);
   const [proceeding, setProceeding] = useState(false);
 
+  const selectedIdeaId = selectedIdeaIds[0] ?? '';
   const isGeneratingIdeas = currentTask?.status === 'running' && currentTask?.current_module === 'M3';
   const isM3Completed = currentTask?.status === 'paused' && currentTask?.current_module === 'M3' && ideas.length > 0;
 
@@ -85,22 +86,17 @@ export default function IdeaGenerationPage() {
   }, [currentTaskId, isGeneratingIdeas]);
 
   const toggleIdea = (id: string) => {
-    const next = selectedIdeaIds.includes(id)
-      ? selectedIdeaIds.filter((item) => item !== id)
-      : [...selectedIdeaIds, id];
-    setSelectedIdeas(next);
+    setSelectedIdeas(selectedIdeaId === id ? [] : [id]);
   };
 
   const handleProceed = async () => {
-    if (!currentTaskId || selectedIdeaIds.length === 0 || proceeding) {
+    if (!currentTaskId || !selectedIdeaId || proceeding) {
       return;
     }
 
     setProceeding(true);
     try {
-      // 选择第一个选中的 idea 并推进到 M4
-      const firstSelectedId = selectedIdeaIds[0];
-      const ideaIndex = ideas.findIndex((idea) => idea.id === firstSelectedId);
+      const ideaIndex = ideas.findIndex((idea) => idea.id === selectedIdeaId);
 
       if (ideaIndex === -1) {
         setError('无法找到选中的 Idea');
@@ -108,8 +104,6 @@ export default function IdeaGenerationPage() {
       }
 
       await selectIdea(currentTaskId, ideaIndex);
-
-      // 刷新任务状态并导航到代码生成页
       await refreshCurrentTask({ background: true });
       navigate('/repository');
     } catch (err) {
@@ -123,30 +117,26 @@ export default function IdeaGenerationPage() {
   const description =
     error ??
     (isM3Completed
-      ? `Idea 生成已完成（共 ${ideas.length} 个），请选择方案后点击下方按钮推进到代码生成。`
-      : selectedIdeaIds.length
-        ? `已选择 ${selectedIdeaIds.length} 个方案，可以继续推进到代码生成与实验阶段。`
+      ? `Idea 生成已完成（共 ${ideas.length} 个），请选择一个方案后推进到代码生成。`
+      : selectedIdeaId
+        ? '已选择 1 个方案，可以继续推进到代码生成与实验阶段。'
         : isGeneratingIdeas
           ? '正在生成并评分研究想法，新的候选方案会在产出后立即显示。'
-          : '从真实评分结果中筛选一个或多个方向，决定哪条路线值得继续投入。');
+          : '从真实评分结果中选择一个方向，决定哪条路线值得继续投入。');
 
   const emptyState = isGeneratingIdeas ? '正在等待第一个 idea 产出...' : '暂时还没有可展示的想法评分结果。';
 
   return (
     <EditorialPage
       eyebrow="Idea Evaluation"
-      title="对候选研究方案做筛选，而不是堆叠卡片"
+      title="筛选一个最值得继续的研究方案"
       description={description}
       actions={
-        ideas.length ? (
+        selectedIdeaId ? (
           <div className="chip-row">
-            <button className="button-secondary" onClick={() => setSelectedIdeas(ideas.map((idea) => idea.id))} type="button">
-              <ListChecks size={14} />
-              全选
-            </button>
             <button className="button-ghost" onClick={() => setSelectedIdeas([])} type="button">
               <RotateCcw size={14} />
-              清空
+              清空选择
             </button>
           </div>
         ) : undefined
@@ -155,7 +145,7 @@ export default function IdeaGenerationPage() {
       <div className="idea-list">
         {!ideas.length && !error ? <div className="empty-state">{emptyState}</div> : null}
         {ideas.map((idea) => {
-          const selected = selectedIdeaIds.includes(idea.id);
+          const selected = selectedIdeaId === idea.id;
 
           return (
             <SectionBlock
@@ -165,7 +155,7 @@ export default function IdeaGenerationPage() {
               action={
                 <StatusBadge
                   status={selected ? 'completed' : idea.recommended ? 'in-progress' : 'not-started'}
-                  label={selected ? '已采纳' : idea.recommended ? '推荐' : '候选'}
+                  label={selected ? '已选中' : idea.recommended ? '推荐' : '候选'}
                 />
               }
             >
@@ -179,7 +169,7 @@ export default function IdeaGenerationPage() {
                   <strong>{idea.feasibility.toFixed(1)}</strong>
                 </div>
                 <div className="radar-metric">
-                  <span className="tiny muted">吸引力</span>
+                  <span className="tiny muted">证据强度</span>
                   <strong>{idea.evidenceStrength.toFixed(1)}</strong>
                 </div>
                 <div className="radar-metric">
@@ -194,7 +184,7 @@ export default function IdeaGenerationPage() {
                   type="button"
                 >
                   {selected ? <RotateCcw size={14} /> : <CheckCircle2 size={14} />}
-                  {selected ? '取消采纳' : '采纳该思路'}
+                  {selected ? '取消选择' : '选择该思路'}
                 </button>
               </div>
             </SectionBlock>
@@ -202,7 +192,7 @@ export default function IdeaGenerationPage() {
         })}
       </div>
 
-      {selectedIdeaIds.length ? (
+      {selectedIdeaId ? (
         <div className="primary-float">
           <button
             className="button-primary"
@@ -211,7 +201,7 @@ export default function IdeaGenerationPage() {
             type="button"
           >
             <ArrowRight size={14} />
-            {proceeding ? '正在推进...' : `继续到代码生成（已选 ${selectedIdeaIds.length}）`}
+            {proceeding ? '正在推进...' : '继续到代码生成'}
           </button>
         </div>
       ) : null}

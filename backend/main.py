@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 import config
 from api.routes import router
 from db.database import init_db
+from services.task_service import recover_running_tasks
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR_CANDIDATES = (
@@ -34,8 +35,13 @@ STATIC_DIR = resolve_static_dir()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    recovery = await recover_running_tasks()
     print(f"[启动] Research Agent http://{config.HOST}:{config.PORT}")
     print(f"[配置] LLM={config.LLM_PROVIDER} Model={config.OPENAI_MODEL}")
+    print(
+        "[recovery] "
+        f"running={recovery['recovered']} paused={recovery['paused']} review={recovery['pending_review']}"
+    )
     if STATIC_DIR:
         print(f"[前端] 静态页面目录: {STATIC_DIR}")
     else:

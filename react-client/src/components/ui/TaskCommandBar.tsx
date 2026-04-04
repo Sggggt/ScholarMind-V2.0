@@ -1,6 +1,8 @@
 import { Pause, Play, RotateCcw, Square } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useLocation } from 'react-router-dom';
 import { buildTaskControlActions, getModuleStageMeta, getTaskStatusLabel } from '../../adapters/taskAdapter';
+import { routeMeta } from '../../data/routeData';
 import type { TaskCommand } from '../../types/app';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
@@ -11,6 +13,18 @@ const commandIconMap: Record<TaskCommand, typeof Pause> = {
   restart: RotateCcw,
 };
 
+const routeStageToModuleMap: Record<string, string> = {
+  literature: 'M1',
+  gaps: 'M2',
+  ideas: 'M3',
+  repository: 'M4',
+  experiment: 'M5',
+  'agent-run': 'M6',
+  results: 'M7',
+  writing: 'M8',
+  validation: 'M9',
+};
+
 function TaskActionButtons({
   className,
   emptyState = null,
@@ -18,10 +32,12 @@ function TaskActionButtons({
   className?: string;
   emptyState?: ReactNode;
 }) {
+  const location = useLocation();
   const currentTask = useWorkspaceStore((state) => state.currentTask);
   const runStatus = useWorkspaceStore((state) => state.runStatus);
   const isTaskLoading = useWorkspaceStore((state) => state.isTaskLoading);
   const executeTaskCommand = useWorkspaceStore((state) => state.executeTaskCommand);
+  const resetCurrentStageTask = useWorkspaceStore((state) => state.resetCurrentStageTask);
 
   if (!currentTask) {
     return emptyState;
@@ -32,6 +48,9 @@ function TaskActionButtons({
     return emptyState;
   }
 
+  const currentRoute = routeMeta.find((item) => item.path === location.pathname);
+  const stageModuleId = currentRoute?.section === 'workflow' ? routeStageToModuleMap[currentRoute.id] : undefined;
+
   return (
     <div className={className}>
       {actions.map((action) => {
@@ -41,16 +60,21 @@ function TaskActionButtons({
         }
 
         const Icon = commandIconMap[command];
+        const isStageRestart = command === 'restart' && Boolean(stageModuleId);
         return (
           <button
             key={command}
             className={`cmd-btn${command === 'abort' ? ' danger' : ''}`}
             disabled={isTaskLoading}
-            onClick={() => void executeTaskCommand(command)}
+            onClick={() =>
+              void (isStageRestart && stageModuleId
+                ? resetCurrentStageTask(stageModuleId)
+                : executeTaskCommand(command))
+            }
             type="button"
           >
             <Icon size={14} />
-            {action.label}
+            {isStageRestart ? '重跑当前阶段' : action.label}
           </button>
         );
       })}

@@ -203,7 +203,7 @@ async def _llm_decision(
     task: Task | None,
     task_description: str,
 ) -> AgentDecision | None:
-    if not config.OPENAI_API_KEY:
+    if not config.has_llm_completion_config():
         return None
 
     history_lines = []

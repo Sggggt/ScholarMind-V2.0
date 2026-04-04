@@ -430,15 +430,38 @@ export function adaptResultsArtifacts(payload: unknown): ExperimentResult[] {
     ];
   }
 
-  return analyses.map((item, index) => ({
-    id: `result-${index + 1}`,
-    label: pickText(item, ['experiment', 'run_name'], `实验 ${index + 1}`),
-    metrics: Object.fromEntries(
-      Object.entries(asObject(item.metrics)).map(([key, value]) => [key, formatMetricValue(value)]),
-    ),
-    interpretation: pickText(item, ['analysis'], assessment),
-    errorCases: asArray<string>(item.issues).length ? asArray<string>(item.issues).map(cleanText) : findings,
-  }));
+  return analyses.map((item, index) => {
+    // 修复 1: 读取 'run' 字段作为实验标签
+    const runName = readString(item.run, item.experiment ?? item.run_name ?? `实验 ${index + 1}`);
+    const description = readString(item.description, '');
+
+    // 修复 2: 读取 'key_metrics' 而不是 'metrics'
+    const metricsData = asObject(item.key_metrics ?? item.metrics);
+    const formattedMetrics: Record<string, string> = {};
+
+    // 格式化指标值
+    for (const [key, value] of Object.entries(metricsData)) {
+      if (key !== 'dataset') { // 跳过 dataset 这种非指标字段
+        formattedMetrics[key] = formatMetricValue(value);
+      }
+    }
+
+    // 修复 3: 读取当前 run 的 'observation'，而不是整体的 assessment
+    const interpretation = pickText(item, ['observation', 'analysis'], '');
+
+    // 修复 4: 显示关键发现作为洞察，而不是"错误案例"
+    const insights = findings.length ? findings : ['暂无关键发现'];
+
+    return {
+      id: `result-${index + 1}`,
+      label: runName,
+      description: description || (runName.includes('baseline') ? 'Baseline 实验' : '改进实验'),
+      metrics: formattedMetrics,
+      interpretation: interpretation || assessment,
+      errorCases: insights, // 现在显示的是关键发现
+      isSimulated: runName.includes('sim'), // 标记是否为模拟结果
+    };
+  });
 }
 
 export function adaptWritingSections(texContent: string): WritingSection[] {

@@ -38,6 +38,7 @@ from services.task_service import (
     delete_task_with_dependencies,
     get_running_orchestrator,
     pause_task_execution,
+    recover_review_execution,
     restart_task_execution,
     resume_task_execution,
 )
@@ -323,14 +324,8 @@ async def send_chat_message(
 @router.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(session_id: str, db: AsyncSession = Depends(get_db)):
     session = await _get_chat_session_or_404(db, session_id)
-    linked_task = session.task
     await db.delete(session)
     await db.commit()
-
-    if linked_task:
-        task = await db.get(Task, linked_task.id)
-        if task is not None:
-            await delete_task_with_dependencies(db, task)
 
     return {"ok": True}
 
@@ -402,23 +397,7 @@ async def restart_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(404, "浠诲姟涓嶅瓨鍦?")
-
-    # 智能决定重启起点：
-    # - 如果在 M3 暂停状态，从 M1 重新开始（让用户重新走一遍流程）
-    # - 如果已执行到 M4 之后，从 M4 重新开始（代码生成）
-    # - 否则使用当前模块
-    current = task.current_module or 1
-    if task.status == "paused" and current == 3:
-        # M3 完成后暂停，从 M1 重新开始
-        start_module = 1
-    elif current >= 4:
-        # 已进入代码生成阶段，从 M4 重新开始
-        start_module = 4
-    else:
-        # 其他情况，从当前模块继续
-        start_module = current
-
-    task = await restart_task_execution(db, task, start_module=start_module)
+    task = await restart_task_execution(db, task, start_module=task.current_module or 1)
     return _task_to_response(task)
 
 
@@ -604,9 +583,16 @@ async def submit_review(task_id: str, req: TaskReviewRequest, db: AsyncSession =
     if not task:
         raise HTTPException(404, "任务不存在")
     orchestrator = get_running_orchestrator(task_id)
+    approved = req.action == "approve"
     if orchestrator:
-        approved = req.action == "approve"
         await orchestrator.submit_review(approved, req.comment)
+    elif task.status == "review":
+        await recover_review_execution(
+            db,
+            task,
+            approved=approved,
+            comment=req.comment,
+        )
     return {"ok": True}
 
 
@@ -851,19 +837,19 @@ async def get_review_report(task_id: str):
 
 @router.get("/files/{task_id}/{file_path:path}")
 async def serve_file(task_id: str, file_path: str):
-    full_path = os.path.join(config.WORKSPACE_DIR, task_id, file_path)
-    if not os.path.exists(full_path) or not os.path.isfile(full_path):
+    _, target = _resolve_workspace_path(task_id, file_path)
+    if not target.is_file():
         raise HTTPException(404, "文件不存在")
 
     # 显式设置 PDF 的 MIME 类型，确保浏览器正确显示
     media_type = None
     headers = {}
-    if full_path.endswith(".pdf"):
+    if target.suffix.lower() == ".pdf":
         media_type = "application/pdf"
         # 确保浏览器内联显示 PDF 而不是下载
         headers["Content-Disposition"] = "inline; filename=paper.pdf"
 
-    return FileResponse(full_path, media_type=media_type, headers=headers)
+    return FileResponse(target, media_type=media_type, headers=headers)
 
 
 @router.get("/tasks/{task_id}/pdf-status")

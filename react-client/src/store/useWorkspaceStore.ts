@@ -43,6 +43,7 @@ import {
   getTask,
   getTaskLogs,
   pauseTask,
+  resetTaskModule,
   restartTask,
   resumeTask,
   sendChatMessage,
@@ -95,6 +96,7 @@ interface WorkspaceState {
   resumeCurrentTask: () => Promise<void>;
   abortCurrentTask: () => Promise<void>;
   restartCurrentTask: () => Promise<void>;
+  resetCurrentStageTask: (moduleId: string) => Promise<void>;
   executeTaskCommand: (command: TaskCommand) => Promise<void>;
   submitWorkspacePrompt: (topic: string) => Promise<void>;
   handleWsMessage: (message: BackendWsMessage) => void;
@@ -673,6 +675,43 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       });
 
       get().showToast('任务已重启');
+      await Promise.all([get().refreshTask(nextTask.id, { background: true }), get().refreshLogs(nextTask.id)]);
+    } catch (error) {
+      set({
+        isTaskLoading: false,
+        taskError: getErrorMessage(error),
+      });
+    }
+  },
+  resetCurrentStageTask: async (moduleId) => {
+    const currentTask = get().currentTask;
+    if (!currentTask || !moduleId) {
+      return;
+    }
+
+    set({ isTaskLoading: true, taskError: null });
+    get().showTransition('restarting', `正在重跑 ${moduleId}...`);
+
+    try {
+      const nextTask = await resetTaskModule(currentTask.id, moduleId);
+
+      if (!nextTask) {
+        throw new Error('当前后端未返回阶段重跑结果。');
+      }
+
+      set((state) => {
+        const nextTasksById = { ...state.tasksById, [nextTask.id]: nextTask };
+        return {
+          isTaskLoading: false,
+          tasksById: nextTasksById,
+          sessions: syncSessionTaskState(state.sessions, nextTask),
+          lastCompletedModule: '',
+          lastStartedModule: '',
+          ...applyTaskView({ ...state, tasksById: nextTasksById }, nextTask),
+        };
+      });
+
+      get().showToast(`已请求重跑 ${moduleId}。`);
       await Promise.all([get().refreshTask(nextTask.id, { background: true }), get().refreshLogs(nextTask.id)]);
     } catch (error) {
       set({

@@ -3,6 +3,7 @@ import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primi
 import { adaptResultsArtifacts } from '../adapters/artifactAdapter';
 import { getArtifactContent } from '../services/api';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
+import type { ExperimentResult } from '../types/app';
 
 const metricLabelMap: Record<string, string> = {
   auc: 'AUC',
@@ -67,11 +68,11 @@ export default function ResultsAnalysisPage() {
   return (
     <EditorialPage
       eyebrow="Results Review"
-      title="把指标、解释与错误案例放到一个可对照的结果页里"
-      description={error ?? '这一页围绕真实分析产物展开，左上看实验切换，中部看指标，右侧和下方看解释与问题案例。'}
+      title="实验结果分析"
+      description={error ?? '查看实验指标对比、结果解释与关键发现。'}
       actions={<StatusBadge status={activeResult ? 'completed' : 'not-started'} label={activeResult ? 'Analysis Ready' : 'Waiting'} />}
     >
-      <SectionBlock title="实验切换" description="当前分析对象来自真实实验结果。">
+      <SectionBlock title="实验切换" description="选择要查看的实验结果。">
         <div className="chip-row">
           {results.map((result) => (
             <button
@@ -81,13 +82,19 @@ export default function ResultsAnalysisPage() {
               type="button"
             >
               {result.label}
+              {result.isSimulated && <span style={{ marginLeft: '6px', fontSize: '0.75em', opacity: 0.7 }}>(模拟)</span>}
             </button>
           ))}
         </div>
+        {activeResult?.description && (
+          <p className="page-description" style={{ marginTop: '8px', fontSize: '0.9em', opacity: 0.8 }}>
+            {activeResult.description}
+          </p>
+        )}
       </SectionBlock>
 
       <div className="grid-two">
-        <SectionBlock title="指标对照" description="只展示分析文件中真实存在的指标。">
+        <SectionBlock title="指标对照" description="真实实验指标对比。">
           <div className="comparison-chart">
             {Object.entries((activeResult?.metrics ?? {}) as Record<string, string>).map(([metric, value]) => (
               <div key={metric} className="comparison-row">
@@ -98,20 +105,22 @@ export default function ResultsAnalysisPage() {
                 <div className="comparison-value">{value}</div>
               </div>
             ))}
-            {!activeResult ? <div className="empty-state">暂无实验指标。</div> : null}
+            {!activeResult || Object.keys(activeResult.metrics).length === 0 ? (
+              <div className="empty-state">暂无实验指标。</div>
+            ) : null}
           </div>
         </SectionBlock>
 
-        <SectionBlock title="结果解释" description="直接读取真实分析结论。">
+        <SectionBlock title="结果解释" description="当前实验的观察分析。">
           <p className="page-description">{activeResult?.interpretation ?? error ?? '暂无结果解释。'}</p>
         </SectionBlock>
       </div>
 
-      <SectionBlock title="错误案例" description="展示当前实验产物中记录的问题样例。">
+      <SectionBlock title="关键发现" description="实验分析中的核心发现。">
         <div className="ruled-list">
-          {(activeResult?.errorCases ?? [error ?? '暂无错误案例。']).map((errorCase: string) => (
-            <div key={errorCase} className="ruled-list-item">
-              {errorCase}
+          {(activeResult?.errorCases ?? [error ?? '暂无关键发现。']).map((finding: string, idx: number) => (
+            <div key={idx} className="ruled-list-item">
+              {finding}
             </div>
           ))}
         </div>

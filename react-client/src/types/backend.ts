@@ -98,6 +98,12 @@ export interface BackendRuntimeSettingsRequest {
   provider_base_url: string;
   search_provider: string;
   search_api_key: string;
+  local_engine: string;
+  local_server_url: string;
+  local_model_path: string;
+  local_model_alias: string;
+  local_context_size: number;
+  local_gpu_layers: number;
 }
 
 export interface BackendRuntimeSettingsResponse extends BackendRuntimeSettingsRequest {

@@ -66,6 +66,12 @@ class RuntimeSettingsRequest(BaseModel):
     provider_base_url: str = Field("https://api.openai.com/v1", description="Provider base URL")
     search_provider: str = Field("brave", description="Preferred search provider")
     search_api_key: str = Field("", description="Search provider API key (Brave/Tavily/Serper)")
+    local_engine: str = Field("lm-studio", description="Local model runtime engine")
+    local_server_url: str = Field("http://127.0.0.1:1234/v1", description="OpenAI-compatible local server URL")
+    local_model_path: str = Field("", description="Absolute path to the local .gguf model file")
+    local_model_alias: str = Field("local-gguf", description="Alias exposed by the local model server")
+    local_context_size: int = Field(4096, description="Default local model context window")
+    local_gpu_layers: int = Field(0, description="Advanced runtime hint for local engines that expose GPU layer control")
 
 
 class RuntimeSettingsResponse(BaseModel):
@@ -75,6 +81,12 @@ class RuntimeSettingsResponse(BaseModel):
     provider_base_url: str
     search_provider: str
     search_api_key: str
+    local_engine: str
+    local_server_url: str
+    local_model_path: str
+    local_model_alias: str
+    local_context_size: int
+    local_gpu_layers: int
     env_path: str
 
 

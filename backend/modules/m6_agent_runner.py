@@ -22,6 +22,7 @@ from modules.experiment_sim import generate_realistic_results, generate_experime
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
 import config
+from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 MAX_ITERS = 4
 MAX_RUNS = 5
@@ -433,10 +434,10 @@ Implement the next experiment or respond with 'ALL_COMPLETED'."""
             from aider.models import Model
             from aider.io import InputOutput
 
-            os.environ["OPENAI_API_KEY"] = config.OPENAI_API_KEY
-            os.environ["OPENAI_API_BASE"] = config.OPENAI_BASE_URL
+            os.environ["OPENAI_API_KEY"] = get_openai_api_key()
+            os.environ["OPENAI_API_BASE"] = get_openai_base_url()
 
-            model = Model(f"openai/{config.OPENAI_MODEL}")
+            model = Model(f"openai/{get_openai_model()}")
             io = InputOutput(yes=True)
             fnames = [os.path.join(project_dir, "experiment.py")]
 

@@ -42,6 +42,11 @@ class Tracer:
     def step_elapsed_ms(self) -> int:
         return int((time.time() - self._step_start) * 1000)
 
+    async def _touch_task(self, db) -> None:
+        task = await db.get(Task, self.task_id)
+        if task is not None:
+            task.updated_at = datetime.now(timezone.utc)
+
     async def _read_task_progress(self) -> tuple[float, str]:
         async with async_session() as db:
             task = await db.get(Task, self.task_id)
@@ -77,6 +82,7 @@ class Tracer:
                 duration_ms=duration_ms,
             )
             db.add(log)
+            await self._touch_task(db)
             await db.commit()
 
         progress, current_module = await self._read_task_progress()
@@ -127,6 +133,7 @@ class Tracer:
                 extra_data=metadata or {},
             )
             db.add(out)
+            await self._touch_task(db)
             await db.commit()
 
         progress, current_module = await self._read_task_progress()
@@ -147,6 +154,9 @@ class Tracer:
         )
 
     async def request_review(self, module: int, content: dict):
+        async with async_session() as db:
+            await self._touch_task(db)
+            await db.commit()
         progress, current_module = await self._read_task_progress()
         await manager.send(
             WSMessage(
@@ -162,6 +172,9 @@ class Tracer:
         )
 
     async def mark_completed(self):
+        async with async_session() as db:
+            await self._touch_task(db)
+            await db.commit()
         progress, current_module = await self._read_task_progress()
         await manager.send(
             WSMessage(
