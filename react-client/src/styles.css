@@ -1939,6 +1939,83 @@ textarea {
   line-height: 1.7;
 }
 
+.connection-address-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(243, 244, 241, 0.52);
+  border: 1px solid rgba(175, 179, 176, 0.16);
+}
+
+.connection-address-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.connection-address-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(175, 179, 176, 0.12);
+}
+
+.connection-address-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.connection-address-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(144, 77, 0, 0.08);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.connection-address-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(243, 244, 241, 0.72);
+}
+
+.connection-address-row code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.connection-copy-button {
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.inline-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.spin-inline {
+  animation: spin 800ms linear infinite;
+}
+
 .progress-container-modern {
   display: flex;
   flex-direction: column;
@@ -2653,6 +2730,7 @@ textarea {
   .workspace-panels,
   .radar-placeholder,
   .field-grid,
+  .connection-address-grid,
   .workspace-task-ribbon {
     grid-template-columns: minmax(0, 1fr);
   }

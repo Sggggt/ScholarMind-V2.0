@@ -1,4 +1,4 @@
-import { Cpu, FolderCog, PlugZap, Save } from 'lucide-react';
+import { Copy, Cpu, FolderCog, Globe2, LoaderCircle, PlugZap, Save, Wifi } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
 import { getRuntimeSettings, saveRuntimeSettings } from '../services/api';
@@ -178,6 +178,175 @@ function buildLocalEngineHint(settings: BackendRuntimeSettingsResponse) {
   return `llama-server -m "${modelPath}" --ctx-size ${ctxSize} --gpu-layers ${gpuLayers} --host 127.0.0.1 --port 8080`;
 }
 
+function defaultPortForProtocol(protocol: string) {
+  return protocol === 'https:' ? '443' : '80';
+}
+
+function isPrivateIpv4(hostname: string) {
+  return (
+    /^10\./.test(hostname) ||
+    /^127\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+  );
+}
+
+function isLikelyLanHostname(hostname: string) {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === 'localhost' || normalized.endsWith('.local') || isPrivateIpv4(normalized);
+}
+
+function buildOrigin(protocol: string, hostname: string, port: string) {
+  const normalizedProtocol = protocol.endsWith(':') ? protocol : `${protocol}:`;
+  const normalizedPort = port.trim();
+  const defaultPort = defaultPortForProtocol(normalizedProtocol);
+  const portSegment = normalizedPort && normalizedPort !== defaultPort ? `:${normalizedPort}` : '';
+  return `${normalizedProtocol}//${hostname}${portSegment}`;
+}
+
+function inferBackendRoot(apiBase: string) {
+  const trimmed = apiBase.trim();
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      return {
+        protocol: url.protocol,
+        port: url.port || defaultPortForProtocol(url.protocol),
+        origin: buildOrigin(url.protocol, url.hostname, url.port || defaultPortForProtocol(url.protocol)),
+        source: 'absolute' as const,
+        hint: '根据 API Base 绝对地址推导',
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  if (typeof window === 'undefined') {
+    return {
+      protocol: 'http:',
+      port: '8000',
+      origin: 'http://127.0.0.1:8000',
+      source: 'fallback' as const,
+      hint: '未检测到浏览器环境，回退到默认后端端口 8000',
+    };
+  }
+
+  const protocol = window.location.protocol || 'http:';
+  const hostname = window.location.hostname || '127.0.0.1';
+  const currentPort = window.location.port || defaultPortForProtocol(protocol);
+
+  if (trimmed.startsWith('/')) {
+    if (currentPort === '5173') {
+      return {
+        protocol,
+        port: '8000',
+        origin: buildOrigin(protocol, hostname, '8000'),
+        source: 'vite-proxy' as const,
+        hint: '开发模式下根据 Vite 代理推导到后端 8000',
+      };
+    }
+
+    return {
+      protocol,
+      port: currentPort,
+      origin: buildOrigin(protocol, hostname, currentPort),
+      source: 'same-origin' as const,
+      hint: '当前前端与后端同源部署',
+    };
+  }
+
+  return {
+    protocol,
+    port: currentPort,
+    origin: buildOrigin(protocol, hostname, currentPort),
+    source: 'fallback' as const,
+    hint: '无法从 API Base 解析完整地址，使用当前页面来源',
+  };
+}
+
+function parseCandidateIp(candidate: string) {
+  const match = candidate.match(/(\d{1,3}(?:\.\d{1,3}){3})/);
+  return match?.[1] ?? '';
+}
+
+async function discoverLanIps() {
+  const discovered = new Set<string>();
+
+  if (typeof window !== 'undefined' && isLikelyLanHostname(window.location.hostname)) {
+    const hostname = window.location.hostname.trim().toLowerCase();
+    if (hostname !== 'localhost') {
+      discovered.add(hostname);
+    }
+  }
+
+  const RTCPeerConnectionCtor =
+    window.RTCPeerConnection ||
+    (window as typeof window & { webkitRTCPeerConnection?: typeof RTCPeerConnection }).webkitRTCPeerConnection;
+
+  if (!RTCPeerConnectionCtor) {
+    return [...discovered];
+  }
+
+  try {
+    await new Promise<void>((resolve) => {
+      const pc = new RTCPeerConnectionCtor({ iceServers: [] });
+      const timeoutId = window.setTimeout(() => {
+        pc.close();
+        resolve();
+      }, 1200);
+
+      pc.createDataChannel('scholarmind-lan-probe');
+
+      pc.onicecandidate = (event) => {
+        const candidate = event.candidate?.candidate;
+        if (!candidate) {
+          window.clearTimeout(timeoutId);
+          pc.close();
+          resolve();
+          return;
+        }
+
+        const ip = parseCandidateIp(candidate);
+        if (ip && isPrivateIpv4(ip)) {
+          discovered.add(ip);
+        }
+      };
+
+      void pc
+        .createOffer()
+        .then((offer) => pc.setLocalDescription(offer))
+        .catch(() => {
+          window.clearTimeout(timeoutId);
+          pc.close();
+          resolve();
+        });
+    });
+  } catch {
+    return [...discovered];
+  }
+
+  return [...discovered];
+}
+
+async function discoverPublicIp() {
+  try {
+    const response = await fetch('https://api.ipify.org?format=json', {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      return '';
+    }
+
+    const payload = (await response.json()) as { ip?: string };
+    return typeof payload.ip === 'string' ? payload.ip.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 export default function SettingsPage() {
   const showToast = useWorkspaceStore((state) => state.showToast);
   const [activeTab, setActiveTab] = useState<'connection' | 'runtime' | 'local'>('connection');
@@ -189,8 +358,18 @@ export default function SettingsPage() {
   );
   const [isLoadingRuntimeSettings, setIsLoadingRuntimeSettings] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [lanIps, setLanIps] = useState<string[]>([]);
+  const [publicIp, setPublicIp] = useState('');
+  const [isResolvingConnectionInfo, setIsResolvingConnectionInfo] = useState(true);
 
   const isLocalProvider = runtimeSettings.llm_provider === localGgufProvider;
+  const inferredBackend = inferBackendRoot(desktopSettings.apiBase);
+  const lanUrls = inferredBackend
+    ? lanIps.map((ip) => buildOrigin(inferredBackend.protocol, ip, inferredBackend.port))
+    : [];
+  const publicUrl = inferredBackend && publicIp
+    ? buildOrigin(inferredBackend.protocol, publicIp, inferredBackend.port)
+    : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -220,6 +399,29 @@ export default function SettingsPage() {
       cancelled = true;
     };
   }, [showToast]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveConnectionAddresses = async () => {
+      setIsResolvingConnectionInfo(true);
+      const [nextLanIps, nextPublicIp] = await Promise.all([discoverLanIps(), discoverPublicIp()]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setLanIps(nextLanIps);
+      setPublicIp(nextPublicIp);
+      setIsResolvingConnectionInfo(false);
+    };
+
+    void resolveConnectionAddresses();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateDesktopSettings = <K extends keyof DesktopSettings>(key: K, value: DesktopSettings[K]) => {
     setDesktopSettings((current) => ({ ...current, [key]: value }));
@@ -360,6 +562,15 @@ export default function SettingsPage() {
   const currentSearchEngine =
     searchEngines.find((engine) => engine.id === runtimeSettings.search_provider) ?? searchEngines[0];
 
+  const handleCopy = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(`${label} 已复制`);
+    } catch {
+      showToast(`复制 ${label} 失败`);
+    }
+  };
+
   return (
     <EditorialPage
       eyebrow="Configuration"
@@ -437,6 +648,104 @@ export default function SettingsPage() {
                   type="password"
                 />
               </label>
+              <div className="connection-address-shell">
+                <div className="section-header">
+                  <div>
+                    <h3 className="section-title">给手机连接的地址</h3>
+                    <div className="section-copy">
+                      手机端应填写后端根地址，而不是 <code>/api</code>。当前展示会根据桌面端 API Base
+                      自动推导。
+                    </div>
+                  </div>
+                  <StatusBadge
+                    status={isResolvingConnectionInfo ? 'in-progress' : 'completed'}
+                    label={isResolvingConnectionInfo ? 'Detecting' : 'Ready'}
+                  />
+                </div>
+
+                <div className="connection-address-grid">
+                  <div className="connection-address-card">
+                    <div className="connection-address-header">
+                      <div className="connection-address-icon">
+                        <Wifi size={15} />
+                      </div>
+                      <div>
+                        <div className="form-label">局域网 URL</div>
+                        <div className="tiny muted">同一 Wi-Fi 下手机优先使用</div>
+                      </div>
+                    </div>
+                    {lanUrls.length ? (
+                      <div className="stack">
+                        {lanUrls.map((url) => (
+                          <div key={url} className="connection-address-row">
+                            <code>{url}</code>
+                            <button
+                              className="button-secondary connection-copy-button"
+                              onClick={() => void handleCopy(url, '局域网 URL')}
+                              type="button"
+                            >
+                              <Copy size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="callout-note">
+                        {isResolvingConnectionInfo ? (
+                          <span className="inline-loading">
+                            <LoaderCircle size={14} className="spin-inline" />
+                            正在探测本机局域网 IP...
+                          </span>
+                        ) : (
+                          '未探测到可用局域网 IP。请确认桌面端已联网，并允许浏览器获取本机网络信息。'
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="connection-address-card">
+                    <div className="connection-address-header">
+                      <div className="connection-address-icon">
+                        <Globe2 size={15} />
+                      </div>
+                      <div>
+                        <div className="form-label">公网 URL</div>
+                        <div className="tiny muted">仅在已做公网映射 / 端口转发时可直连</div>
+                      </div>
+                    </div>
+                    {publicUrl ? (
+                      <div className="connection-address-row">
+                        <code>{publicUrl}</code>
+                        <button
+                          className="button-secondary connection-copy-button"
+                          onClick={() => void handleCopy(publicUrl, '公网 URL')}
+                          type="button"
+                        >
+                          <Copy size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="callout-note">
+                        {isResolvingConnectionInfo ? (
+                          <span className="inline-loading">
+                            <LoaderCircle size={14} className="spin-inline" />
+                            正在获取公网 IP...
+                          </span>
+                        ) : (
+                          '未获取到公网 IP，或当前网络不允许直接探测。'
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="callout-note">
+                  推导方式：{inferredBackend?.hint ?? '无法推导后端根地址'}。
+                  {inferredBackend?.source === 'vite-proxy'
+                    ? ' 当前开发模式会把前端 5173 的 /api 代理到后端 8000，因此手机应连 8000。'
+                    : null}
+                </div>
+              </div>
             </div>
           </SectionBlock>
         ) : null}
