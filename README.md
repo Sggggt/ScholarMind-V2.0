@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="react-client/public/favicon.svg" width="80" height="80" alt="ScholarMind Logo">
+  <img src="react-client/public/favicon.ico" width="80" height="80" alt="ScholarMind Logo">
 </p>
 
 <h1 align="center">ScholarMind V2.0</h1>

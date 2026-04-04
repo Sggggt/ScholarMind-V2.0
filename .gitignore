@@ -81,3 +81,6 @@ id_ed25519.*
 
 # Temporary files
 tmp/
+
+# Templates
+template/
