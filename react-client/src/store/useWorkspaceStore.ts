@@ -183,21 +183,30 @@ function pickDefaultSessionId(sessions: RecentSession[], preferredSessionId = ''
     return preferredSessionId;
   }
 
-  const activeTaskSession = sessions.find((session) => session.taskId && !isTerminalTaskStatus(session.taskStatus));
+  // Sort by updatedAt descending to get the most recent session
+  const sortedByUpdatedAt = [...sessions].sort((a, b) =>
+    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+
+  const activeTaskSession = sortedByUpdatedAt.find((session) => session.taskId && !isTerminalTaskStatus(session.taskStatus));
   if (activeTaskSession) {
     return activeTaskSession.id;
   }
 
-  const linkedTaskSession = sessions.find((session) => session.taskId);
+  const linkedTaskSession = sortedByUpdatedAt.find((session) => session.taskId);
   if (linkedTaskSession) {
     return linkedTaskSession.id;
   }
 
-  return sessions[0]?.id ?? '';
+  return sortedByUpdatedAt[0]?.id ?? '';
 }
 
 function findSessionIdByTask(state: WorkspaceState, taskId: string) {
-  return state.sessions.find((session) => session.taskId === taskId)?.id ?? '';
+  // Find all sessions for this task, sort by updatedAt descending (most recent first)
+  const taskSessions = state.sessions
+    .filter((session) => session.taskId === taskId)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  return taskSessions[0]?.id ?? '';
 }
 
 function appendMessagesToSession(state: WorkspaceState, sessionId: string, messages: ChatMessage[]) {

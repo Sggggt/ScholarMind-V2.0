@@ -1,7 +1,7 @@
-import { History, Radio, RefreshCw, Settings2, Workflow } from 'lucide-react';
-import { useState } from 'react';
+import { History, Radio, RefreshCw, Settings2, Smartphone, Workflow } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { clearApiCache } from '../../services/api';
+import { clearApiCache, getConnectionInfo } from '../../services/api';
 import { routeMeta } from '../../data/routeData';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
@@ -29,6 +29,29 @@ export default function TopBar() {
   const route = routeMeta.find((item) => item.path === location.pathname);
   const currentStageRoute = routeMeta.find((item) => item.id === currentStage);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [mobileConnectionCount, setMobileConnectionCount] = useState(0);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const fetchConnectionInfo = async () => {
+      try {
+        const info = await getConnectionInfo();
+        setMobileConnectionCount(info.mobile_connection_count ?? 0);
+      } catch {
+        setMobileConnectionCount(0);
+      }
+    };
+
+    fetchConnectionInfo();
+    intervalId = setInterval(fetchConnectionInfo, 5000);
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, []);
 
   const handleRefresh = async () => {
     if (isRefreshing) {
@@ -93,6 +116,12 @@ export default function TopBar() {
         <button className="topbar-icon-button" onClick={() => navigate('/settings')} type="button" aria-label="设置">
           <Settings2 size={16} />
         </button>
+        {mobileConnectionCount > 0 && (
+          <div className="current-indicator mobile-connected">
+            <Smartphone size={14} />
+            <span>手机已连接 ({mobileConnectionCount})</span>
+          </div>
+        )}
         <div className="current-indicator">
           <span className={`connection-dot${isWebSocketConnected ? ' live' : ''}`} />
           <span>{isWebSocketConnected ? '实时同步已连接' : '实时同步未连接'}</span>

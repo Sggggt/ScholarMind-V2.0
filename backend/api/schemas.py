@@ -59,6 +59,10 @@ class ChatMessageCreateRequest(BaseModel):
     task_config: dict = Field(default_factory=dict, description="Optional task config overrides")
 
 
+class ChatSessionBindTaskRequest(BaseModel):
+    task_id: str = Field(..., description="Existing task id to bind to the chat session")
+
+
 class RuntimeSettingsRequest(BaseModel):
     llm_provider: str = Field("openai", description="Runtime LLM provider id")
     api_key: str = Field("", description="Provider API key")
@@ -72,6 +76,7 @@ class RuntimeSettingsRequest(BaseModel):
     local_model_alias: str = Field("local-gguf", description="Alias exposed by the local model server")
     local_context_size: int = Field(4096, description="Default local model context window")
     local_gpu_layers: int = Field(0, description="Advanced runtime hint for local engines that expose GPU layer control")
+    public_base_url: str = Field("", description="Optional public/tunnel base URL used by mobile clients")
 
 
 class RuntimeSettingsResponse(BaseModel):
@@ -87,7 +92,38 @@ class RuntimeSettingsResponse(BaseModel):
     local_model_alias: str
     local_context_size: int
     local_gpu_layers: int
+    public_base_url: str
     env_path: str
+
+
+class HealthResponse(BaseModel):
+    ok: bool = True
+    service: str = "scholarmind-backend"
+    host: str
+    port: int
+
+
+class ConnectionAddressResponse(BaseModel):
+    scope: str
+    label: str
+    url: str
+    ws_url: str
+    source: str
+    recommended: bool = False
+
+
+class ConnectionInfoResponse(BaseModel):
+    host: str
+    port: int
+    api_base_path: str = "/api"
+    ws_base_path: str = "/ws"
+    health_path: str = "/api/health"
+    public_base_url: str = ""
+    lan_urls: list[ConnectionAddressResponse] = []
+    public_urls: list[ConnectionAddressResponse] = []
+    recommended_mobile_url: str = ""
+    recommended_mobile_ws_url: str = ""
+    notes: list[str] = []
 
 
 class ModuleProgress(BaseModel):

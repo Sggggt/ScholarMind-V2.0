@@ -5,6 +5,7 @@ import {
   abortTaskApi,
   continueIdeasApi,
   createTaskApi,
+  deleteTaskApi,
   fetchArtifactContentApi,
   fetchIdeasApi,
   fetchLogsApi,
@@ -20,11 +21,13 @@ import {
   shouldLoadIdeas,
   shouldLoadM1Artifacts,
   shouldLoadM2Artifacts,
+  shouldLoadM4Artifacts,
+  shouldLoadM5Artifacts,
   toWsLogEntry,
 } from "./task-helpers";
 import { TaskContext, initialTaskState, taskReducer } from "./task-store";
 import { buildTaskWsUrl, subscribeTaskWebSocket } from "./websocket";
-import type { TaskIdeasState } from "./types";
+import type { Task, TaskIdeasState } from "./types";
 import { DEFAULT_IDEAS_STATE } from "./types";
 
 type SyncHandle = {
@@ -156,6 +159,14 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           jobs.push(fetchArtifact(taskId, "m2_gap_analysis.json"));
         }
 
+        if (shouldLoadM4Artifacts(task)) {
+          jobs.push(fetchArtifact(taskId, "m4_code_gen_info.json"));
+        }
+
+        if (shouldLoadM5Artifacts(task)) {
+          jobs.push(fetchArtifact(taskId, "m5_experiment_plan.json"));
+        }
+
         if (shouldLoadIdeas(task)) {
           jobs.push(fetchIdeas(taskId));
         }
@@ -220,7 +231,9 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       const baseUrl = await getBackendUrl();
       if (!baseUrl) return;
 
-      const unsubscribe = subscribeTaskWebSocket(buildTaskWsUrl(baseUrl, taskId), {
+      const wsUrl = buildTaskWsUrl(baseUrl, taskId);
+
+      const unsubscribe = subscribeTaskWebSocket(wsUrl, {
         onMessage: (message) => {
           dispatch({ type: "APPEND_LOG", payload: toWsLogEntry(message) });
           dispatch({ type: "SET_WS_STATUS", payload: { connected: true, taskId } });
@@ -278,6 +291,11 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const selectCurrentTask = useCallback((task: Task) => {
+    dispatch({ type: "OPEN_TASK_CONTEXT", payload: task.id });
+    dispatch({ type: "SET_CURRENT_TASK", payload: task });
+  }, []);
+
   const pauseTask = useCallback(async (id: string) => {
     const task = await pauseTaskApi(id);
     dispatch({ type: "UPSERT_TASK", payload: task });
@@ -295,6 +313,17 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPSERT_TASK", payload: task });
     dispatch({ type: "SET_CURRENT_TASK", payload: task });
   }, []);
+
+  const deleteTask = useCallback(
+    async (id: string) => {
+      if (syncRef.current?.taskId === id) {
+        stopTaskSync();
+      }
+      await deleteTaskApi(id);
+      dispatch({ type: "DELETE_TASK", payload: id });
+    },
+    [stopTaskSync]
+  );
 
   const continueIdeas = useCallback(
     async (taskId: string) => {
@@ -322,10 +351,12 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         state,
         fetchTasks,
         loadTaskBundle,
+        selectCurrentTask,
         createTask,
         pauseTask,
         resumeTask,
         abortTask,
+        deleteTask,
         fetchIdeas,
         continueIdeas,
         selectIdea,

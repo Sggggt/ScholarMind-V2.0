@@ -23,6 +23,7 @@ export type TaskAction =
   | { type: "OPEN_TASK_CONTEXT"; payload: string }
   | { type: "SET_CURRENT_TASK"; payload: Task | null }
   | { type: "UPSERT_TASK"; payload: Task }
+  | { type: "DELETE_TASK"; payload: string }
   | { type: "SET_LOGS"; payload: LogEntry[] }
   | { type: "APPEND_LOG"; payload: LogEntry }
   | { type: "SET_IDEAS"; payload: TaskIdeasState }
@@ -48,12 +49,22 @@ export const initialTaskState: TaskState = {
 function upsertTask(tasks: Task[], nextTask: Task): Task[] {
   const existingIndex = tasks.findIndex((task) => task.id === nextTask.id);
   if (existingIndex === -1) {
-    return [nextTask, ...tasks];
+    return sortTasks([nextTask, ...tasks]);
   }
 
   const cloned = [...tasks];
   cloned[existingIndex] = nextTask;
-  return cloned;
+  return sortTasks(cloned);
+}
+
+function getTaskSortTime(task: Task): number {
+  const primary = task.updated_at || task.created_at;
+  const timestamp = Date.parse(primary);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function sortTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((left, right) => getTaskSortTime(right) - getTaskSortTime(left));
 }
 
 export function taskReducer(state: TaskState, action: TaskAction): TaskState {
@@ -63,7 +74,7 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
     case "SET_ERROR":
       return { ...state, error: action.payload, loading: false };
     case "SET_TASKS":
-      return { ...state, tasks: action.payload, loading: false };
+      return { ...state, tasks: sortTasks(action.payload), loading: false };
     case "OPEN_TASK_CONTEXT":
       if (state.currentTaskId === action.payload) {
         return state;
@@ -91,6 +102,19 @@ export function taskReducer(state: TaskState, action: TaskAction): TaskState {
         tasks: upsertTask(state.tasks, action.payload),
         currentTask:
           state.currentTask?.id === action.payload.id ? action.payload : state.currentTask,
+      };
+    case "DELETE_TASK":
+      return {
+        ...state,
+        tasks: state.tasks.filter((task) => task.id !== action.payload),
+        currentTaskId: state.currentTaskId === action.payload ? null : state.currentTaskId,
+        currentTask: state.currentTask?.id === action.payload ? null : state.currentTask,
+        logs: state.currentTask?.id === action.payload ? [] : state.logs,
+        ideas: state.currentTask?.id === action.payload ? DEFAULT_IDEAS_STATE : state.ideas,
+        artifactContents: state.currentTask?.id === action.payload ? {} : state.artifactContents,
+        wsConnected: state.currentTask?.id === action.payload ? false : state.wsConnected,
+        syncingTaskId: state.currentTask?.id === action.payload ? null : state.syncingTaskId,
+        lastSyncedAt: state.currentTask?.id === action.payload ? null : state.lastSyncedAt,
       };
     case "SET_LOGS":
       return { ...state, logs: action.payload };
@@ -141,6 +165,7 @@ export interface TaskContextValue {
   state: TaskState;
   fetchTasks: (options?: { background?: boolean }) => Promise<void>;
   loadTaskBundle: (taskId: string, options?: { background?: boolean }) => Promise<void>;
+  selectCurrentTask: (task: Task) => void;
   createTask: (
     topic: string,
     description?: string,
@@ -149,6 +174,7 @@ export interface TaskContextValue {
   pauseTask: (id: string) => Promise<void>;
   resumeTask: (id: string) => Promise<void>;
   abortTask: (id: string) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
   fetchIdeas: (taskId: string) => Promise<void>;
   continueIdeas: (taskId: string) => Promise<void>;
   selectIdea: (taskId: string, ideaIndex: number) => Promise<void>;

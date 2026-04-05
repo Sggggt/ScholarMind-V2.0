@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from "react";
+import { useMemo } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,10 +19,12 @@ import {
   getM1Summary,
   getM2Highlights,
   getM3Summary,
+  getM4Summary,
+  getM5Summary,
   getTaskProgressPercent,
 } from "@/lib/task-helpers";
 import { useTaskContext } from "@/lib/task-store";
-import { MODULE_DESCRIPTIONS, MODULE_NAMES, MODULE_SEQUENCE, TASK_STATUS_LABELS } from "@/lib/types";
+import { MODULE_SEQUENCE, type ModuleId, type ModuleState } from "@/lib/types";
 
 const STATUS_TONES = {
   pending: { color: "#867466", bg: "#f1ede8" },
@@ -34,33 +36,146 @@ const STATUS_TONES = {
   aborted: { color: "#6c655e", bg: "#ece8e4" },
 } as const;
 
-function ModuleSummaryCard({
-  title,
-  eyebrow,
-  description,
-  children,
+const STATUS_LABELS = {
+  pending: "Pending",
+  running: "Running",
+  paused: "Paused",
+  review: "Review",
+  completed: "Completed",
+  failed: "Failed",
+  aborted: "Aborted",
+} as const;
+
+const MODULE_LABELS: Record<ModuleId, string> = {
+  M1: "Literature Review",
+  M2: "Gap Analysis",
+  M3: "Idea Generation",
+  M4: "Code Generation",
+  M5: "Experiment Design",
+  M6: "Agent Runs",
+  M7: "Result Analysis",
+  M8: "Paper Writing",
+  M9: "Review",
+};
+
+const MODULE_DESCRIPTIONS: Record<ModuleId, string> = {
+  M1: "Survey related work and collect the evidence base.",
+  M2: "Extract research gaps and unresolved questions.",
+  M3: "Generate and score candidate research ideas.",
+  M4: "Turn the selected idea into executable code.",
+  M5: "Define the experiment plan and evaluation setup.",
+  M6: "Run agents and automated experiments.",
+  M7: "Analyze outcomes and failure cases.",
+  M8: "Draft the paper and writing artifacts.",
+  M9: "Review the full output and final quality.",
+};
+
+function modulePreviewText(
+  module: ModuleState,
+  context: {
+    m1Summary: ReturnType<typeof getM1Summary>;
+    m2Summary: ReturnType<typeof getM2Highlights>;
+    m3Summary: ReturnType<typeof getM3Summary>;
+    m4Summary: ReturnType<typeof getM4Summary>;
+    m5Summary: ReturnType<typeof getM5Summary>;
+  }
+) {
+  if (module.module_id === "M1" && context.m1Summary.summary) {
+    return context.m1Summary.summary;
+  }
+  if (module.module_id === "M2" && context.m2Summary.highlights.length) {
+    return context.m2Summary.highlights.join("  ");
+  }
+  if (module.module_id === "M3" && context.m3Summary.ideaCount > 0) {
+    return `${context.m3Summary.ideaCount} ideas ready. Best candidate: ${context.m3Summary.bestIdeaTitle}`;
+  }
+  if (module.module_id === "M4" && context.m4Summary.fileCount > 0) {
+    const parts = [`📁 ${context.m4Summary.fileCount} files`];
+    if (context.m4Summary.ideaName) {
+      parts.push(`· ${context.m4Summary.ideaName}`);
+    }
+    // Only show repoPath if it's different from ideaName
+    if (context.m4Summary.repoPath &&
+        context.m4Summary.repoPath !== "Generated code" &&
+        context.m4Summary.repoPath !== context.m4Summary.ideaName) {
+      parts.push(`· ${context.m4Summary.repoPath}`);
+    }
+    return parts.join(" ");
+  }
+  if (module.module_id === "M5" && context.m5Summary.experimentCount > 0) {
+    const parts = [`🧪 ${context.m5Summary.experimentCount} experiments planned`];
+    if (context.m5Summary.hypothesis && context.m5Summary.hypothesis !== `${context.m5Summary.experimentCount} experiment runs planned`) {
+      parts.push(`· ${context.m5Summary.hypothesis.slice(0, 50)}${context.m5Summary.hypothesis.length > 50 ? "..." : ""}`);
+    }
+    return parts.join(" ");
+  }
+  if (module.step) {
+    return module.step;
+  }
+  if (module.message) {
+    return module.message;
+  }
+  return MODULE_DESCRIPTIONS[module.module_id];
+}
+
+function ModuleCard({
+  taskId,
+  module,
+  preview,
 }: {
-  title: string;
-  eyebrow: string;
-  description: string;
-  children: ReactNode;
+  taskId: string;
+  module: ModuleState;
+  preview: string;
 }) {
   const colors = useColors();
+  const tone =
+    STATUS_TONES[(module.status === "waiting" ? "pending" : module.status) as keyof typeof STATUS_TONES] ??
+    STATUS_TONES.pending;
 
   return (
-    <View style={[styles.moduleCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <Text style={[styles.moduleEyebrow, { color: colors.muted }]}>{eyebrow}</Text>
-      <Text style={[styles.moduleTitle, { color: colors.foreground }]}>{title}</Text>
-      <Text style={[styles.moduleDescription, { color: colors.muted }]}>{description}</Text>
-      {children}
-    </View>
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={() => router.push(`/task/${taskId}/module/${module.module_id}` as any)}
+      style={[styles.moduleCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
+      <View style={styles.moduleCardHeader}>
+        <View style={styles.moduleCardTitleWrap}>
+          <Text style={[styles.moduleEyebrow, { color: colors.muted }]}>{module.module_id}</Text>
+          <Text style={[styles.moduleTitle, { color: colors.foreground }]}>
+            {MODULE_LABELS[module.module_id]}
+          </Text>
+        </View>
+        <View style={[styles.moduleBadge, { backgroundColor: tone.bg }]}>
+          <Text style={[styles.moduleBadgeText, { color: tone.color }]}>
+            {module.status.toUpperCase()}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={[styles.modulePreview, { color: colors.foreground }]} numberOfLines={3}>
+        {preview}
+      </Text>
+
+      <View style={styles.moduleFooter}>
+        <Text style={[styles.modulePercent, { color: tone.color }]}>{module.percent}%</Text>
+        <View style={[styles.moduleProgressTrack, { backgroundColor: colors.border }]}>
+          <View
+            style={[
+              styles.moduleProgressFill,
+              { width: `${module.percent}%`, backgroundColor: tone.color },
+            ]}
+          />
+        </View>
+        <MaterialIcons name="chevron-right" size={20} color={colors.muted} />
+      </View>
+    </TouchableOpacity>
   );
 }
 
 export default function TaskDetailScreen() {
   const colors = useColors();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state, loadTaskBundle, pauseTask, resumeTask, abortTask } = useTaskContext();
+  const { state, loadTaskBundle, pauseTask, resumeTask, abortTask, deleteTask } = useTaskContext();
   const task = state.currentTask?.id === id ? state.currentTask : null;
 
   const currentModule = getCurrentModuleState(task);
@@ -68,19 +183,54 @@ export default function TaskDetailScreen() {
   const m1Summary = getM1Summary(state.artifactContents);
   const m2Summary = getM2Highlights(state.artifactContents);
   const m3Summary = getM3Summary(state.ideas.ideas);
+  const m4Summary = getM4Summary(state.artifactContents);
+  const m5Summary = getM5Summary(state.artifactContents);
 
-  const futureModules = useMemo(() => MODULE_SEQUENCE.slice(3), []);
+  const modules = useMemo(() => {
+    if (!task) return [];
+    return MODULE_SEQUENCE.map(
+      (moduleId) => task.modules.find((module) => module.module_id === moduleId) ?? {
+        module_id: moduleId,
+        status: "waiting",
+        percent: 0,
+        step: "",
+        message: "",
+      }
+    );
+  }, [task]);
+
   const canEnterIdeas =
-    Boolean(task?.current_module === "M3") || state.ideas.ideas.length > 0 || state.ideas.status === "generating";
+    Boolean(task?.current_module === "M3") ||
+    state.ideas.ideas.length > 0 ||
+    state.ideas.status === "generating";
 
   const handleAbort = () => {
     if (!task) return;
-    Alert.alert("终止任务", "确认终止该任务？此操作不可撤销。", [
-      { text: "取消", style: "cancel" },
+    Alert.alert("Stop Task", "Stop this task now?", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: "终止",
+        text: "Stop",
         style: "destructive",
         onPress: () => void abortTask(task.id),
+      },
+    ]);
+  };
+
+  const handleDelete = () => {
+    if (!task) return;
+    Alert.alert("Delete Task", `Delete "${task.title}"? This cannot be undone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: () =>
+          void deleteTask(task.id)
+            .then(() => {
+              router.replace("/" as any);
+            })
+            .catch((error) => {
+              Alert.alert("Delete failed", error instanceof Error ? error.message : "Unable to delete task.");
+            }),
       },
     ]);
   };
@@ -90,7 +240,7 @@ export default function TaskDetailScreen() {
       <ScreenContainer>
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.centerText, { color: colors.muted }]}>正在同步任务详情…</Text>
+          <Text style={[styles.centerText, { color: colors.muted }]}>Loading task details...</Text>
         </View>
       </ScreenContainer>
     );
@@ -101,9 +251,12 @@ export default function TaskDetailScreen() {
       <ScreenContainer>
         <View style={styles.centerState}>
           <MaterialIcons name="error-outline" size={44} color={colors.muted} />
-          <Text style={[styles.centerTitle, { color: colors.foreground }]}>任务不存在</Text>
-          <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.primary }]}>
-            <Text style={styles.backButtonText}>返回</Text>
+          <Text style={[styles.centerTitle, { color: colors.foreground }]}>Task not found</Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={[styles.backButton, { backgroundColor: colors.primary }]}
+          >
+            <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
         </View>
       </ScreenContainer>
@@ -129,9 +282,14 @@ export default function TaskDetailScreen() {
           <TouchableOpacity onPress={() => router.back()} style={styles.headerIcon}>
             <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => void loadTaskBundle(task.id)} style={styles.headerIcon}>
-            <MaterialIcons name="refresh" size={20} color={colors.foreground} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={() => void loadTaskBundle(task.id)} style={styles.headerIcon}>
+              <MaterialIcons name="refresh" size={20} color={colors.foreground} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleDelete} style={styles.headerIcon}>
+              <MaterialIcons name="delete-outline" size={20} color="#ba1a1a" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -139,7 +297,7 @@ export default function TaskDetailScreen() {
             <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
               <View style={[styles.statusBadgeDot, { backgroundColor: tone.color }]} />
               <Text style={[styles.statusBadgeText, { color: tone.color }]}>
-                {TASK_STATUS_LABELS[task.status]}
+                {STATUS_LABELS[task.status]}
               </Text>
             </View>
             <View style={[styles.syncBadge, { backgroundColor: state.wsConnected ? "#e9f2ea" : "#f1ede8" }]}>
@@ -158,8 +316,8 @@ export default function TaskDetailScreen() {
           <View style={styles.progressMeta}>
             <Text style={[styles.progressMetaLabel, { color: colors.muted }]}>
               {currentModule
-                ? `${currentModule.module_id} ${MODULE_NAMES[currentModule.module_id]}`
-                : "等待开始"}
+                ? `${currentModule.module_id} ${MODULE_LABELS[currentModule.module_id]}`
+                : "Waiting to start"}
             </Text>
             <Text style={[styles.progressMetaValue, { color: tone.color }]}>{progress}%</Text>
           </View>
@@ -176,10 +334,12 @@ export default function TaskDetailScreen() {
           </View>
 
           <View style={styles.heroMetaRow}>
-            <Text style={[styles.heroMeta, { color: colors.muted }]}>创建于 {new Date(task.created_at).toLocaleString("zh-CN")}</Text>
+            <Text style={[styles.heroMeta, { color: colors.muted }]}>
+              Created: {new Date(task.created_at).toLocaleString("zh-CN")}
+            </Text>
             {state.lastSyncedAt ? (
               <Text style={[styles.heroMeta, { color: colors.muted }]}>
-                刷新于 {new Date(state.lastSyncedAt).toLocaleTimeString("zh-CN")}
+                Synced: {new Date(state.lastSyncedAt).toLocaleTimeString("zh-CN")}
               </Text>
             ) : null}
           </View>
@@ -192,7 +352,7 @@ export default function TaskDetailScreen() {
                   style={[styles.secondaryAction, { borderColor: colors.border }]}
                 >
                   <MaterialIcons name="pause" size={18} color={colors.foreground} />
-                  <Text style={[styles.secondaryActionText, { color: colors.foreground }]}>暂停</Text>
+                  <Text style={[styles.secondaryActionText, { color: colors.foreground }]}>Pause</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -200,12 +360,12 @@ export default function TaskDetailScreen() {
                   style={[styles.primaryAction, { backgroundColor: colors.primary }]}
                 >
                   <MaterialIcons name="play-arrow" size={18} color="#ffffff" />
-                  <Text style={styles.primaryActionText}>继续</Text>
+                  <Text style={styles.primaryActionText}>Resume</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity onPress={handleAbort} style={styles.abortAction}>
                 <MaterialIcons name="stop" size={18} color="#ba1a1a" />
-                <Text style={styles.abortActionText}>终止</Text>
+                <Text style={styles.abortActionText}>Stop</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -218,9 +378,9 @@ export default function TaskDetailScreen() {
           <View style={styles.linkCardLeft}>
             <MaterialIcons name="article" size={20} color={colors.primary} />
             <View style={styles.linkCardTextWrap}>
-              <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>执行日志</Text>
+              <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>Execution Logs</Text>
               <Text style={[styles.linkCardDesc, { color: colors.muted }]}>
-                查看 WebSocket 事件与后端追踪日志
+                Open the full task log stream and live updates.
               </Text>
             </View>
           </View>
@@ -235,9 +395,9 @@ export default function TaskDetailScreen() {
             <View style={styles.linkCardLeft}>
               <MaterialIcons name="lightbulb" size={20} color="#b36a11" />
               <View style={styles.linkCardTextWrap}>
-                <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>Idea 决策</Text>
+                <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>Idea Board</Text>
                 <Text style={[styles.linkCardDesc, { color: colors.muted }]}>
-                  M3 结束后在手机端选择候选 Idea 并推进到 M4
+                  Review and select the M3 candidate ideas.
                 </Text>
               </View>
             </View>
@@ -245,101 +405,21 @@ export default function TaskDetailScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <ModuleSummaryCard
-          eyebrow="Module 01"
-          title="M1 文献调研"
-          description={MODULE_DESCRIPTIONS.M1}
-        >
-          {m1Summary.summary ? (
-            <>
-              <Text style={[styles.summaryValue, { color: colors.foreground }]}>{m1Summary.summary}</Text>
-              <Text style={[styles.summaryMeta, { color: colors.muted }]}>
-                来源文献数：{m1Summary.sourceCount || "待生成"}
-              </Text>
-            </>
-          ) : (
-            <Text style={[styles.placeholderText, { color: colors.muted }]}>
-              文献综述产物尚未生成，任务会在 M1 完成后自动同步。
-            </Text>
-          )}
-        </ModuleSummaryCard>
-
-        <ModuleSummaryCard
-          eyebrow="Module 02"
-          title="M2 研究空白"
-          description={MODULE_DESCRIPTIONS.M2}
-        >
-          {m2Summary.gapCount > 0 ? (
-            <>
-              <Text style={[styles.summaryMeta, { color: colors.muted }]}>
-                已识别 {m2Summary.gapCount} 个候选研究缺口
-              </Text>
-              {m2Summary.highlights.map((item) => (
-                <View key={item} style={styles.bulletRow}>
-                  <View style={[styles.bullet, { backgroundColor: colors.primary }]} />
-                  <Text style={[styles.bulletText, { color: colors.foreground }]}>{item}</Text>
-                </View>
-              ))}
-            </>
-          ) : (
-            <Text style={[styles.placeholderText, { color: colors.muted }]}>
-              缺口分析尚未可用，系统会在 M2 完成后刷新这里的摘要。
-            </Text>
-          )}
-        </ModuleSummaryCard>
-
-        <ModuleSummaryCard
-          eyebrow="Module 03"
-          title="M3 Idea 生成"
-          description={MODULE_DESCRIPTIONS.M3}
-        >
-          {state.ideas.status === "generating" && state.ideas.ideas.length === 0 ? (
-            <Text style={[styles.placeholderText, { color: colors.muted }]}>
-              正在生成候选 Idea，新的方案产出后会自动显示。
-            </Text>
-          ) : state.ideas.ideas.length > 0 ? (
-            <>
-              <Text style={[styles.summaryMeta, { color: colors.muted }]}>
-                当前可见 {m3Summary.ideaCount} 个候选 Idea
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.foreground }]}>
-                推荐方案：{m3Summary.bestIdeaTitle}
-              </Text>
-              <Text style={[styles.summaryMeta, { color: colors.muted }]}>
-                综合得分：{m3Summary.bestIdeaScore.toFixed(1)}
-              </Text>
-              <TouchableOpacity
-                onPress={() => router.push(`/task/${task.id}/ideas` as any)}
-                style={[styles.inlinePrimaryButton, { backgroundColor: colors.primary }]}
-              >
-                <Text style={styles.inlinePrimaryButtonText}>
-                  {task.status === "paused" && task.current_module === "M3" ? "进入 Idea 选择" : "查看候选 Idea"}
-                </Text>
-                <MaterialIcons name="arrow-forward" size={16} color="#ffffff" />
-              </TouchableOpacity>
-            </>
-          ) : (
-            <Text style={[styles.placeholderText, { color: colors.muted }]}>
-              Idea 产物尚未生成。任务推进到 M3 后，这里会显示候选方案与继续生成入口。
-            </Text>
-          )}
-        </ModuleSummaryCard>
-
-        <View style={[styles.futureCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Text style={[styles.futureTitle, { color: colors.foreground }]}>后续模块</Text>
-          <Text style={[styles.futureDesc, { color: colors.muted }]}>
-            手机端本阶段只承载 M1-M3 闭环，M4-M9 保持与桌面端共享同一后端状态。
+        <View style={styles.sectionHeader}>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Workflow Modules</Text>
+          <Text style={[styles.sectionSubtitle, { color: colors.muted }]}>
+            Tap any module to open its own detail view.
           </Text>
-          <View style={styles.futureGrid}>
-            {futureModules.map((moduleId) => (
-              <View key={moduleId} style={[styles.futureChip, { borderColor: colors.border }]}>
-                <Text style={[styles.futureChipText, { color: colors.muted }]}>
-                  {moduleId} {MODULE_NAMES[moduleId]}
-                </Text>
-              </View>
-            ))}
-          </View>
         </View>
+
+        {modules.map((module) => (
+          <ModuleCard
+            key={module.module_id}
+            taskId={task.id}
+            module={module}
+            preview={modulePreviewText(module, { m1Summary, m2Summary, m3Summary, m4Summary, m5Summary })}
+          />
+        ))}
       </ScrollView>
     </ScreenContainer>
   );
@@ -355,6 +435,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
   },
   headerIcon: {
     width: 40,
@@ -551,11 +635,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
+  sectionHeader: {
+    gap: 4,
+    marginTop: 6,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontFamily: Fonts.serif,
+    fontWeight: "700",
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
   moduleCard: {
     borderWidth: 1,
     borderRadius: 22,
     padding: 18,
-    gap: 10,
+    gap: 12,
+  },
+  moduleCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  moduleCardTitleWrap: {
+    flex: 1,
+    gap: 4,
   },
   moduleEyebrow: {
     fontSize: 10,
@@ -564,86 +672,42 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   moduleTitle: {
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 22,
+    lineHeight: 26,
     fontFamily: Fonts.serif,
     fontWeight: "700",
   },
-  moduleDescription: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  summaryValue: {
-    fontSize: 14,
-    lineHeight: 22,
-  },
-  summaryMeta: {
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  placeholderText: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  bulletRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  bullet: {
-    width: 6,
-    height: 6,
+  moduleBadge: {
     borderRadius: 999,
-    marginTop: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  bulletText: {
-    flex: 1,
+  moduleBadgeText: {
+    fontSize: 10,
+    fontFamily: Fonts.mono,
+  },
+  modulePreview: {
     fontSize: 13,
     lineHeight: 20,
   },
-  inlinePrimaryButton: {
-    alignSelf: "flex-start",
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  moduleFooter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginTop: 4,
-  },
-  inlinePrimaryButtonText: {
-    color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  futureCard: {
-    borderWidth: 1,
-    borderRadius: 22,
-    padding: 18,
     gap: 10,
   },
-  futureTitle: {
-    fontSize: 20,
-    fontFamily: Fonts.serif,
+  modulePercent: {
+    width: 38,
+    fontSize: 13,
     fontWeight: "700",
   },
-  futureDesc: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  futureGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  futureChip: {
-    borderWidth: 1,
+  moduleProgressTrack: {
+    flex: 1,
+    height: 6,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    overflow: "hidden",
   },
-  futureChipText: {
-    fontSize: 11,
-    fontFamily: Fonts.mono,
+  moduleProgressFill: {
+    height: "100%",
+    borderRadius: 999,
   },
 });

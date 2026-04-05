@@ -1,400 +1,172 @@
-import { Copy, Cpu, FolderCog, Globe2, LoaderCircle, PlugZap, Save, Wifi } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { EditorialPage, SectionBlock, StatusBadge } from '../components/ui/Primitives';
-import { getRuntimeSettings, saveRuntimeSettings } from '../services/api';
+import { Copy, Cpu, FolderCog, Globe2, PlugZap, Save, Wifi } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { EditorialPage, SectionBlock, StatusBadge } from "../components/ui/Primitives";
+import { getConnectionInfo, getRuntimeSettings, saveRuntimeSettings } from "../services/api";
 import {
   getDesktopSettings,
   saveDesktopSettings,
   sanitizeDesktopSettings,
   type DesktopSettings,
-} from '../services/preferences';
-import { useWorkspaceStore } from '../store/useWorkspaceStore';
-import type { BackendRuntimeSettingsResponse } from '../types/backend';
+} from "../services/preferences";
+import { useWorkspaceStore } from "../store/useWorkspaceStore";
+import type {
+  BackendConnectionAddress,
+  BackendConnectionInfoResponse,
+  BackendRuntimeSettingsResponse,
+} from "../types/backend";
 
-const localGgufProvider = 'local-gguf';
-const customModelPresetId = 'custom';
+const LOCAL_PROVIDER = "local-gguf";
+const CUSTOM_PRESET = "custom";
 
-const defaultRuntimeSettings: BackendRuntimeSettingsResponse = {
-  llm_provider: 'openai',
-  api_key: '',
-  model: 'gpt-4o',
-  provider_base_url: 'https://api.openai.com/v1',
-  search_provider: 'brave',
-  search_api_key: '',
-  local_engine: 'lm-studio',
-  local_server_url: 'http://127.0.0.1:1234/v1',
-  local_model_path: '',
-  local_model_alias: 'local-gguf',
+const DEFAULT_RUNTIME: BackendRuntimeSettingsResponse = {
+  llm_provider: "openai",
+  api_key: "",
+  model: "gpt-4o",
+  provider_base_url: "https://api.openai.com/v1",
+  search_provider: "brave",
+  search_api_key: "",
+  local_engine: "lm-studio",
+  local_server_url: "http://127.0.0.1:1234/v1",
+  local_model_path: "",
+  local_model_alias: "local-gguf",
   local_context_size: 4096,
   local_gpu_layers: 0,
-  env_path: 'backend/.env',
+  public_base_url: "",
+  env_path: "backend/.env",
 };
 
-const searchEngines = [
-  { id: 'duckduckgo', label: 'DuckDuckGo', keyLabel: '无需 API Key', needsKey: false },
-  { id: 'brave', label: 'Brave Search', keyLabel: 'Brave API Key', needsKey: true, url: 'https://search.brave.com/search-api' },
-  { id: 'tavily', label: 'Tavily', keyLabel: 'Tavily API Key', needsKey: true, url: 'https://tavily.com' },
-  { id: 'serper', label: 'Serper', keyLabel: 'Serper API Key', needsKey: true, url: 'https://serper.dev' },
-];
+const PRESETS = [
+  { id: "openai-gpt-4o", label: "OpenAI / GPT-4o", provider: "openai", model: "gpt-4o", baseUrl: "https://api.openai.com/v1" },
+  { id: "openai-gpt-4.1", label: "OpenAI / GPT-4.1", provider: "openai", model: "gpt-4.1", baseUrl: "https://api.openai.com/v1" },
+  { id: "deepseek-chat", label: "DeepSeek / deepseek-chat", provider: "openai", model: "deepseek-chat", baseUrl: "https://api.deepseek.com/v1" },
+  { id: "zhipu-glm-4-flash", label: "智谱AI / GLM-4-Flash", provider: "openai", model: "glm-4-flash", baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+  { id: "local-gguf", label: "本地模型 / LM Studio", provider: LOCAL_PROVIDER, model: "local-gguf", baseUrl: "http://127.0.0.1:1234/v1" },
+] as const;
 
-type ModelPreset = {
-  id: string;
-  label: string;
-  provider: string;
-  model: string;
-  baseUrl: string;
-  note: string;
-};
-
-const modelPresets: ModelPreset[] = [
-  {
-    id: 'openai-gpt-4o',
-    label: 'OpenAI · GPT-4o',
-    provider: 'openai',
-    model: 'gpt-4o',
-    baseUrl: 'https://api.openai.com/v1',
-    note: '通用主力模型',
-  },
-  {
-    id: 'openai-gpt-4.1',
-    label: 'OpenAI · GPT-4.1',
-    provider: 'openai',
-    model: 'gpt-4.1',
-    baseUrl: 'https://api.openai.com/v1',
-    note: '更偏代码和长上下文',
-  },
-  {
-    id: 'openai-gpt-4.1-mini',
-    label: 'OpenAI · GPT-4.1 mini',
-    provider: 'openai',
-    model: 'gpt-4.1-mini',
-    baseUrl: 'https://api.openai.com/v1',
-    note: '更快更省',
-  },
-  {
-    id: 'deepseek-chat',
-    label: 'DeepSeek · deepseek-chat',
-    provider: 'openai',
-    model: 'deepseek-chat',
-    baseUrl: 'https://api.deepseek.com/v1',
-    note: 'DeepSeek 通用对话模型',
-  },
-  {
-    id: 'deepseek-reasoner',
-    label: 'DeepSeek · deepseek-reasoner',
-    provider: 'openai',
-    model: 'deepseek-reasoner',
-    baseUrl: 'https://api.deepseek.com/v1',
-    note: 'DeepSeek 推理模型',
-  },
-  {
-    id: 'local-gguf',
-    label: '本地模型 · LM Studio',
-    provider: localGgufProvider,
-    model: 'local-gguf',
-    baseUrl: 'http://127.0.0.1:1234/v1',
-    note: '对接 LM Studio 暴露的本地 OpenAI 兼容服务',
-  },
-];
-
-function asString(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
+function inferPresetId(settings: BackendRuntimeSettingsResponse) {
+  if (settings.llm_provider === LOCAL_PROVIDER) return "local-gguf";
+  return (
+    PRESETS.find((preset) => preset.provider === settings.llm_provider && preset.model === settings.model && preset.baseUrl === settings.provider_base_url)?.id ??
+    CUSTOM_PRESET
+  );
 }
 
-function asNumber(value: unknown, fallback: number) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function normalizeRuntimeSettings(
-  settings?: Partial<BackendRuntimeSettingsResponse> | null,
-): BackendRuntimeSettingsResponse {
-  const next = settings ?? {};
-
-  return {
-    ...defaultRuntimeSettings,
-    ...next,
-    llm_provider: asString(next.llm_provider, defaultRuntimeSettings.llm_provider),
-    api_key: asString(next.api_key, defaultRuntimeSettings.api_key),
-    model: asString(next.model, defaultRuntimeSettings.model),
-    provider_base_url: asString(next.provider_base_url, defaultRuntimeSettings.provider_base_url),
-    search_provider: asString(next.search_provider, defaultRuntimeSettings.search_provider),
-    search_api_key: asString(next.search_api_key, defaultRuntimeSettings.search_api_key),
-    local_engine: asString(next.local_engine, defaultRuntimeSettings.local_engine),
-    local_server_url: asString(next.local_server_url, defaultRuntimeSettings.local_server_url),
-    local_model_path: asString(next.local_model_path, defaultRuntimeSettings.local_model_path),
-    local_model_alias: asString(next.local_model_alias, defaultRuntimeSettings.local_model_alias),
-    local_context_size: asNumber(next.local_context_size, defaultRuntimeSettings.local_context_size),
-    local_gpu_layers: asNumber(next.local_gpu_layers, defaultRuntimeSettings.local_gpu_layers),
-    env_path: asString(next.env_path, defaultRuntimeSettings.env_path),
-  };
-}
-
-function inferLocalModelAlias(path: string | undefined, alias: string | undefined, fallback = 'local-gguf') {
-  const normalizedAlias = asString(alias).trim();
-  if (normalizedAlias) {
-    return normalizedAlias;
-  }
-
-  const normalizedPath = asString(path).trim();
-  if (!normalizedPath) {
-    return fallback;
-  }
-
-  const segments = normalizedPath.split(/[/\\]/);
-  const filename = segments[segments.length - 1] ?? '';
-  const stem = filename.replace(/\.gguf$/i, '').trim();
+function inferLocalAlias(path: string, alias: string, fallback: string) {
+  if (alias.trim()) return alias.trim();
+  const filename = path.split(/[/\\]/).pop() ?? "";
+  const stem = filename.replace(/\.gguf$/i, "").trim();
   return stem || fallback;
 }
 
-function inferPresetId(settings: BackendRuntimeSettingsResponse) {
-  if (settings.llm_provider === localGgufProvider) {
-    return 'local-gguf';
-  }
-
-  const matched = modelPresets.find(
-    (preset) =>
-      preset.provider !== localGgufProvider &&
-      preset.model === settings.model &&
-      preset.baseUrl === settings.provider_base_url &&
-      preset.provider === settings.llm_provider,
-  );
-
-  return matched?.id ?? customModelPresetId;
+function dedupeAddresses(addresses: BackendConnectionAddress[]) {
+  const seen = new Set<string>();
+  return addresses.filter((address) => {
+    if (!address.url || seen.has(address.url)) return false;
+    seen.add(address.url);
+    return true;
+  });
 }
 
-function buildLocalEngineHint(settings: BackendRuntimeSettingsResponse) {
-  if (settings.local_engine === 'lm-studio') {
-    return '在 LM Studio 中加载模型后，打开 Developer -> Local Server，然后启动 OpenAI-compatible API server。';
-  }
-
-  const modelPath = asString(settings.local_model_path).trim();
-  if (!modelPath) {
-    return 'llama-server -m "<your-model>.gguf" --host 127.0.0.1 --port 8080';
-  }
-
-  const gpuLayers = Math.max(0, asNumber(settings.local_gpu_layers, 0));
-  const ctxSize = Math.max(512, asNumber(settings.local_context_size, 4096));
-
-  return `llama-server -m "${modelPath}" --ctx-size ${ctxSize} --gpu-layers ${gpuLayers} --host 127.0.0.1 --port 8080`;
-}
-
-function defaultPortForProtocol(protocol: string) {
-  return protocol === 'https:' ? '443' : '80';
-}
-
-function isPrivateIpv4(hostname: string) {
-  return (
-    /^10\./.test(hostname) ||
-    /^127\./.test(hostname) ||
-    /^192\.168\./.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
-  );
-}
-
-function isLikelyLanHostname(hostname: string) {
-  const normalized = hostname.trim().toLowerCase();
-  return normalized === 'localhost' || normalized.endsWith('.local') || isPrivateIpv4(normalized);
-}
-
-function buildOrigin(protocol: string, hostname: string, port: string) {
-  const normalizedProtocol = protocol.endsWith(':') ? protocol : `${protocol}:`;
-  const normalizedPort = port.trim();
-  const defaultPort = defaultPortForProtocol(normalizedProtocol);
-  const portSegment = normalizedPort && normalizedPort !== defaultPort ? `:${normalizedPort}` : '';
-  return `${normalizedProtocol}//${hostname}${portSegment}`;
-}
-
-function inferBackendRoot(apiBase: string) {
-  const trimmed = apiBase.trim();
-
-  if (/^https?:\/\//i.test(trimmed)) {
-    try {
-      const url = new URL(trimmed);
-      return {
-        protocol: url.protocol,
-        port: url.port || defaultPortForProtocol(url.protocol),
-        origin: buildOrigin(url.protocol, url.hostname, url.port || defaultPortForProtocol(url.protocol)),
-        source: 'absolute' as const,
-        hint: '根据 API Base 绝对地址推导',
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  if (typeof window === 'undefined') {
-    return {
-      protocol: 'http:',
-      port: '8000',
-      origin: 'http://127.0.0.1:8000',
-      source: 'fallback' as const,
-      hint: '未检测到浏览器环境，回退到默认后端端口 8000',
-    };
-  }
-
-  const protocol = window.location.protocol || 'http:';
-  const hostname = window.location.hostname || '127.0.0.1';
-  const currentPort = window.location.port || defaultPortForProtocol(protocol);
-
-  if (trimmed.startsWith('/')) {
-    if (currentPort === '5173') {
-      return {
-        protocol,
-        port: '8000',
-        origin: buildOrigin(protocol, hostname, '8000'),
-        source: 'vite-proxy' as const,
-        hint: '开发模式下根据 Vite 代理推导到后端 8000',
-      };
-    }
-
-    return {
-      protocol,
-      port: currentPort,
-      origin: buildOrigin(protocol, hostname, currentPort),
-      source: 'same-origin' as const,
-      hint: '当前前端与后端同源部署',
-    };
-  }
-
+function mergeConnectionInfo(
+  info: BackendConnectionInfoResponse | null,
+  manualPublicBaseUrl: string,
+) {
+  const manualUrl = manualPublicBaseUrl.trim().replace(/\/$/, "");
+  const manualAddresses: BackendConnectionAddress[] = manualUrl
+    ? [{
+        scope: "public",
+        label: "公网 / 隧道",
+        url: manualUrl,
+        ws_url: `${manualUrl.replace(/^http/i, "ws")}/ws`,
+        source: "manual_runtime_setting",
+        recommended: false,
+      }]
+    : [];
+  const publicUrls = dedupeAddresses([...(info?.public_urls ?? []), ...manualAddresses]);
+  const lanUrls = info?.lan_urls ?? [];
   return {
-    protocol,
-    port: currentPort,
-    origin: buildOrigin(protocol, hostname, currentPort),
-    source: 'fallback' as const,
-    hint: '无法从 API Base 解析完整地址，使用当前页面来源',
+    notes: info?.notes ?? [],
+    lanUrls,
+    publicUrls,
+    recommendedMobileUrl: info?.recommended_mobile_url || publicUrls[0]?.url || lanUrls[0]?.url || "",
+    recommendedMobileWsUrl: info?.recommended_mobile_ws_url || publicUrls[0]?.ws_url || lanUrls[0]?.ws_url || "",
   };
 }
 
-function parseCandidateIp(candidate: string) {
-  const match = candidate.match(/(\d{1,3}(?:\.\d{1,3}){3})/);
-  return match?.[1] ?? '';
-}
-
-async function discoverLanIps() {
-  const discovered = new Set<string>();
-
-  if (typeof window !== 'undefined' && isLikelyLanHostname(window.location.hostname)) {
-    const hostname = window.location.hostname.trim().toLowerCase();
-    if (hostname !== 'localhost') {
-      discovered.add(hostname);
-    }
-  }
-
-  const RTCPeerConnectionCtor =
-    window.RTCPeerConnection ||
-    (window as typeof window & { webkitRTCPeerConnection?: typeof RTCPeerConnection }).webkitRTCPeerConnection;
-
-  if (!RTCPeerConnectionCtor) {
-    return [...discovered];
-  }
-
-  try {
-    await new Promise<void>((resolve) => {
-      const pc = new RTCPeerConnectionCtor({ iceServers: [] });
-      const timeoutId = window.setTimeout(() => {
-        pc.close();
-        resolve();
-      }, 1200);
-
-      pc.createDataChannel('scholarmind-lan-probe');
-
-      pc.onicecandidate = (event) => {
-        const candidate = event.candidate?.candidate;
-        if (!candidate) {
-          window.clearTimeout(timeoutId);
-          pc.close();
-          resolve();
-          return;
-        }
-
-        const ip = parseCandidateIp(candidate);
-        if (ip && isPrivateIpv4(ip)) {
-          discovered.add(ip);
-        }
-      };
-
-      void pc
-        .createOffer()
-        .then((offer) => pc.setLocalDescription(offer))
-        .catch(() => {
-          window.clearTimeout(timeoutId);
-          pc.close();
-          resolve();
-        });
-    });
-  } catch {
-    return [...discovered];
-  }
-
-  return [...discovered];
-}
-
-async function discoverPublicIp() {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json', {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-    });
-
-    if (!response.ok) {
-      return '';
-    }
-
-    const payload = (await response.json()) as { ip?: string };
-    return typeof payload.ip === 'string' ? payload.ip.trim() : '';
-  } catch {
-    return '';
-  }
+function AddressCard({
+  icon,
+  title,
+  subtitle,
+  addresses,
+  emptyText,
+  onCopy,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  addresses: BackendConnectionAddress[];
+  emptyText: string;
+  onCopy: (value: string, label: string) => void;
+}) {
+  return (
+    <div className="connection-address-card">
+      <div className="connection-address-header">
+        <div className="connection-address-icon">{icon}</div>
+        <div>
+          <div className="form-label">{title}</div>
+          <div className="tiny muted">{subtitle}</div>
+        </div>
+      </div>
+      {addresses.length ? (
+        <div className="stack">
+          {addresses.map((address) => (
+            <div key={`${address.scope}-${address.url}`} className="connection-address-row">
+              <code>{address.url}</code>
+              <button className="button-secondary connection-copy-button" onClick={() => void onCopy(address.url, title)} type="button">
+                <Copy size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="callout-note">{emptyText}</div>
+      )}
+    </div>
+  );
 }
 
 export default function SettingsPage() {
   const showToast = useWorkspaceStore((state) => state.showToast);
-  const [activeTab, setActiveTab] = useState<'connection' | 'runtime' | 'local'>('connection');
+  const [tab, setTab] = useState<"connection" | "runtime" | "local">("connection");
   const [desktopSettings, setDesktopSettings] = useState<DesktopSettings>(() => getDesktopSettings());
-  const [runtimeSettings, setRuntimeSettings] =
-    useState<BackendRuntimeSettingsResponse>(defaultRuntimeSettings);
-  const [selectedModelPresetId, setSelectedModelPresetId] = useState(() =>
-    inferPresetId(defaultRuntimeSettings),
-  );
-  const [isLoadingRuntimeSettings, setIsLoadingRuntimeSettings] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [lanIps, setLanIps] = useState<string[]>([]);
-  const [publicIp, setPublicIp] = useState('');
-  const [isResolvingConnectionInfo, setIsResolvingConnectionInfo] = useState(true);
+  const [runtimeSettings, setRuntimeSettings] = useState(DEFAULT_RUNTIME);
+  const [selectedPresetId, setSelectedPresetId] = useState(() => inferPresetId(DEFAULT_RUNTIME));
+  const [connectionInfo, setConnectionInfo] = useState<BackendConnectionInfoResponse | null>(null);
+  const [loadingRuntime, setLoadingRuntime] = useState(true);
+  const [loadingConnection, setLoadingConnection] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  const isLocalProvider = runtimeSettings.llm_provider === localGgufProvider;
-  const inferredBackend = inferBackendRoot(desktopSettings.apiBase);
-  const lanUrls = inferredBackend
-    ? lanIps.map((ip) => buildOrigin(inferredBackend.protocol, ip, inferredBackend.port))
-    : [];
-  const publicUrl = inferredBackend && publicIp
-    ? buildOrigin(inferredBackend.protocol, publicIp, inferredBackend.port)
-    : '';
+  const connectionView = useMemo(
+    () => mergeConnectionInfo(connectionInfo, runtimeSettings.public_base_url),
+    [connectionInfo, runtimeSettings.public_base_url],
+  );
 
   useEffect(() => {
     let cancelled = false;
-
-    const loadSettings = async () => {
-      try {
-        const nextRuntimeSettings = await getRuntimeSettings();
+    void getRuntimeSettings()
+      .then((settings) => {
+        if (cancelled) return;
+        setRuntimeSettings(settings);
+        setSelectedPresetId(inferPresetId(settings));
+      })
+      .catch((error) => {
         if (!cancelled) {
-          const normalizedSettings = normalizeRuntimeSettings(nextRuntimeSettings);
-          setRuntimeSettings(normalizedSettings);
-          setSelectedModelPresetId(inferPresetId(normalizedSettings));
+          showToast(error instanceof Error ? error.message : "加载运行时设置失败");
         }
-      } catch (error) {
-        if (!cancelled) {
-          showToast(error instanceof Error ? error.message : '读取后端运行时配置失败');
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingRuntimeSettings(false);
-        }
-      }
-    };
-
-    void loadSettings();
-
+      })
+      .finally(() => {
+        if (cancelled) setLoadingRuntime(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -402,167 +174,77 @@ export default function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-
-    const resolveConnectionAddresses = async () => {
-      setIsResolvingConnectionInfo(true);
-      const [nextLanIps, nextPublicIp] = await Promise.all([discoverLanIps(), discoverPublicIp()]);
-
-      if (cancelled) {
-        return;
-      }
-
-      setLanIps(nextLanIps);
-      setPublicIp(nextPublicIp);
-      setIsResolvingConnectionInfo(false);
-    };
-
-    void resolveConnectionAddresses();
-
+    setLoadingConnection(true);
+    void getConnectionInfo(desktopSettings.apiBase)
+      .then((info) => {
+        if (cancelled) setConnectionInfo(info);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setConnectionInfo(null);
+          showToast(error instanceof Error ? error.message : "解析连接地址失败");
+        }
+      })
+      .finally(() => {
+        if (cancelled) setLoadingConnection(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [desktopSettings.apiBase, showToast]);
 
-  const updateDesktopSettings = <K extends keyof DesktopSettings>(key: K, value: DesktopSettings[K]) => {
+  const updateDesktop = <K extends keyof DesktopSettings>(key: K, value: DesktopSettings[K]) => {
     setDesktopSettings((current) => ({ ...current, [key]: value }));
   };
 
-  const updateTaskConfig = <K extends keyof DesktopSettings['taskConfig']>(
-    key: K,
-    value: DesktopSettings['taskConfig'][K],
-  ) => {
-    setDesktopSettings((current) => ({
-      ...current,
-      taskConfig: { ...current.taskConfig, [key]: value },
-    }));
+  const updateTaskConfig = <K extends keyof DesktopSettings["taskConfig"]>(key: K, value: DesktopSettings["taskConfig"][K]) => {
+    setDesktopSettings((current) => ({ ...current, taskConfig: { ...current.taskConfig, [key]: value } }));
   };
 
-  const updateRuntimeSettings = <K extends keyof BackendRuntimeSettingsResponse>(
-    key: K,
-    value: BackendRuntimeSettingsResponse[K],
-  ) => {
-    setRuntimeSettings((current) => {
-      const nextSettings = { ...current, [key]: value };
-
-      if (key === 'local_model_path' || key === 'local_model_alias') {
-        const nextAlias = inferLocalModelAlias(
-          key === 'local_model_path' ? String(value) : nextSettings.local_model_path,
-          key === 'local_model_alias' ? String(value) : nextSettings.local_model_alias,
-          nextSettings.model,
-        );
-        nextSettings.local_model_alias = nextAlias;
-        if (nextSettings.llm_provider === localGgufProvider) {
-          nextSettings.model = nextAlias;
-        }
-      }
-
-      if (key === 'local_server_url' && nextSettings.llm_provider === localGgufProvider) {
-        nextSettings.provider_base_url = String(value);
-      }
-
-      if (key === 'provider_base_url' && nextSettings.llm_provider === localGgufProvider) {
-        nextSettings.local_server_url = String(value);
-      }
-
-      if (key === 'model' && nextSettings.llm_provider === localGgufProvider) {
-        nextSettings.local_model_alias = String(value).trim() || nextSettings.local_model_alias;
-      }
-
-      if (key === 'llm_provider' && value === localGgufProvider) {
-        const nextAlias = inferLocalModelAlias(
-          nextSettings.local_model_path,
-          nextSettings.local_model_alias,
-          nextSettings.model,
-        );
-        nextSettings.local_model_alias = nextAlias;
-        nextSettings.model = nextAlias;
-        nextSettings.provider_base_url = nextSettings.local_server_url || defaultRuntimeSettings.local_server_url;
-        nextSettings.api_key = nextSettings.api_key.trim() || 'not-needed';
-      }
-
-      setSelectedModelPresetId(inferPresetId(nextSettings));
-      return nextSettings;
-    });
+  const updateRuntime = <K extends keyof BackendRuntimeSettingsResponse>(key: K, value: BackendRuntimeSettingsResponse[K]) => {
+    setRuntimeSettings((current) => ({ ...current, [key]: value }));
   };
 
-  const applyModelPreset = (presetId: string) => {
-    setSelectedModelPresetId(presetId);
-
-    if (presetId === customModelPresetId) {
-      return;
-    }
-
-    const preset = modelPresets.find((item) => item.id === presetId);
-    if (!preset) {
-      return;
-    }
-
+  const applyPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    const preset = PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
     setRuntimeSettings((current) => {
-      if (preset.provider === localGgufProvider) {
-        const localAlias = inferLocalModelAlias(
-          current.local_model_path,
-          current.local_model_alias,
-          preset.model,
-        );
-
+      if (preset.provider === LOCAL_PROVIDER) {
+        const alias = inferLocalAlias(current.local_model_path, current.local_model_alias, preset.model);
         return {
           ...current,
-          llm_provider: localGgufProvider,
-          api_key: current.api_key.trim() || 'not-needed',
-          model: localAlias,
+          llm_provider: LOCAL_PROVIDER,
+          api_key: current.api_key.trim() || "not-needed",
+          model: alias,
+          local_model_alias: alias,
           provider_base_url: current.local_server_url || preset.baseUrl,
           local_server_url: current.local_server_url || preset.baseUrl,
-          local_model_alias: localAlias,
-          local_engine: current.local_engine || 'lm-studio',
         };
       }
-
-      return {
-        ...current,
-        llm_provider: preset.provider,
-        model: preset.model,
-        provider_base_url: preset.baseUrl,
-      };
+      return { ...current, llm_provider: preset.provider, model: preset.model, provider_base_url: preset.baseUrl };
     });
   };
 
-  const handleSave = async () => {
-    setIsSaving(true);
-
+  const saveAll = async () => {
+    setSaving(true);
     try {
       const nextDesktopSettings = sanitizeDesktopSettings(desktopSettings);
-      const savedRuntimeSettings = await saveRuntimeSettings({
-        llm_provider: runtimeSettings.llm_provider,
-        api_key: runtimeSettings.api_key,
-        model: runtimeSettings.model,
-        provider_base_url: runtimeSettings.provider_base_url,
-        search_provider: runtimeSettings.search_provider,
-        search_api_key: runtimeSettings.search_api_key,
-        local_engine: runtimeSettings.local_engine,
-        local_server_url: runtimeSettings.local_server_url,
-        local_model_path: runtimeSettings.local_model_path,
-        local_model_alias: runtimeSettings.local_model_alias,
-        local_context_size: runtimeSettings.local_context_size,
-        local_gpu_layers: runtimeSettings.local_gpu_layers,
-      });
-      const nextRuntimeSettings = normalizeRuntimeSettings(savedRuntimeSettings);
-
+      const nextRuntimeSettings = await saveRuntimeSettings(runtimeSettings);
       saveDesktopSettings(nextDesktopSettings);
       setDesktopSettings(nextDesktopSettings);
       setRuntimeSettings(nextRuntimeSettings);
-      setSelectedModelPresetId(inferPresetId(nextRuntimeSettings));
-      showToast(`设置已保存，并写入 ${nextRuntimeSettings.env_path}`);
+      setSelectedPresetId(inferPresetId(nextRuntimeSettings));
+      setConnectionInfo(await getConnectionInfo(nextDesktopSettings.apiBase));
+      showToast(`设置已保存到 ${nextRuntimeSettings.env_path}`);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '保存设置失败');
+      showToast(error instanceof Error ? error.message : "保存设置失败");
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   };
 
-  const currentSearchEngine =
-    searchEngines.find((engine) => engine.id === runtimeSettings.search_provider) ?? searchEngines[0];
-
-  const handleCopy = async (value: string, label: string) => {
+  const copyValue = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
       showToast(`${label} 已复制`);
@@ -573,487 +255,81 @@ export default function SettingsPage() {
 
   return (
     <EditorialPage
-      eyebrow="Configuration"
-      title="统一管理连接、模型与本地工作上下文"
-      description="前端连接配置保存在浏览器本地，模型与搜索配置写入后端 `.env`。本页现已支持通过 LM Studio 调用本地模型。"
-      actions={
-        <button className="button-primary" onClick={() => void handleSave()} type="button" disabled={isSaving}>
-          <Save size={14} />
-          {isSaving ? '保存中...' : '保存设置'}
-        </button>
-      }
+      eyebrow="配置"
+      title="管理连接、运行时和工作空间设置"
+      description="后端发布相同的局域网和公网连接信息，供桌面端和移动端使用"
+      actions={<button className="button-primary" onClick={() => void saveAll()} type="button"><Save size={14} />{saving ? "保存中..." : "保存设置"}</button>}
     >
       <div className="stack">
         <div className="settings-nav">
-          <button
-            className={`settings-nav-item${activeTab === 'connection' ? ' active' : ''}`}
-            onClick={() => setActiveTab('connection')}
-            type="button"
-          >
-            <PlugZap size={14} />
-            连接参数
-          </button>
-          <button
-            className={`settings-nav-item${activeTab === 'runtime' ? ' active' : ''}`}
-            onClick={() => setActiveTab('runtime')}
-            type="button"
-          >
-            <Cpu size={14} />
-            运行时
-          </button>
-          <button
-            className={`settings-nav-item${activeTab === 'local' ? ' active' : ''}`}
-            onClick={() => setActiveTab('local')}
-            type="button"
-          >
-            <FolderCog size={14} />
-            本地偏好
-          </button>
+          <button className={`settings-nav-item${tab === "connection" ? " active" : ""}`} onClick={() => setTab("connection")} type="button"><PlugZap size={14} />连接</button>
+          <button className={`settings-nav-item${tab === "runtime" ? " active" : ""}`} onClick={() => setTab("runtime")} type="button"><Cpu size={14} />运行时</button>
+          <button className={`settings-nav-item${tab === "local" ? " active" : ""}`} onClick={() => setTab("local")} type="button"><FolderCog size={14} />工作空间</button>
         </div>
 
-        {activeTab === 'connection' ? (
+        {tab === "connection" ? (
           <SectionBlock
-            title="前端到后端的连接配置"
-            description="这些参数决定 React 前端如何访问 API、WebSocket 和授权头。"
-            action={<StatusBadge status="completed" label="Browser Local" />}
+            title="前端和移动端连接"
+            description="桌面端可使用 /api，但手机必须使用真实的后端地址"
+            action={<StatusBadge status={loadingConnection ? "in-progress" : "completed"} label={loadingConnection ? "解析中" : "就绪"} />}
           >
             <div className="settings-form">
-              <label className="form-row">
-                <span className="form-label">API Base</span>
-                <input
-                  className="toolbar-input"
-                  value={desktopSettings.apiBase}
-                  onChange={(event) => updateDesktopSettings('apiBase', event.target.value)}
-                  placeholder="/api"
-                  type="text"
-                />
-              </label>
-              <label className="form-row">
-                <span className="form-label">WebSocket Base</span>
-                <input
-                  className="toolbar-input"
-                  value={desktopSettings.wsBase}
-                  onChange={(event) => updateDesktopSettings('wsBase', event.target.value)}
-                  placeholder="留空时自动推导"
-                  type="text"
-                />
-              </label>
-              <label className="form-row">
-                <span className="form-label">Backend Access Token</span>
-                <input
-                  className="toolbar-input"
-                  value={desktopSettings.backendAccessToken}
-                  onChange={(event) => updateDesktopSettings('backendAccessToken', event.target.value)}
-                  placeholder="仅当后端要求 Authorization 时填写"
-                  type="password"
-                />
-              </label>
-              <div className="connection-address-shell">
-                <div className="section-header">
-                  <div>
-                    <h3 className="section-title">给手机连接的地址</h3>
-                    <div className="section-copy">
-                      手机端应填写后端根地址，而不是 <code>/api</code>。当前展示会根据桌面端 API Base
-                      自动推导。
-                    </div>
-                  </div>
-                  <StatusBadge
-                    status={isResolvingConnectionInfo ? 'in-progress' : 'completed'}
-                    label={isResolvingConnectionInfo ? 'Detecting' : 'Ready'}
-                  />
-                </div>
-
-                <div className="connection-address-grid">
-                  <div className="connection-address-card">
-                    <div className="connection-address-header">
-                      <div className="connection-address-icon">
-                        <Wifi size={15} />
-                      </div>
-                      <div>
-                        <div className="form-label">局域网 URL</div>
-                        <div className="tiny muted">同一 Wi-Fi 下手机优先使用</div>
-                      </div>
-                    </div>
-                    {lanUrls.length ? (
-                      <div className="stack">
-                        {lanUrls.map((url) => (
-                          <div key={url} className="connection-address-row">
-                            <code>{url}</code>
-                            <button
-                              className="button-secondary connection-copy-button"
-                              onClick={() => void handleCopy(url, '局域网 URL')}
-                              type="button"
-                            >
-                              <Copy size={14} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="callout-note">
-                        {isResolvingConnectionInfo ? (
-                          <span className="inline-loading">
-                            <LoaderCircle size={14} className="spin-inline" />
-                            正在探测本机局域网 IP...
-                          </span>
-                        ) : (
-                          '未探测到可用局域网 IP。请确认桌面端已联网，并允许浏览器获取本机网络信息。'
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="connection-address-card">
-                    <div className="connection-address-header">
-                      <div className="connection-address-icon">
-                        <Globe2 size={15} />
-                      </div>
-                      <div>
-                        <div className="form-label">公网 URL</div>
-                        <div className="tiny muted">仅在已做公网映射 / 端口转发时可直连</div>
-                      </div>
-                    </div>
-                    {publicUrl ? (
-                      <div className="connection-address-row">
-                        <code>{publicUrl}</code>
-                        <button
-                          className="button-secondary connection-copy-button"
-                          onClick={() => void handleCopy(publicUrl, '公网 URL')}
-                          type="button"
-                        >
-                          <Copy size={14} />
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="callout-note">
-                        {isResolvingConnectionInfo ? (
-                          <span className="inline-loading">
-                            <LoaderCircle size={14} className="spin-inline" />
-                            正在获取公网 IP...
-                          </span>
-                        ) : (
-                          '未获取到公网 IP，或当前网络不允许直接探测。'
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="callout-note">
-                  推导方式：{inferredBackend?.hint ?? '无法推导后端根地址'}。
-                  {inferredBackend?.source === 'vite-proxy'
-                    ? ' 当前开发模式会把前端 5173 的 /api 代理到后端 8000，因此手机应连 8000。'
-                    : null}
-                </div>
+              <label className="form-row"><span className="form-label">API 基础路径</span><input className="toolbar-input" value={desktopSettings.apiBase} onChange={(event) => updateDesktop("apiBase", event.target.value)} placeholder="/api" type="text" /></label>
+              <label className="form-row"><span className="form-label">WebSocket 基础路径</span><input className="toolbar-input" value={desktopSettings.wsBase} onChange={(event) => updateDesktop("wsBase", event.target.value)} placeholder="留空则从 API 路径自动推导" type="text" /></label>
+              <label className="form-row"><span className="form-label">后端访问令牌</span><input className="toolbar-input" value={desktopSettings.backendAccessToken} onChange={(event) => updateDesktop("backendAccessToken", event.target.value)} placeholder="仅当后端需要认证时填写" type="password" /></label>
+              <label className="form-row"><span className="form-label">公网 / 隧道基础 URL</span><input className="toolbar-input" value={runtimeSettings.public_base_url} onChange={(event) => updateRuntime("public_base_url", event.target.value)} placeholder="https://your-public-domain-or-tunnel" type="text" /></label>
+              <div className="connection-address-grid">
+                <AddressCard icon={<Wifi size={15} />} title="局域网地址" subtitle="同一 WiFi 下使用" addresses={connectionView.lanUrls} emptyText="未检测到局域网地址" onCopy={copyValue} />
+                <AddressCard icon={<Globe2 size={15} />} title="公网地址" subtitle="互联网远程访问使用" addresses={connectionView.publicUrls} emptyText="未检测到公网或隧道地址" onCopy={copyValue} />
               </div>
+              <div className="callout-note">推荐的移动端基础 URL: <code>{connectionView.recommendedMobileUrl || "暂不可用"}</code></div>
+              <div className="callout-note">推荐的移动端 WebSocket URL: <code>{connectionView.recommendedMobileWsUrl || "暂不可用"}</code></div>
+              <div className="callout-note">{desktopSettings.apiBase.trim().startsWith("/") ? "桌面开发环境可使用相对路径 /api 代理。手机必须使用上述绝对地址之一。" : "桌面端已使用绝对后端地址。"}</div>
+              {connectionView.notes.length ? <div className="callout-note">{connectionView.notes.join(" ")}</div> : null}
             </div>
           </SectionBlock>
         ) : null}
 
-        {activeTab === 'runtime' ? (
+        {tab === "runtime" ? (
           <SectionBlock
-            title="后端运行时配置"
-            description="这里维护任务真正会使用的模型、搜索和本地推理参数。保存后会直接写入后端 `.env`。"
-            action={
-              <StatusBadge
-                status={isLoadingRuntimeSettings ? 'in-progress' : 'completed'}
-                label={isLoadingRuntimeSettings ? '加载中' : 'Env Ready'}
-              />
-            }
+            title="后端运行时设置"
+            description="这些值将写入 backend/.env，供 ScholarMind 管道使用"
+            action={<StatusBadge status={loadingRuntime ? "in-progress" : "completed"} label={loadingRuntime ? "加载中" : "环境就绪"} />}
           >
             <div className="settings-form">
-              <label className="form-row">
-                <span className="form-label">模型预设</span>
-                <select
-                  className="toolbar-input"
-                  value={selectedModelPresetId}
-                  onChange={(event) => applyModelPreset(event.target.value)}
-                >
-                  {modelPresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.label}
-                    </option>
-                  ))}
-                  <option value={customModelPresetId}>自定义模型</option>
-                </select>
-              </label>
-
-              {isLocalProvider ? (
-                <>
-                  <label className="form-row">
-                    <span className="form-label">本地引擎</span>
-                    <select
-                      className="toolbar-input"
-                      value={runtimeSettings.local_engine}
-                      onChange={(event) => updateRuntimeSettings('local_engine', event.target.value)}
-                    >
-                      <option value="lm-studio">LM Studio</option>
-                      <option value="llama.cpp">llama.cpp</option>
-                    </select>
-                  </label>
-                  {runtimeSettings.local_engine === 'llama.cpp' ? (
-                    <label className="form-row">
-                      <span className="form-label">GGUF 文件路径</span>
-                      <input
-                        className="toolbar-input"
-                        value={runtimeSettings.local_model_path}
-                        onChange={(event) => updateRuntimeSettings('local_model_path', event.target.value)}
-                        placeholder="D:\\Models\\Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-                        type="text"
-                      />
-                    </label>
-                  ) : null}
-                  <label className="form-row">
-                    <span className="form-label">模型别名</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.local_model_alias}
-                      onChange={(event) => updateRuntimeSettings('local_model_alias', event.target.value)}
-                      placeholder="qwen2.5-7b-instruct"
-                      type="text"
-                    />
-                  </label>
-                  <label className="form-row">
-                    <span className="form-label">本地服务地址</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.local_server_url}
-                      onChange={(event) => updateRuntimeSettings('local_server_url', event.target.value)}
-                      placeholder="http://127.0.0.1:1234/v1"
-                      type="text"
-                    />
-                  </label>
-                  <label className="form-row">
-                    <span className="form-label">请求模型名</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.model}
-                      onChange={(event) => updateRuntimeSettings('model', event.target.value)}
-                      placeholder="通常与模型别名一致"
-                      type="text"
-                    />
-                  </label>
-                  {runtimeSettings.local_engine === 'llama.cpp' ? (
-                    <div className="field-grid">
-                      <label className="form-row">
-                        <span className="form-label">上下文长度</span>
-                        <input
-                          className="toolbar-input"
-                          value={runtimeSettings.local_context_size}
-                          onChange={(event) =>
-                            updateRuntimeSettings('local_context_size', Number(event.target.value) || 512)
-                          }
-                          min={512}
-                          step={256}
-                          type="number"
-                        />
-                      </label>
-                      <label className="form-row">
-                        <span className="form-label">GPU Layers</span>
-                        <input
-                          className="toolbar-input"
-                          value={runtimeSettings.local_gpu_layers}
-                          onChange={(event) =>
-                            updateRuntimeSettings('local_gpu_layers', Math.max(0, Number(event.target.value) || 0))
-                          }
-                          min={0}
-                          type="number"
-                        />
-                      </label>
-                    </div>
-                  ) : null}
-                  <label className="form-row">
-                    <span className="form-label">本地服务 API Key</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.api_key}
-                      onChange={(event) => updateRuntimeSettings('api_key', event.target.value)}
-                      placeholder="可留空，默认保存为 not-needed"
-                      type="password"
-                    />
-                  </label>
-                  <div className="callout-note">
-                    ScholarMind 不直接加载模型文件，而是通过本地 OpenAI 兼容接口访问已启动的本地模型服务。
-                    如果你用 LM Studio，只需要在 LM Studio 里加载模型并启动本地服务。
-                  </div>
-                  <div className="callout-note">
-                    使用提示：
-                    <br />
-                    <code>{buildLocalEngineHint(runtimeSettings)}</code>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label className="form-row">
-                    <span className="form-label">Provider API Key</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.api_key}
-                      onChange={(event) => updateRuntimeSettings('api_key', event.target.value)}
-                      placeholder="sk-... / glm-... / provider-key"
-                      type="password"
-                    />
-                  </label>
-                  <label className="form-row">
-                    <span className="form-label">Model</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.model}
-                      onChange={(event) => updateRuntimeSettings('model', event.target.value)}
-                      placeholder="例如 gpt-4.1 / glm-5 / claude-sonnet-4"
-                      type="text"
-                    />
-                  </label>
-                  <label className="form-row">
-                    <span className="form-label">LLM Provider</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.llm_provider}
-                      onChange={(event) => updateRuntimeSettings('llm_provider', event.target.value)}
-                      placeholder="openai / anthropic / azure-openai / local-gguf"
-                      type="text"
-                    />
-                  </label>
-                  <label className="form-row">
-                    <span className="form-label">Provider Base URL</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.provider_base_url}
-                      onChange={(event) => updateRuntimeSettings('provider_base_url', event.target.value)}
-                      placeholder="https://api.openai.com/v1"
-                      type="text"
-                    />
-                  </label>
-                </>
-              )}
-
-              <label className="form-row">
-                <span className="form-label">搜索引擎</span>
-                <select
-                  className="toolbar-input"
-                  value={runtimeSettings.search_provider}
-                  onChange={(event) => {
-                    updateRuntimeSettings('search_provider', event.target.value);
-                    updateRuntimeSettings('search_api_key', '');
-                  }}
-                >
-                  {searchEngines.map((engine) => (
-                    <option key={engine.id} value={engine.id}>
-                      {engine.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {currentSearchEngine.needsKey ? (
-                <>
-                  <label className="form-row">
-                    <span className="form-label">{currentSearchEngine.keyLabel}</span>
-                    <input
-                      className="toolbar-input"
-                      value={runtimeSettings.search_api_key}
-                      onChange={(event) => updateRuntimeSettings('search_api_key', event.target.value)}
-                      placeholder={`输入 ${currentSearchEngine.label} API Key`}
-                      type="password"
-                    />
-                  </label>
-                  <div className="callout-note">
-                    获取 API Key：
-                    {' '}
-                    <a href={currentSearchEngine.url} target="_blank" rel="noopener noreferrer">
-                      {currentSearchEngine.url}
-                    </a>
-                  </div>
-                </>
-              ) : (
-                <div className="callout-note">{currentSearchEngine.label} 不需要 API Key，可直接使用。</div>
-              )}
-
-              {selectedModelPresetId !== customModelPresetId ? (
-                <div className="callout-note">
-                  已根据预设自动填充核心参数。
-                  {(() => {
-                    const preset = modelPresets.find((item) => item.id === selectedModelPresetId);
-                    return preset ? ` 当前预设：${preset.label}，${preset.note}。` : '';
-                  })()}
-                  如需接入私有兼容网关，请切换到“自定义模型”后手动填写。
-                </div>
-              ) : null}
-
-              <div className="callout-note">
-                {isLoadingRuntimeSettings ? '正在读取后端运行时配置...' : `环境文件路径：${runtimeSettings.env_path}`}
+              <label className="form-row"><span className="form-label">模型预设</span><select className="toolbar-input" value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>{PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}<option value={CUSTOM_PRESET}>自定义</option></select></label>
+              <label className="form-row"><span className="form-label">提供商</span><input className="toolbar-input" value={runtimeSettings.llm_provider} onChange={(event) => updateRuntime("llm_provider", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">模型</span><input className="toolbar-input" value={runtimeSettings.model} onChange={(event) => updateRuntime("model", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">提供商基础 URL</span><input className="toolbar-input" value={runtimeSettings.provider_base_url} onChange={(event) => updateRuntime("provider_base_url", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">提供商 API 密钥</span><input className="toolbar-input" value={runtimeSettings.api_key} onChange={(event) => updateRuntime("api_key", event.target.value)} type="password" /></label>
+              <label className="form-row"><span className="form-label">搜索提供商</span><input className="toolbar-input" value={runtimeSettings.search_provider} onChange={(event) => updateRuntime("search_provider", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">搜索 API 密钥</span><input className="toolbar-input" value={runtimeSettings.search_api_key} onChange={(event) => updateRuntime("search_api_key", event.target.value)} type="password" /></label>
+              <label className="form-row"><span className="form-label">本地引擎</span><input className="toolbar-input" value={runtimeSettings.local_engine} onChange={(event) => updateRuntime("local_engine", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">本地服务器 URL</span><input className="toolbar-input" value={runtimeSettings.local_server_url} onChange={(event) => updateRuntime("local_server_url", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">本地模型路径</span><input className="toolbar-input" value={runtimeSettings.local_model_path} onChange={(event) => updateRuntime("local_model_path", event.target.value)} type="text" /></label>
+              <label className="form-row"><span className="form-label">本地模型别名</span><input className="toolbar-input" value={runtimeSettings.local_model_alias} onChange={(event) => updateRuntime("local_model_alias", event.target.value)} type="text" /></label>
+              <div className="field-grid">
+                <label className="form-row"><span className="form-label">上下文大小</span><input className="toolbar-input" value={runtimeSettings.local_context_size} onChange={(event) => updateRuntime("local_context_size", Number(event.target.value) || 512)} type="number" /></label>
+                <label className="form-row"><span className="form-label">GPU 层数</span><input className="toolbar-input" value={runtimeSettings.local_gpu_layers} onChange={(event) => updateRuntime("local_gpu_layers", Math.max(0, Number(event.target.value) || 0))} type="number" /></label>
               </div>
+              <div className="callout-note">本地模型别名提示: <code>{inferLocalAlias(runtimeSettings.local_model_path, runtimeSettings.local_model_alias, runtimeSettings.model)}</code></div>
+              <div className="callout-note">环境文件: {runtimeSettings.env_path}</div>
             </div>
           </SectionBlock>
         ) : null}
 
-        {activeTab === 'local' ? (
-          <SectionBlock
-            title="任务默认参数与本地工作区"
-            description="这里维护工作目录、任务描述模板，以及提交到后端时的默认编排参数。"
-            action={<StatusBadge status="completed" label="Workspace Defaults" />}
-          >
+        {tab === "local" ? (
+          <SectionBlock title="工作空间默认设置" description="这些偏好设置会影响新任务和本地工作空间路径" action={<StatusBadge status="completed" label="工作空间设置" />}>
             <div className="stack">
               <div className="field-grid">
-                <label className="form-row">
-                  <span className="form-label">默认工作目录</span>
-                  <input
-                    className="toolbar-input"
-                    value={desktopSettings.workingDirectoryPath}
-                    onChange={(event) => updateDesktopSettings('workingDirectoryPath', event.target.value)}
-                    placeholder="C:\\Study\\HY Competition\\Project\\ScholarMind"
-                    type="text"
-                  />
-                </label>
-                <label className="form-row">
-                  <span className="form-label">目录标签</span>
-                  <input
-                    className="toolbar-input"
-                    value={desktopSettings.workingDirectoryLabel}
-                    onChange={(event) => updateDesktopSettings('workingDirectoryLabel', event.target.value)}
-                    placeholder="ScholarMind Workspace"
-                    type="text"
-                  />
-                </label>
+                <label className="form-row"><span className="form-label">工作目录</span><input className="toolbar-input" value={desktopSettings.workingDirectoryPath} onChange={(event) => updateDesktop("workingDirectoryPath", event.target.value)} type="text" /></label>
+                <label className="form-row"><span className="form-label">目录标签</span><input className="toolbar-input" value={desktopSettings.workingDirectoryLabel} onChange={(event) => updateDesktop("workingDirectoryLabel", event.target.value)} type="text" /></label>
               </div>
-
-              <label className="form-row">
-                <span className="form-label">任务描述模板</span>
-                <textarea
-                  className="text-area"
-                  value={desktopSettings.taskDescriptionTemplate}
-                  onChange={(event) => updateDesktopSettings('taskDescriptionTemplate', event.target.value)}
-                />
-              </label>
-
+              <label className="form-row"><span className="form-label">任务描述模板</span><textarea className="text-area" value={desktopSettings.taskDescriptionTemplate} onChange={(event) => updateDesktop("taskDescriptionTemplate", event.target.value)} /></label>
               <div className="field-grid">
-                <label className="form-row">
-                  <span className="form-label">最多生成想法数</span>
-                  <input
-                    className="toolbar-input"
-                    value={desktopSettings.taskConfig.maxIdeas}
-                    onChange={(event) => updateTaskConfig('maxIdeas', Number(event.target.value) || 1)}
-                    type="number"
-                  />
-                </label>
-                <label className="form-row">
-                  <span className="form-label">反思轮数</span>
-                  <input
-                    className="toolbar-input"
-                    value={desktopSettings.taskConfig.numReflections}
-                    onChange={(event) => updateTaskConfig('numReflections', Number(event.target.value) || 1)}
-                    type="number"
-                  />
-                </label>
-                <label className="form-row">
-                  <span className="form-label">最大重试次数</span>
-                  <input
-                    className="toolbar-input"
-                    value={desktopSettings.taskConfig.maxRetries}
-                    onChange={(event) => updateTaskConfig('maxRetries', Number(event.target.value) || 0)}
-                    type="number"
-                  />
-                </label>
+                <label className="form-row"><span className="form-label">最大想法数</span><input className="toolbar-input" value={desktopSettings.taskConfig.maxIdeas} onChange={(event) => updateTaskConfig("maxIdeas", Number(event.target.value) || 1)} type="number" /></label>
+                <label className="form-row"><span className="form-label">反思次数</span><input className="toolbar-input" value={desktopSettings.taskConfig.numReflections} onChange={(event) => updateTaskConfig("numReflections", Number(event.target.value) || 1)} type="number" /></label>
+                <label className="form-row"><span className="form-label">最大重试次数</span><input className="toolbar-input" value={desktopSettings.taskConfig.maxRetries} onChange={(event) => updateTaskConfig("maxRetries", Number(event.target.value) || 0)} type="number" /></label>
               </div>
             </div>
           </SectionBlock>

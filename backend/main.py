@@ -57,10 +57,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+def _parse_allowed_origins(origins_str: str) -> list[str]:
+    """Parse ALLOWED_ORIGINS from comma-separated string or '*' wildcard."""
+    if not origins_str or origins_str.strip() == "*":
+        return ["*"]
+    return [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=_parse_allowed_origins(config.ALLOWED_ORIGINS),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

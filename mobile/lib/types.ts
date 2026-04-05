@@ -62,6 +62,65 @@ export interface ArtifactContent {
   content: unknown;
 }
 
+export interface RepoTreeNode {
+  name: string;
+  path: string;
+  kind: "folder" | "file";
+  children?: RepoTreeNode[];
+}
+
+export interface TaskOutput {
+  paper_url?: string | null;
+  code_url?: string | null;
+  data_url?: string | null;
+  figures: string[];
+}
+
+export interface ReviewReport {
+  individual_reviews?: Array<Record<string, unknown>>;
+  meta_review?: Record<string, unknown> | null;
+  credibility?: Record<string, unknown> | null;
+  final_score?: number;
+  decision?: string;
+  literature_grounding_score?: number;
+  missing_references?: string[];
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  summary: string;
+  task_id?: string | null;
+  task_status?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_message_preview: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  kind: string;
+  content: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ChatSessionDetail {
+  session: ChatSession;
+  messages: ChatMessage[];
+  task?: Task | null;
+}
+
+export interface ChatMessageSendResponse {
+  session: ChatSession;
+  user_message: ChatMessage;
+  assistant_message: ChatMessage;
+  task?: Task | null;
+  task_created: boolean;
+}
+
 export interface TaskIdea {
   id: string;
   title: string;
@@ -102,6 +161,30 @@ export interface ConnectionTestResult {
   websocket: boolean;
   resolvedWsUrl: string;
   networkMode: NetworkMode;
+}
+
+export interface ConnectionAddress {
+  scope: "lan" | "public" | string;
+  label: string;
+  url: string;
+  ws_url: string;
+  source: string;
+  recommended: boolean;
+}
+
+export interface ConnectionInfo {
+  host: string;
+  port: number;
+  api_base_path: string;
+  ws_base_path: string;
+  health_path: string;
+  public_base_url: string;
+  lan_urls: ConnectionAddress[];
+  public_urls: ConnectionAddress[];
+  recommended_mobile_url: string;
+  recommended_mobile_ws_url: string;
+  mobile_connection_count: number;
+  notes: string[];
 }
 
 export const MODULE_SEQUENCE: ModuleId[] = [

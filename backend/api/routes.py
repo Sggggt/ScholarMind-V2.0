@@ -9,7 +9,7 @@ import json
 import mimetypes
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from sqlalchemy import select
@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 
 import config
 from api.schemas import (
+    ChatSessionBindTaskRequest,
     ChatMessageCreateRequest,
     ChatSessionCreateRequest,
     RuntimeSettingsRequest,
@@ -32,6 +33,7 @@ from api.ws import manager
 from db.database import get_db
 from db.models import ChatMessage, ChatSession, Task, TraceLog
 from services.conversation_service import create_chat_session, process_user_message
+from services.connection_service import build_connection_info
 from services.task_service import (
     abort_task_execution,
     create_task_and_start,
@@ -321,6 +323,32 @@ async def send_chat_message(
     }
 
 
+@router.post("/chat/sessions/{session_id}/bind-task")
+async def bind_chat_session_task(
+    session_id: str,
+    req: ChatSessionBindTaskRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_chat_session_or_404(db, session_id)
+    task = await db.get(Task, req.task_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+
+    session.task_id = task.id
+    if not session.title or session.title == "New research conversation":
+        session.title = task.title
+    if not session.summary:
+        session.summary = task.topic[:240]
+    await db.commit()
+    session = await _get_chat_session_or_404(db, session_id)
+
+    return {
+        "session": _chat_session_to_response(session),
+        "messages": [_chat_message_to_response(message) for message in session.messages],
+        "task": _task_to_response(session.task) if session.task else None,
+    }
+
+
 @router.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(session_id: str, db: AsyncSession = Depends(get_db)):
     session = await _get_chat_session_or_404(db, session_id)
@@ -338,6 +366,22 @@ async def get_runtime_settings():
 @router.put("/settings/runtime")
 async def update_runtime_settings(req: RuntimeSettingsRequest):
     return config.save_runtime_settings(req.model_dump())
+
+
+@router.get("/health")
+async def health_check():
+    return {
+        "ok": True,
+        "service": "scholarmind-backend",
+        "host": config.HOST,
+        "port": config.PORT,
+    }
+
+
+@router.get("/connection-info")
+async def get_connection_info(request: Request):
+    mobile_count = manager.get_mobile_connection_count()
+    return build_connection_info(request, mobile_count)
 
 
 @router.get("/tasks")
@@ -973,20 +1017,30 @@ async def ssh_test():
 
 
 @router.websocket("/ws")
-async def websocket_global(websocket: WebSocket):
-    await manager.connect(websocket)
+async def websocket_global(websocket: WebSocket, client_type: str = "desktop"):
+    await manager.connect(websocket, client_type=client_type)
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_json()
+            # 处理 pong 响应
+            if isinstance(data, dict) and data.get("type") == "pong":
+                manager.record_pong(websocket)
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:
         manager.disconnect(websocket)
 
 
 @router.websocket("/ws/{task_id}")
-async def websocket_task(websocket: WebSocket, task_id: str):
-    await manager.connect(websocket, task_id)
+async def websocket_task(websocket: WebSocket, task_id: str, client_type: str = "desktop"):
+    await manager.connect(websocket, task_id, client_type=client_type)
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_json()
+            # 处理 pong 响应
+            if isinstance(data, dict) and data.get("type") == "pong":
+                manager.record_pong(websocket)
     except WebSocketDisconnect:
+        manager.disconnect(websocket, task_id)
+    except Exception:
         manager.disconnect(websocket, task_id)

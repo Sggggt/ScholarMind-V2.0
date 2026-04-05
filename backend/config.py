@@ -126,6 +126,8 @@ def refresh_runtime_config() -> None:
     global SANDBOX_ENABLED
     global SANDBOX_IMAGE
     global SANDBOX_TIMEOUT
+    global PUBLIC_BASE_URL
+    global NGROK_API_URL
     global AI_SCIENTIST_TIMEOUT
     global PAPERQA_TIMEOUT
     global DEFAULT_MAX_PAPERS
@@ -134,6 +136,7 @@ def refresh_runtime_config() -> None:
     global DEFAULT_REVIEW_ROUNDS
     global HOST
     global PORT
+    global ALLOWED_ORIGINS
 
     LLM_PROVIDER = _read_str("LLM_PROVIDER", "openai")
     OPENAI_API_KEY = _read_str("OPENAI_API_KEY", "")
@@ -176,6 +179,11 @@ def refresh_runtime_config() -> None:
     SSH_ENABLED = bool(SSH_HOST and SSH_USER)
 
     DATABASE_URL = _read_str("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR / 'research.db'}")
+    PUBLIC_BASE_URL = _normalize_base_url(_read_str("PUBLIC_BASE_URL", ""), "")
+    NGROK_API_URL = _normalize_base_url(
+        _read_str("NGROK_API_URL", "http://127.0.0.1:4040/api/tunnels"),
+        "http://127.0.0.1:4040/api/tunnels",
+    )
 
     SANDBOX_ENABLED = _read_bool("SANDBOX_ENABLED", False)
     SANDBOX_IMAGE = _read_str("SANDBOX_IMAGE", "research-sandbox:latest")
@@ -190,6 +198,7 @@ def refresh_runtime_config() -> None:
 
     HOST = _read_str("HOST", "0.0.0.0")
     PORT = _read_int("PORT", 8000)
+    ALLOWED_ORIGINS = _read_str("ALLOWED_ORIGINS", "*")
 
 
 def get_runtime_settings() -> dict[str, str | int]:
@@ -207,6 +216,7 @@ def get_runtime_settings() -> dict[str, str | int]:
         "local_model_alias": LOCAL_LLM_MODEL_ALIAS or OPENAI_MODEL,
         "local_context_size": LOCAL_LLM_CONTEXT_SIZE,
         "local_gpu_layers": LOCAL_LLM_GPU_LAYERS,
+        "public_base_url": PUBLIC_BASE_URL,
         "env_path": str(ENV_FILE),
     }
 
@@ -264,6 +274,10 @@ def save_runtime_settings(settings: dict[str, str | int]) -> dict[str, str | int
         "LOCAL_LLM_MODEL_ALIAS": local_model_alias,
         "LOCAL_LLM_CONTEXT_SIZE": str(max(local_context_size, 512)),
         "LOCAL_LLM_GPU_LAYERS": str(max(local_gpu_layers, 0)),
+        "PUBLIC_BASE_URL": _normalize_base_url(
+            str(settings.get("public_base_url", PUBLIC_BASE_URL)).strip(),
+            "",
+        ),
     }
 
     search_api_key = str(settings.get("search_api_key", "")).strip()

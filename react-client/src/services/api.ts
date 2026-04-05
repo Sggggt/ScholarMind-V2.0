@@ -5,17 +5,17 @@ import type {
   BackendChatMessageSendResponse,
   BackendChatSessionDetailResponse,
   BackendChatSessionResponse,
+  BackendConnectionInfoResponse,
   BackendLogEntryResponse,
   BackendRepoFileResponse,
   BackendRepoTreeNode,
+  BackendReviewReportResponse,
+  BackendReviewResultResponse,
   BackendRuntimeSettingsRequest,
   BackendRuntimeSettingsResponse,
-  BackendSelectIdeaRequest,
   BackendSelectIdeaResponse,
   BackendSshStatusResponse,
   BackendSshTestResponse,
-  BackendReviewReportResponse,
-  BackendReviewResultResponse,
   BackendTaskCreateRequest,
   BackendTaskOutputResponse,
   BackendTaskResponse,
@@ -37,13 +37,20 @@ export class ApiError extends Error {
   }
 }
 
-function buildUrl(path: string) {
-  const apiBase = resolveApiBase(import.meta.env.VITE_API_BASE as string | undefined);
-  return `${apiBase}${path}`;
+function resolveApiBaseValue(apiBaseOverride?: string) {
+  if (typeof apiBaseOverride === 'string' && apiBaseOverride.trim()) {
+    return apiBaseOverride.trim().replace(/\/$/, '');
+  }
+
+  return resolveApiBase(import.meta.env.VITE_API_BASE as string | undefined);
 }
 
-function buildRequestCacheKey(path: string, method: string, authorizationHeader: string) {
-  return `${method.toUpperCase()}::${buildUrl(path)}::${authorizationHeader}`;
+function buildUrl(path: string, apiBaseOverride?: string) {
+  return `${resolveApiBaseValue(apiBaseOverride)}${path}`;
+}
+
+function buildRequestCacheKey(path: string, method: string, authorizationHeader: string, apiBaseOverride?: string) {
+  return `${method.toUpperCase()}::${buildUrl(path, apiBaseOverride)}::${authorizationHeader}`;
 }
 
 function clearResolvedApiCache(predicate?: (key: string) => boolean) {
@@ -72,7 +79,7 @@ export function clearTaskApiCache(taskId: string) {
   clearResolvedApiCache((key) => key.includes(`/tasks/${taskId}`) || key.includes(`/files/${taskId}/`));
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, apiBaseOverride?: string): Promise<T> {
   const apiKey = resolveBackendAccessToken();
   const authorizationHeader = apiKey
     ? apiKey.toLowerCase().startsWith('bearer ')
@@ -81,7 +88,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     : '';
   const method = (init?.method ?? 'GET').toUpperCase();
   const shouldCache = method === 'GET' && !init?.body && init?.cache === 'force-cache';
-  const cacheKey = shouldCache ? buildRequestCacheKey(path, method, authorizationHeader) : '';
+  const cacheKey = shouldCache
+    ? buildRequestCacheKey(path, method, authorizationHeader, apiBaseOverride)
+    : '';
 
   if (cacheKey && responseCache.has(cacheKey)) {
     return responseCache.get(cacheKey) as T;
@@ -96,7 +105,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const fetchRequest = (async () => {
     try {
-      const response = await fetch(buildUrl(path), {
+      const response = await fetch(buildUrl(path, apiBaseOverride), {
         ...init,
         cache: init?.cache ?? 'no-store',
         headers: {
@@ -168,6 +177,10 @@ async function requestOptional<T>(path: string, init?: RequestInit): Promise<T |
 
 export function getApiBase() {
   return resolveApiBase(import.meta.env.VITE_API_BASE as string | undefined);
+}
+
+export async function getConnectionInfo(apiBaseOverride?: string) {
+  return request<BackendConnectionInfoResponse>('/connection-info', undefined, apiBaseOverride);
 }
 
 export async function createTask(payload: BackendTaskCreateRequest) {
@@ -312,5 +325,5 @@ export async function testSshConnection() {
 }
 
 export async function testBackendConnection() {
-  return request<BackendTaskResponse[]>('/tasks');
+  return request<{ ok: boolean }>('/health');
 }

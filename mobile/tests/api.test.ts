@@ -11,6 +11,7 @@ describe("api helpers", () => {
   it("normalizes backend urls", async () => {
     const { normalizeBackendUrl } = await import("../lib/api");
     expect(normalizeBackendUrl("http://127.0.0.1:8000/")).toBe("http://127.0.0.1:8000");
+    expect(normalizeBackendUrl("http://127.0.0.1:8000/api")).toBe("http://127.0.0.1:8000");
   });
 
   it("infers lan mode for private addresses", async () => {

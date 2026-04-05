@@ -12,11 +12,11 @@ function toWsBase(baseUrl: string): string {
 }
 
 export function buildGlobalWsUrl(baseUrl: string): string {
-  return `${toWsBase(baseUrl)}/ws`;
+  return `${toWsBase(baseUrl)}/api/ws`;
 }
 
 export function buildTaskWsUrl(baseUrl: string, taskId: string): string {
-  return `${toWsBase(baseUrl)}/ws/${taskId}`;
+  return `${toWsBase(baseUrl)}/api/ws/${taskId}?client_type=mobile`;
 }
 
 export function probeWebSocket(url: string, timeoutMs = 5000): Promise<boolean> {
@@ -57,11 +57,27 @@ export function subscribeTaskWebSocket(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let manualClose = false;
   let reconnectAttempts = 0;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   const clearReconnectTimer = () => {
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
+    }
+  };
+
+  const clearHeartbeat = () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  };
+
+  const sendPong = () => {
+    try {
+      socket?.send(JSON.stringify({ type: "pong", timestamp: Date.now() / 1000 }));
+    } catch {
+      // 忽略发送错误
     }
   };
 
@@ -82,7 +98,13 @@ export function subscribeTaskWebSocket(
 
     socket.onmessage = (event) => {
       try {
-        handlers.onMessage(JSON.parse(event.data) as WsMessage);
+        const data = JSON.parse(event.data);
+        // 处理心跳 ping
+        if (data?.type === "ping") {
+          sendPong();
+          return;
+        }
+        handlers.onMessage(data as WsMessage);
       } catch {
         handlers.onError?.();
       }
@@ -93,6 +115,7 @@ export function subscribeTaskWebSocket(
     };
 
     socket.onclose = () => {
+      clearHeartbeat();
       handlers.onClose?.();
 
       if (manualClose) {
@@ -110,6 +133,7 @@ export function subscribeTaskWebSocket(
   return () => {
     manualClose = true;
     clearReconnectTimer();
+    clearHeartbeat();
     try {
       socket?.close();
     } catch {

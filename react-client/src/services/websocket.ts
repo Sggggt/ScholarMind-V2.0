@@ -12,18 +12,19 @@ export interface TaskWebSocketHandlers {
 function buildWsUrl(taskId: string) {
   const wsBase = resolveWsBase();
   if (wsBase) {
-    return `${wsBase.replace(/\/$/, '')}/ws/${taskId}`;
+    return `${wsBase.replace(/\/$/, '')}/ws/${taskId}?client_type=desktop`;
   }
 
   const apiBase = getApiBase();
 
   if (apiBase.startsWith('http://') || apiBase.startsWith('https://')) {
     const wsBase = apiBase.replace(/^http/, 'ws');
-    return `${wsBase}/ws/${taskId}`;
+    return `${wsBase}/ws/${taskId}?client_type=desktop`;
   }
 
+  // 相对路径情况：apiBase = '/api'，直接构建 '/ws'
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${apiBase}/ws/${taskId}`;
+  return `${protocol}//${window.location.host}/ws/${taskId}?client_type=desktop`;
 }
 
 export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHandlers) {
@@ -39,6 +40,14 @@ export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHa
     }
   };
 
+  const sendPong = () => {
+    try {
+      socket?.send(JSON.stringify({ type: "pong", timestamp: Date.now() / 1000 }));
+    } catch {
+      // 忽略发送错误
+    }
+  };
+
   const connect = () => {
     clearReconnectTimer();
     socket = new WebSocket(buildWsUrl(taskId));
@@ -50,7 +59,13 @@ export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHa
 
     socket.onmessage = (event) => {
       try {
-        handlers.onMessage(JSON.parse(event.data) as BackendWsMessage);
+        const data = JSON.parse(event.data);
+        // 处理心跳 ping
+        if (data?.type === "ping") {
+          sendPong();
+          return;
+        }
+        handlers.onMessage(data as BackendWsMessage);
       } catch {
         handlers.onError?.();
       }

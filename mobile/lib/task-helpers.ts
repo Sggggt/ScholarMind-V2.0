@@ -169,12 +169,63 @@ export function getM3Summary(ideas: TaskIdea[]) {
   };
 }
 
+export function getM4Summary(artifactContents: Record<string, ArtifactContent>) {
+  const codeGenContent = artifactContents["m4_code_gen_info.json"]?.content;
+  const codeGenData = asRecord(codeGenContent);
+
+  // Backend returns: code_files, file_count, idea_name, project_dir, run_command
+  const files = asArray<string>(codeGenData.code_files ?? codeGenData.main_files ?? codeGenData.files);
+  const fileCount = readNumber(codeGenData.file_count, files.length);
+  const ideaName = readString(codeGenData.idea_name);
+  const projectDir = readString(codeGenData.project_dir, codeGenData.repo_path);
+
+  // Extract folder name from path
+  const folderName = projectDir ? projectDir.split(/[\\/]/).pop() || projectDir : "";
+
+  return {
+    repoPath: folderName || "Generated code",
+    fileCount,
+    ideaName,
+    description: ideaName ? `Idea: ${ideaName}` : "Code generation completed",
+  };
+}
+
+export function getM5Summary(artifactContents: Record<string, ArtifactContent>) {
+  const planContent = artifactContents["m5_experiment_plan.json"]?.content;
+  const planData = asRecord(planContent);
+
+  // Backend returns: experiments array with run_num, description, expected_outcome, changes
+  const experiments = asArray<Record<string, unknown>>(planData.experiments);
+  const totalRuns = readNumber(planData.total_runs_planned, experiments.length);
+
+  // Get first experiment description as summary
+  const firstExp = experiments[0];
+  const firstDesc = firstExp ? readString(firstExp.description) : "";
+
+  return {
+    dataset: "",  // Not provided in current backend format
+    model: "",  // Not provided in current backend format
+    baseline: "",  // Not provided in current backend format
+    metrics: ["accuracy", "f1"],  // Default metrics
+    experimentCount: totalRuns,
+    hypothesis: firstDesc || `${totalRuns} experiment runs planned`,
+  };
+}
+
 export function shouldLoadM1Artifacts(task: Task): boolean {
   return getModuleIndex(task.current_module) >= 0;
 }
 
 export function shouldLoadM2Artifacts(task: Task): boolean {
   return getModuleIndex(task.current_module) >= 1;
+}
+
+export function shouldLoadM4Artifacts(task: Task): boolean {
+  return getModuleIndex(task.current_module) >= 3;
+}
+
+export function shouldLoadM5Artifacts(task: Task): boolean {
+  return getModuleIndex(task.current_module) >= 4;
 }
 
 export function shouldLoadIdeas(task: Task): boolean {

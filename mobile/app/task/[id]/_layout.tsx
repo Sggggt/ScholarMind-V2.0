@@ -18,6 +18,7 @@ export default function TaskLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="logs" />
       <Stack.Screen name="ideas" />
+      <Stack.Screen name="module/[moduleId]" />
     </Stack>
   );
 }

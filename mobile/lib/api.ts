@@ -1,10 +1,17 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   ArtifactContent,
+  ChatMessageSendResponse,
+  ChatSession,
+  ChatSessionDetail,
+  ConnectionInfo,
   ConnectionTestResult,
   LogEntry,
   NetworkMode,
+  RepoTreeNode,
+  ReviewReport,
   Task,
+  TaskOutput,
   TaskIdeasState,
 } from "./types";
 import { DEFAULT_IDEAS_STATE } from "./types";
@@ -30,7 +37,7 @@ export class ApiError extends Error {
 }
 
 export function normalizeBackendUrl(url: string): string {
-  return url.trim().replace(/\/+$/, "");
+  return url.trim().replace(/\/+$/, "").replace(/\/api$/i, "");
 }
 
 function getHostname(value: string): string {
@@ -94,29 +101,25 @@ export async function setBackendUrl(url: string): Promise<void> {
   ]);
 }
 
-function createAbortSignal(timeoutMs = REQUEST_TIMEOUT_MS): {
-  signal: AbortSignal;
-  cleanup: () => void;
-} {
+function createAbortSignal(timeoutMs = REQUEST_TIMEOUT_MS): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
   return {
     signal: controller.signal,
     cleanup: () => clearTimeout(timeoutId),
   };
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const base = await getBackendUrl();
-  if (!base) {
-    throw new Error("请先在设置中配置 ScholarMind 后端地址。");
+async function fetchJsonFromBase<T>(baseUrl: string, path: string, options?: RequestInit): Promise<T> {
+  const normalizedUrl = normalizeBackendUrl(baseUrl);
+  if (!normalizedUrl) {
+    throw new Error("Please configure the ScholarMind backend URL first.");
   }
 
   const { signal, cleanup } = createAbortSignal();
 
   try {
-    const response = await fetch(`${base}${path}`, {
+    const response = await fetch(`${normalizedUrl}${path}`, {
       ...options,
       headers: {
         Accept: "application/json",
@@ -127,14 +130,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     });
 
     if (!response.ok) {
-      const fallback =
-        response.status === 404
-          ? "请求的资源不存在。"
-          : response.status >= 500
-            ? "后端暂时不可用，请稍后重试。"
-            : `请求失败（${response.status}）。`;
       const raw = await response.text().catch(() => "");
-      throw new ApiError(raw || fallback, response.status);
+      throw new ApiError(raw || `Request failed (${response.status})`, response.status);
     }
 
     if (response.status === 204) {
@@ -144,12 +141,16 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     return (await response.json()) as T;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("请求超时，请检查手机与后端的网络连接。");
+      throw new Error("Request timed out. Check that the phone can reach the backend.");
     }
     throw error;
   } finally {
     cleanup();
   }
+}
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  return fetchJsonFromBase<T>(await getBackendUrl(), path, options);
 }
 
 export async function testConnection(url?: string): Promise<ConnectionTestResult> {
@@ -158,13 +159,7 @@ export async function testConnection(url?: string): Promise<ConnectionTestResult
   const networkMode = normalizedUrl ? inferNetworkMode(normalizedUrl) : "unknown";
 
   if (!normalizedUrl) {
-    return {
-      normalizedUrl,
-      rest: false,
-      websocket: false,
-      resolvedWsUrl,
-      networkMode,
-    };
+    return { normalizedUrl, rest: false, websocket: false, resolvedWsUrl, networkMode };
   }
 
   let rest = false;
@@ -173,7 +168,7 @@ export async function testConnection(url?: string): Promise<ConnectionTestResult
   try {
     const { signal, cleanup } = createAbortSignal(8000);
     try {
-      const response = await fetch(`${normalizedUrl}/api/tasks`, {
+      const response = await fetch(`${normalizedUrl}/api/health`, {
         method: "GET",
         headers: { Accept: "application/json" },
         signal,
@@ -190,13 +185,47 @@ export async function testConnection(url?: string): Promise<ConnectionTestResult
     websocket = await probeWebSocket(resolvedWsUrl, 5000);
   }
 
-  return {
-    normalizedUrl,
-    rest,
-    websocket,
-    resolvedWsUrl,
-    networkMode,
-  };
+  return { normalizedUrl, rest, websocket, resolvedWsUrl, networkMode };
+}
+
+export async function fetchConnectionInfo(url?: string): Promise<ConnectionInfo> {
+  return fetchJsonFromBase<ConnectionInfo>(url ?? (await getBackendUrl()), "/api/connection-info");
+}
+
+export async function fetchChatSessionsApi(): Promise<ChatSession[]> {
+  return apiFetch<ChatSession[]>("/api/chat/sessions");
+}
+
+export async function createChatSessionApi(title = ""): Promise<ChatSessionDetail> {
+  return apiFetch<ChatSessionDetail>("/api/chat/sessions", {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function fetchChatSessionApi(sessionId: string): Promise<ChatSessionDetail> {
+  return apiFetch<ChatSessionDetail>(`/api/chat/sessions/${sessionId}`);
+}
+
+export async function bindChatSessionTaskApi(sessionId: string, taskId: string): Promise<ChatSessionDetail> {
+  return apiFetch<ChatSessionDetail>(`/api/chat/sessions/${sessionId}/bind-task`, {
+    method: "POST",
+    body: JSON.stringify({ task_id: taskId }),
+  });
+}
+
+export async function sendChatMessageApi(
+  sessionId: string,
+  payload: { content: string; task_description?: string; task_config?: Record<string, unknown> }
+): Promise<ChatMessageSendResponse> {
+  return apiFetch<ChatMessageSendResponse>(`/api/chat/sessions/${sessionId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({
+      content: payload.content,
+      task_description: payload.task_description ?? "",
+      task_config: payload.task_config ?? {},
+    }),
+  });
 }
 
 export async function fetchTasksApi(): Promise<Task[]> {
@@ -207,11 +236,7 @@ export async function fetchTaskApi(id: string): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${id}`);
 }
 
-export async function createTaskApi(
-  topic: string,
-  description = "",
-  config: Record<string, unknown> = {}
-): Promise<Task> {
+export async function createTaskApi(topic: string, description = "", config: Record<string, unknown> = {}): Promise<Task> {
   return apiFetch<Task>("/api/tasks", {
     method: "POST",
     body: JSON.stringify({ topic, description, config }),
@@ -230,17 +255,28 @@ export async function abortTaskApi(id: string): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${id}/abort`, { method: "POST" });
 }
 
+export async function deleteTaskApi(id: string): Promise<void> {
+  await apiFetch<{ ok: boolean }>(`/api/tasks/${id}`, { method: "DELETE" });
+}
+
 export async function fetchLogsApi(taskId: string, limit = 200): Promise<LogEntry[]> {
   return apiFetch<LogEntry[]>(`/api/tasks/${taskId}/logs?limit=${limit}`);
 }
 
-export async function fetchArtifactContentApi(
-  taskId: string,
-  path: string
-): Promise<ArtifactContent> {
-  return apiFetch<ArtifactContent>(
-    `/api/tasks/${taskId}/artifact-content?path=${encodeURIComponent(path)}`
-  );
+export async function fetchArtifactContentApi(taskId: string, path: string): Promise<ArtifactContent> {
+  return apiFetch<ArtifactContent>(`/api/tasks/${taskId}/artifact-content?path=${encodeURIComponent(path)}`);
+}
+
+export async function fetchRepoTreeApi(taskId: string): Promise<RepoTreeNode[]> {
+  return apiFetch<RepoTreeNode[]>(`/api/tasks/${taskId}/repo/tree`);
+}
+
+export async function fetchTaskOutputApi(taskId: string): Promise<TaskOutput> {
+  return apiFetch<TaskOutput>(`/api/tasks/${taskId}/output`);
+}
+
+export async function fetchReviewReportApi(taskId: string): Promise<ReviewReport> {
+  return apiFetch<ReviewReport>(`/api/tasks/${taskId}/review-report`);
 }
 
 export async function fetchIdeasApi(taskId: string): Promise<TaskIdeasState> {

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -15,9 +16,10 @@ import { router, useFocusEffect } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { bindChatSessionTaskApi, createChatSessionApi, fetchChatSessionsApi } from "@/lib/api";
 import { getCurrentModuleState, getTaskProgressPercent } from "@/lib/task-helpers";
 import { useTaskContext } from "@/lib/task-store";
-import { MODULE_NAMES, TASK_STATUS_LABELS, type Task } from "@/lib/types";
+import type { Task } from "@/lib/types";
 
 const STATUS_TONES = {
   pending: { color: "#867466", bg: "#f1ede8", icon: "schedule" },
@@ -30,12 +32,34 @@ const STATUS_TONES = {
 } as const;
 
 const FILTERS: Array<{ key: "all" | Task["status"]; label: string }> = [
-  { key: "all", label: "全部" },
-  { key: "running", label: "运行中" },
-  { key: "paused", label: "已暂停" },
-  { key: "completed", label: "已完成" },
-  { key: "failed", label: "失败" },
+  { key: "all", label: "All" },
+  { key: "running", label: "Running" },
+  { key: "paused", label: "Paused" },
+  { key: "completed", label: "Completed" },
+  { key: "failed", label: "Failed" },
 ];
+
+const STATUS_LABELS: Record<Task["status"], string> = {
+  pending: "Pending",
+  running: "Running",
+  paused: "Paused",
+  review: "Review",
+  completed: "Completed",
+  failed: "Failed",
+  aborted: "Aborted",
+};
+
+const MODULE_LABELS: Record<string, string> = {
+  M1: "Literature Review",
+  M2: "Gap Analysis",
+  M3: "Idea Generation",
+  M4: "Code Generation",
+  M5: "Experiment Design",
+  M6: "Agent Runs",
+  M7: "Result Analysis",
+  M8: "Paper Writing",
+  M9: "Review",
+};
 
 function formatTimeLabel(value: string) {
   const date = new Date(value);
@@ -47,6 +71,10 @@ function formatTimeLabel(value: string) {
   });
 }
 
+function getSortTimestamp(task: Task) {
+  return Date.parse(task.updated_at || task.created_at) || 0;
+}
+
 function StatPill({ value, label }: { value: number; label: string }) {
   return (
     <View style={styles.statPill}>
@@ -56,7 +84,17 @@ function StatPill({ value, label }: { value: number; label: string }) {
   );
 }
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({
+  task,
+  isCurrent,
+  onSelectCurrent,
+  onDelete,
+}: {
+  task: Task;
+  isCurrent: boolean;
+  onSelectCurrent: (task: Task) => void;
+  onDelete: (task: Task) => void;
+}) {
   const colors = useColors();
   const currentModule = getCurrentModuleState(task);
   const progress = getTaskProgressPercent(task);
@@ -73,8 +111,13 @@ function TaskCard({ task }: { task: Task }) {
           <View style={styles.statusRow}>
             <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
             <Text style={[styles.statusEyebrow, { color: tone.color }]}>
-              {TASK_STATUS_LABELS[task.status]}
+              {STATUS_LABELS[task.status]}
             </Text>
+            {isCurrent ? (
+              <View style={styles.currentChip}>
+                <Text style={styles.currentChipText}>Current</Text>
+              </View>
+            ) : null}
           </View>
           <Text style={[styles.taskTitle, { color: colors.foreground }]} numberOfLines={2}>
             {task.title}
@@ -90,7 +133,9 @@ function TaskCard({ task }: { task: Task }) {
 
       <View style={styles.progressHeader}>
         <Text style={[styles.progressLabel, { color: colors.muted }]}>
-          {currentModule ? `${currentModule.module_id} ${MODULE_NAMES[currentModule.module_id]}` : "等待开始"}
+          {currentModule
+            ? `${currentModule.module_id} ${MODULE_LABELS[currentModule.module_id] ?? currentModule.module_id}`
+            : "Waiting to start"}
         </Text>
         <Text style={[styles.progressValue, { color: tone.color }]}>{progress}%</Text>
       </View>
@@ -108,9 +153,35 @@ function TaskCard({ task }: { task: Task }) {
 
       <View style={[styles.taskCardFooter, { borderTopColor: colors.border }]}>
         <Text style={[styles.footerText, { color: colors.muted }]}>
-          {formatTimeLabel(task.updated_at || task.created_at)}
+          Updated {formatTimeLabel(task.updated_at || task.created_at)}
         </Text>
-        <Text style={[styles.footerAction, { color: colors.primary }]}>查看详情</Text>
+        <View style={styles.footerActions}>
+          <TouchableOpacity
+            onPress={() => onSelectCurrent(task)}
+            style={[styles.selectButton, isCurrent ? styles.selectButtonActive : null]}
+          >
+            <MaterialIcons
+              name={isCurrent ? "radio-button-checked" : "radio-button-unchecked"}
+              size={16}
+              color={isCurrent ? "#46664a" : "#6c655e"}
+            />
+            <Text style={[styles.selectButtonText, isCurrent ? styles.selectButtonTextActive : null]}>
+              {isCurrent ? "Selected" : "Set Current"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onDelete(task)}
+            style={styles.iconButton}
+          >
+            <MaterialIcons name="delete-outline" size={18} color="#ba1a1a" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push(`/task/${task.id}` as any)}
+            style={styles.iconButton}
+          >
+            <MaterialIcons name="open-in-new" size={18} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -118,10 +189,11 @@ function TaskCard({ task }: { task: Task }) {
 
 export default function HomeScreen() {
   const colors = useColors();
-  const { state, fetchTasks } = useTaskContext();
+  const { state, fetchTasks, deleteTask, selectCurrentTask } = useTaskContext();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [creatingChat, setCreatingChat] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -135,15 +207,72 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, [fetchTasks]);
 
+  const handleDelete = useCallback(
+    (task: Task) => {
+      Alert.alert("Delete Task", `Delete "${task.title}"? This cannot be undone.`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () =>
+            void deleteTask(task.id).catch((error) => {
+              Alert.alert("Delete failed", error instanceof Error ? error.message : "Unable to delete task.");
+            }),
+        },
+      ]);
+    },
+    [deleteTask]
+  );
+
+  const handleSelectCurrent = useCallback(
+    (task: Task) => {
+      selectCurrentTask(task);
+    },
+    [selectCurrentTask]
+  );
+
+  const handleCreateChat = useCallback(async () => {
+    if (!state.currentTaskId || !state.currentTask) {
+      Alert.alert("Select Current Task", "Select a task as the current task first.");
+      return;
+    }
+
+    if (creatingChat) return;
+    setCreatingChat(true);
+    try {
+      // Check if there's already a session for this task
+      const sessions = await fetchChatSessionsApi();
+      const existingSession = sessions
+        .filter((item) => item.task_id === state.currentTaskId)
+        .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))[0];
+
+      if (existingSession) {
+        // Reuse existing session
+        router.push({ pathname: "/create", params: { sessionId: existingSession.id } });
+      } else {
+        // Create new session if none exists
+        const created = await createChatSessionApi(state.currentTask.title);
+        const bound = await bindChatSessionTaskApi(created.session.id, state.currentTaskId);
+        router.push({ pathname: "/create", params: { sessionId: bound.session.id } });
+      }
+    } catch (error) {
+      Alert.alert("New chat failed", error instanceof Error ? error.message : "Unable to create a new chat.");
+    } finally {
+      setCreatingChat(false);
+    }
+  }, [creatingChat, state.currentTask, state.currentTaskId]);
+
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return state.tasks.filter((task) => {
-      const matchesFilter = filter === "all" ? true : task.status === filter;
-      const matchesQuery = normalizedQuery
-        ? `${task.title} ${task.topic}`.toLowerCase().includes(normalizedQuery)
-        : true;
-      return matchesFilter && matchesQuery;
-    });
+    return [...state.tasks]
+      .sort((left, right) => getSortTimestamp(right) - getSortTimestamp(left))
+      .filter((task) => {
+        const matchesFilter = filter === "all" ? true : task.status === filter;
+        const matchesQuery = normalizedQuery
+          ? `${task.title} ${task.topic}`.toLowerCase().includes(normalizedQuery)
+          : true;
+        return matchesFilter && matchesQuery;
+      });
   }, [filter, query, state.tasks]);
 
   const stats = useMemo(
@@ -160,14 +289,21 @@ export default function HomeScreen() {
       {state.loading && state.tasks.length === 0 ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.centerText, { color: colors.muted }]}>正在加载任务列表…</Text>
+          <Text style={[styles.centerText, { color: colors.muted }]}>Loading tasks...</Text>
         </View>
       ) : (
         <>
           <FlatList
             data={filteredTasks}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <TaskCard task={item} />}
+            renderItem={({ item }) => (
+              <TaskCard
+                task={item}
+                isCurrent={state.currentTaskId === item.id}
+                onSelectCurrent={handleSelectCurrent}
+                onDelete={handleDelete}
+              />
+            )}
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
@@ -187,12 +323,13 @@ export default function HomeScreen() {
                   <Text style={[styles.eyebrow, { color: colors.muted }]}>Research Repository</Text>
                   <Text style={[styles.heroTitle, { color: colors.primary }]}>Active Tasks</Text>
                   <Text style={[styles.heroDescription, { color: colors.foreground }]}>
-                    手机端专注追踪 ScholarMind 的 M1-M3 任务进度，并在关键节点完成决策。
+                    Create tasks on mobile, track the latest runs first, and jump into each module
+                    detail from the task page.
                   </Text>
                   <View style={styles.statsRow}>
-                    <StatPill value={stats.total} label="任务总数" />
-                    <StatPill value={stats.running} label="运行中" />
-                    <StatPill value={stats.paused} label="待决策" />
+                    <StatPill value={stats.total} label="Total" />
+                    <StatPill value={stats.running} label="Running" />
+                    <StatPill value={stats.paused} label="Paused" />
                   </View>
                 </LinearGradient>
 
@@ -207,7 +344,7 @@ export default function HomeScreen() {
                     <TextInput
                       value={query}
                       onChangeText={setQuery}
-                      placeholder="搜索主题或任务标题…"
+                      placeholder="Search topic or title"
                       placeholderTextColor={colors.muted}
                       style={[styles.searchInput, { color: colors.foreground }]}
                     />
@@ -253,9 +390,11 @@ export default function HomeScreen() {
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <MaterialIcons name="library-books" size={48} color={colors.muted} />
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>没有匹配的任务</Text>
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No matching tasks</Text>
                 <Text style={[styles.emptyDescription, { color: colors.muted }]}>
-                  {query ? "换个关键词试试，或者创建一个新的研究主题。" : "从“新建”开始发起第一个任务。"}
+                  {query
+                    ? "Try a different keyword."
+                    : "Create a new task to start a new research run."}
                 </Text>
               </View>
             }
@@ -264,10 +403,14 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => router.push("/create")}
+            onPress={() => void handleCreateChat()}
             style={[styles.fab, { backgroundColor: colors.primary }]}
           >
-            <MaterialIcons name="add" size={26} color="#ffffff" />
+            {creatingChat ? (
+              <MaterialIcons name="hourglass-top" size={24} color="#ffffff" />
+            ) : (
+              <MaterialIcons name="add" size={28} color="#ffffff" />
+            )}
           </TouchableOpacity>
         </>
       )}
@@ -417,6 +560,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontFamily: Fonts.mono,
   },
+  currentChip: {
+    backgroundColor: "#e9f2ea",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  currentChipText: {
+    color: "#46664a",
+    fontSize: 10,
+    fontWeight: "700",
+    fontFamily: Fonts.mono,
+  },
   taskTitle: {
     fontSize: 24,
     lineHeight: 28,
@@ -471,9 +626,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: Fonts.mono,
   },
-  footerAction: {
+  footerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  selectButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#f1ede8",
+  },
+  selectButtonActive: {
+    backgroundColor: "#e9f2ea",
+  },
+  selectButtonText: {
+    color: "#6c655e",
     fontSize: 12,
     fontWeight: "700",
+  },
+  selectButtonTextActive: {
+    color: "#46664a",
+  },
+  iconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f5f5f5",
   },
   emptyState: {
     alignItems: "center",

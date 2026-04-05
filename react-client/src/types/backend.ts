@@ -104,10 +104,35 @@ export interface BackendRuntimeSettingsRequest {
   local_model_alias: string;
   local_context_size: number;
   local_gpu_layers: number;
+  public_base_url: string;
 }
 
 export interface BackendRuntimeSettingsResponse extends BackendRuntimeSettingsRequest {
   env_path: string;
+}
+
+export interface BackendConnectionAddress {
+  scope: 'lan' | 'public' | string;
+  label: string;
+  url: string;
+  ws_url: string;
+  source: string;
+  recommended: boolean;
+}
+
+export interface BackendConnectionInfoResponse {
+  host: string;
+  port: number;
+  api_base_path: string;
+  ws_base_path: string;
+  health_path: string;
+  public_base_url: string;
+  lan_urls: BackendConnectionAddress[];
+  public_urls: BackendConnectionAddress[];
+  recommended_mobile_url: string;
+  recommended_mobile_ws_url: string;
+  mobile_connection_count: number;
+  notes: string[];
 }
 
 export interface BackendLogEntryResponse {

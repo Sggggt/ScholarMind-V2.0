@@ -1,10 +1,40 @@
 import { Tabs } from "expo-router";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
+
+// ScholarMind 对话标签页图标 - 设计理念：学术智慧 + AI 对话
+function ScholarChatTabIcon({ size = 28, color = "#46664a" }: { size?: number; color?: string }) {
+  const brainSize = size * 0.75;
+  const bubbleSize = size * 0.35;
+
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      {/* 大脑图标 - 代表 ScholarMind 的智能核心 */}
+      <MaterialIcons name="psychology" size={brainSize} color={color} />
+      {/* 右下角小气泡 - 代表对话交互 */}
+      <View
+        style={{
+          position: "absolute",
+          bottom: 0,
+          right: 0,
+          width: bubbleSize + 6,
+          height: bubbleSize + 6,
+          borderRadius: 999,
+          backgroundColor: color,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <MaterialIcons name="chat" size={bubbleSize} color="#ffffff" />
+      </View>
+    </View>
+  );
+}
 
 export default function TabLayout() {
   const colors = useColors();
@@ -45,27 +75,21 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "任务",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="house.fill" color={color} />
-          ),
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="create"
         options={{
-          title: "新建",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="plus.circle.fill" color={color} />
-          ),
+          title: "对话",
+          tabBarIcon: ({ color }) => <ScholarChatTabIcon size={28} color={color} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: "设置",
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="gearshape.fill" color={color} />
-          ),
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.fill" color={color} />,
         }}
       />
     </Tabs>

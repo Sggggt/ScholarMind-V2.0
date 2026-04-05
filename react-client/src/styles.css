@@ -38,10 +38,7 @@ body,
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top right, rgba(144, 77, 0, 0.08), transparent 28%),
-    radial-gradient(circle at 20% 80%, rgba(91, 96, 93, 0.07), transparent 24%),
-    var(--bg);
+  background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
   overflow-x: hidden;
@@ -447,6 +444,7 @@ textarea {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-height: 100vh;
+  background: var(--bg);
   min-width: 0;
 }
 
@@ -558,10 +556,17 @@ textarea {
   box-shadow: 0 0 0 6px rgba(85, 117, 88, 0.1);
 }
 
+.current-indicator.mobile-connected {
+  background: rgba(85, 117, 88, 0.12);
+  color: var(--success);
+  font-weight: 500;
+}
+
 .workspace {
   overflow: visible;
   min-height: calc(100vh - var(--topbar-height));
   padding: 28px 36px 120px;
+  background: var(--bg);
 }
 
 .canvas {
@@ -1173,6 +1178,7 @@ textarea {
   flex-direction: column;
   gap: 22px;
   min-height: 100vh;
+  background: var(--bg);
 }
 
 .workspace-chat-header {
@@ -1601,7 +1607,7 @@ textarea {
   position: sticky;
   bottom: 0;
   padding-top: 18px;
-  background: linear-gradient(180deg, rgba(250, 249, 247, 0), var(--bg) 42%);
+  background: var(--bg);
 }
 
 .input-bay {
