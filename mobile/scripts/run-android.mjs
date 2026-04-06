@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -129,7 +130,7 @@ function patchReactNativeGradlePlugin() {
     return next;
   });
 
-  const targetToolchainVersion = detectJavaMajor("C:\\Java\\microsoft-jdk-17") >= 17 ? 17 : 21;
+  const targetToolchainVersion = detectJavaMajor(detectJavaHome() ?? "") >= 17 ? 17 : 21;
 
   const toolchainFiles = [
     path.join(projectRoot, "node_modules", "@react-native", "gradle-plugin", "settings-plugin", "build.gradle.kts"),
@@ -322,14 +323,15 @@ function runAndroid() {
     process.exit(result.status ?? 1);
   }
 
-  const projectLink = process.env.SCHOLARMIND_ANDROID_PROJECT_LINK ?? "C:\\smobile";
-  const jniLink = process.env.SCHOLARMIND_ANDROID_JNI_LINK ?? "C:\\rnzc-jni";
+  const workRoot = process.env.SCHOLARMIND_ANDROID_WORK_ROOT ?? path.join(os.tmpdir(), "scholarmind-android");
+  const projectLink = process.env.SCHOLARMIND_ANDROID_PROJECT_LINK ?? path.join(workRoot, "project-link");
+  const jniLink = process.env.SCHOLARMIND_ANDROID_JNI_LINK ?? path.join(workRoot, "jni-link");
   const buildDir =
     process.env.SCHOLARMIND_ANDROID_ZEROCONF_BUILD_DIR ??
-    `C:\\rnzc-build-${variantName.toLowerCase()}`;
-  const tempDir = process.env.SCHOLARMIND_ANDROID_TEMP_DIR ?? "C:\\Windows\\Temp";
-  const homeDir = process.env.SCHOLARMIND_ANDROID_HOME_DIR ?? "C:\\temp-user";
-  const gradleDir = process.env.SCHOLARMIND_ANDROID_GRADLE_HOME ?? "C:\\gradle-cache";
+    path.join(workRoot, `build-${variantName.toLowerCase()}`);
+  const tempDir = process.env.SCHOLARMIND_ANDROID_TEMP_DIR ?? os.tmpdir();
+  const homeDir = process.env.SCHOLARMIND_ANDROID_HOME_DIR ?? path.join(workRoot, "home");
+  const gradleDir = process.env.SCHOLARMIND_ANDROID_GRADLE_HOME ?? path.join(workRoot, "gradle-cache");
 
   ensureDir(path.dirname(projectLink));
   fs.rmSync(buildDir, { recursive: true, force: true });

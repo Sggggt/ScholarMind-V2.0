@@ -103,7 +103,7 @@ ScholarMind/
 ### 1. 启动后端
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\backend"
+cd .\backend
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
@@ -123,7 +123,7 @@ BRAVE_API_KEY=...
 如果启用 Aider，还需要配置：
 
 ```dotenv
-AIDER_PYTHON=c:\Study\HY Competition\Project\ScholarMind\backend\.venv-aider-py311\Scripts\python.exe
+AIDER_PYTHON=C:\path\to\ScholarMind\backend\.venv-aider-py311\Scripts\python.exe
 ```
 
 常用接口：
@@ -135,7 +135,7 @@ AIDER_PYTHON=c:\Study\HY Competition\Project\ScholarMind\backend\.venv-aider-py3
 ### 2. 启动桌面端
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\react-client"
+cd .\react-client
 npm install
 npm run dev
 ```
@@ -145,7 +145,7 @@ npm run dev
 完整说明见 [`mobile/README.md`](./mobile/README.md)，最短路径如下：
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile"
+cd .\mobile
 pnpm install
 pnpm dev:metro
 pnpm android -- --no-bundler
@@ -154,7 +154,7 @@ pnpm android -- --no-bundler
 Release APK 打包：
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile"
+cd .\mobile
 node scripts/run-android.mjs --variant release --no-bundler
 ```
 

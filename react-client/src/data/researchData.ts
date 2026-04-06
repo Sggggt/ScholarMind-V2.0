@@ -44,7 +44,7 @@ export const recentSessions: RecentSession[] = [
 ];
 
 export const userProfile: UserProfile = {
-  name: '林博士',
+  name: '研究负责人',
   role: '首席研究员',
   affiliation: 'ScholarMind 实验室',
 };

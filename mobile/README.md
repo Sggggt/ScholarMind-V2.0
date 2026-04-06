@@ -30,15 +30,15 @@
 - `adb`
 - Android 模拟器或真机
 
-Windows 下常见路径：
+Windows 下常见环境变量 / 示例路径：
 
-- `JAVA_HOME=C:\Java\microsoft-jdk-17`
-- Android SDK：`C:\Android\Sdk`
+- `JAVA_HOME=<你的 JDK 安装目录>`
+- `ANDROID_SDK_ROOT=<你的 Android SDK 安装目录>`
 
 ## 安装依赖
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile"
+cd .\mobile
 pnpm install
 ```
 
@@ -76,7 +76,7 @@ pnpm test
 先启动后端：
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\backend"
+cd .\backend
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -93,21 +93,21 @@ python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ### 终端 1：启动后端
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\backend"
+cd .\backend
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 终端 2：启动 Metro
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile"
+cd .\mobile
 pnpm dev:metro
 ```
 
 ### 终端 3：安装调试包
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile"
+cd .\mobile
 pnpm android -- --no-bundler
 ```
 
@@ -122,7 +122,7 @@ pnpm android -- --no-bundler
 推荐命令：
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile"
+cd .\mobile
 node scripts/run-android.mjs --variant release --no-bundler
 ```
 
@@ -135,7 +135,7 @@ pnpm android -- --variant release --no-bundler
 如果要直接走 Gradle：
 
 ```powershell
-cd "c:\Study\HY Competition\Project\ScholarMind\mobile\android"
+cd .\mobile\android
 .\gradlew.bat app:assembleRelease
 ```
 
@@ -153,19 +153,19 @@ APK 输出路径：
 安装 release APK：
 
 ```powershell
-adb install -r "c:\Study\HY Competition\Project\ScholarMind\mobile\android\app\build\outputs\apk\release\app-release.apk"
+adb install -r .\mobile\android\app\build\outputs\apk\release\app-release.apk
 ```
 
 安装 debug APK：
 
 ```powershell
-adb install -r "c:\Study\HY Competition\Project\ScholarMind\mobile\android\app\build\outputs\apk\debug\app-debug.apk"
+adb install -r .\mobile\android\app\build\outputs\apk\debug\app-debug.apk
 ```
 
 如果 `adb` 不在 PATH 中：
 
 ```powershell
-C:\Android\Sdk\platform-tools\adb.exe install -r "c:\Study\HY Competition\Project\ScholarMind\mobile\android\app\build\outputs\apk\release\app-release.apk"
+%ANDROID_SDK_ROOT%\platform-tools\adb.exe install -r .\mobile\android\app\build\outputs\apk\release\app-release.apk
 ```
 
 ## 局域网自动发现
@@ -201,12 +201,12 @@ http://<你的局域网 IP>:8000
 
 ## Windows 构建辅助路径
 
-Android 包装脚本会使用或创建以下辅助路径：
+Android 包装脚本会在系统临时目录下使用或创建以下辅助路径：
 
-- `C:\smobile`
-- `C:\rnzc-jni`
-- `C:\rnzc-build-debug`
-- `C:\rnzc-build-release`
+- `%TEMP%\scholarmind-android\project-link`
+- `%TEMP%\scholarmind-android\jni-link`
+- `%TEMP%\scholarmind-android\build-debug`
+- `%TEMP%\scholarmind-android\build-release`
 
 这些路径是 Windows 下 Android 构建兼容流程的一部分，尤其与 `react-native-zeroconf` 相关。它们不是新的业务源码目录，也不是项目副本。
 
@@ -238,7 +238,7 @@ pnpm android -- --no-bundler
 
 优先检查：
 
-- `C:\Windows\System32\cmd.exe` 是否存在
+- `%SystemRoot%\System32\cmd.exe` 是否存在
 - `JAVA_HOME` 是否有效
 - 命令是否从正确的 PowerShell 工作目录执行
 

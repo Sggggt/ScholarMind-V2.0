@@ -357,7 +357,7 @@ export default function MainChatWorkspacePage() {
                 className="academic-input"
                 value={workingDirectoryPath}
                 onChange={(event) => persistWorkingDirectory(event.target.value)}
-                placeholder="C:\\Study\\HY Competition\\Project\\ScholarMind"
+                placeholder="C:\\path\\to\\ScholarMind"
               />
               <button
                 className="button-ghost"
