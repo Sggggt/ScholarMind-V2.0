@@ -3,6 +3,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   RefreshControl,
   StyleSheet,
   Text,
@@ -13,53 +16,31 @@ import {
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
+
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { bindChatSessionTaskApi, createChatSessionApi, fetchChatSessionsApi } from "@/lib/api";
 import { getCurrentModuleState, getTaskProgressPercent } from "@/lib/task-helpers";
 import { useTaskContext } from "@/lib/task-store";
-import type { Task } from "@/lib/types";
+import { MODULE_NAMES, TASK_STATUS_LABELS, type Task } from "@/lib/types";
 
-const STATUS_TONES = {
-  pending: { color: "#867466", bg: "#f1ede8", icon: "schedule" },
-  running: { color: "#46664a", bg: "#e9f2ea", icon: "play-circle-filled" },
-  paused: { color: "#b36a11", bg: "#fff2df", icon: "pause-circle-filled" },
-  review: { color: "#7a4f92", bg: "#f3ebf7", icon: "rate-review" },
-  completed: { color: "#46664a", bg: "#e8f1e8", icon: "check-circle" },
-  failed: { color: "#ba1a1a", bg: "#fdeceb", icon: "error" },
-  aborted: { color: "#6c655e", bg: "#ece8e4", icon: "cancel" },
+const STATUS_ICONS = {
+  pending: "schedule",
+  running: "play-circle-filled",
+  paused: "pause-circle-filled",
+  review: "rate-review",
+  completed: "check-circle",
+  failed: "error",
+  aborted: "cancel",
 } as const;
 
 const FILTERS: Array<{ key: "all" | Task["status"]; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "running", label: "Running" },
-  { key: "paused", label: "Paused" },
-  { key: "completed", label: "Completed" },
-  { key: "failed", label: "Failed" },
+  { key: "all", label: "全部" },
+  { key: "running", label: "进行中" },
+  { key: "paused", label: "已暂停" },
+  { key: "completed", label: "已完成" },
+  { key: "failed", label: "失败" },
 ];
-
-const STATUS_LABELS: Record<Task["status"], string> = {
-  pending: "Pending",
-  running: "Running",
-  paused: "Paused",
-  review: "Review",
-  completed: "Completed",
-  failed: "Failed",
-  aborted: "Aborted",
-};
-
-const MODULE_LABELS: Record<string, string> = {
-  M1: "Literature Review",
-  M2: "Gap Analysis",
-  M3: "Idea Generation",
-  M4: "Code Generation",
-  M5: "Experiment Design",
-  M6: "Agent Runs",
-  M7: "Result Analysis",
-  M8: "Paper Writing",
-  M9: "Review",
-};
 
 function formatTimeLabel(value: string) {
   const date = new Date(value);
@@ -75,11 +56,19 @@ function getSortTimestamp(task: Task) {
   return Date.parse(task.updated_at || task.created_at) || 0;
 }
 
-function StatPill({ value, label }: { value: number; label: string }) {
+function StatPill({
+  value,
+  label,
+  colors,
+}: {
+  value: number;
+  label: string;
+  colors: ReturnType<typeof useColors>;
+}) {
   return (
-    <View style={styles.statPill}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+    <View style={[styles.statPill, { backgroundColor: colors.surface }]}>
+      <Text style={[styles.statValue, { color: colors.foreground }]}>{value}</Text>
+      <Text style={[styles.statLabel, { color: colors.muted }]}>{label}</Text>
     </View>
   );
 }
@@ -98,24 +87,56 @@ function TaskCard({
   const colors = useColors();
   const currentModule = getCurrentModuleState(task);
   const progress = getTaskProgressPercent(task);
-  const tone = STATUS_TONES[task.status];
+  const icon = STATUS_ICONS[task.status] ?? "schedule";
+  const statusColor = (() => {
+    switch (task.status) {
+      case "running":
+        return colors.primary;
+      case "completed":
+        return colors.success;
+      case "paused":
+        return colors.warning;
+      case "failed":
+        return colors.error;
+      case "aborted":
+        return colors.muted;
+      default:
+        return colors.muted;
+    }
+  })();
+  const statusBg = (() => {
+    switch (task.status) {
+      case "running":
+        return `${colors.primary}20`;
+      case "completed":
+        return `${colors.success}25`;
+      case "paused":
+        return `${colors.warning}25`;
+      case "failed":
+        return `${colors.error}15`;
+      case "aborted":
+        return `${colors.muted}15`;
+      default:
+        return `${colors.muted}20`;
+    }
+  })();
 
   return (
     <TouchableOpacity
       activeOpacity={0.85}
-      onPress={() => router.push(`/task/${task.id}` as any)}
+      onPress={() => router.push(`/task/${task.id}` as never)}
       style={[styles.taskCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
     >
       <View style={styles.taskCardHeader}>
         <View style={styles.taskTitleWrap}>
           <View style={styles.statusRow}>
-            <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
-            <Text style={[styles.statusEyebrow, { color: tone.color }]}>
-              {STATUS_LABELS[task.status]}
+            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            <Text style={[styles.statusEyebrow, { color: statusColor }]}>
+              {TASK_STATUS_LABELS[task.status]}
             </Text>
             {isCurrent ? (
-              <View style={styles.currentChip}>
-                <Text style={styles.currentChipText}>Current</Text>
+              <View style={[styles.currentChip, { backgroundColor: `${colors.success}25` }]}>
+                <Text style={[styles.currentChipText, { color: colors.success }]}>当前任务</Text>
               </View>
             ) : null}
           </View>
@@ -126,18 +147,18 @@ function TaskCard({
             {task.topic}
           </Text>
         </View>
-        <View style={[styles.iconBadge, { backgroundColor: tone.bg }]}>
-          <MaterialIcons name={tone.icon} size={22} color={tone.color} />
+        <View style={[styles.iconBadge, { backgroundColor: statusBg }]}>
+          <MaterialIcons name={icon} size={22} color={statusColor} />
         </View>
       </View>
 
       <View style={styles.progressHeader}>
         <Text style={[styles.progressLabel, { color: colors.muted }]}>
           {currentModule
-            ? `${currentModule.module_id} ${MODULE_LABELS[currentModule.module_id] ?? currentModule.module_id}`
-            : "Waiting to start"}
+            ? `${currentModule.module_id} ${MODULE_NAMES[currentModule.module_id] ?? currentModule.module_id}`
+            : "等待开始"}
         </Text>
-        <Text style={[styles.progressValue, { color: tone.color }]}>{progress}%</Text>
+        <Text style={[styles.progressValue, { color: statusColor }]}>{progress}%</Text>
       </View>
       <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
         <View
@@ -145,7 +166,7 @@ function TaskCard({
             styles.progressFill,
             {
               width: `${progress}%`,
-              backgroundColor: tone.color,
+              backgroundColor: statusColor,
             },
           ]}
         />
@@ -153,31 +174,41 @@ function TaskCard({
 
       <View style={[styles.taskCardFooter, { borderTopColor: colors.border }]}>
         <Text style={[styles.footerText, { color: colors.muted }]}>
-          Updated {formatTimeLabel(task.updated_at || task.created_at)}
+          更新于 {formatTimeLabel(task.updated_at || task.created_at)}
         </Text>
         <View style={styles.footerActions}>
           <TouchableOpacity
             onPress={() => onSelectCurrent(task)}
-            style={[styles.selectButton, isCurrent ? styles.selectButtonActive : null]}
+            style={[
+              styles.selectButton,
+              isCurrent
+                ? { backgroundColor: `${colors.success}25` }
+                : { backgroundColor: `${colors.border}80` },
+            ]}
           >
             <MaterialIcons
               name={isCurrent ? "radio-button-checked" : "radio-button-unchecked"}
               size={16}
-              color={isCurrent ? "#46664a" : "#6c655e"}
+              color={isCurrent ? colors.success : colors.muted}
             />
-            <Text style={[styles.selectButtonText, isCurrent ? styles.selectButtonTextActive : null]}>
-              {isCurrent ? "Selected" : "Set Current"}
+            <Text
+              style={[
+                styles.selectButtonText,
+                { color: isCurrent ? colors.success : colors.muted },
+              ]}
+            >
+              {isCurrent ? "已选中" : "设为当前"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => onDelete(task)}
-            style={styles.iconButton}
+            style={[styles.iconButton, { backgroundColor: `${colors.error}15` }]}
           >
-            <MaterialIcons name="delete-outline" size={18} color="#ba1a1a" />
+            <MaterialIcons name="delete-outline" size={18} color={colors.error} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => router.push(`/task/${task.id}` as any)}
-            style={styles.iconButton}
+            onPress={() => router.push(`/task/${task.id}` as never)}
+            style={[styles.iconButton, { backgroundColor: `${colors.border}80` }]}
           >
             <MaterialIcons name="open-in-new" size={18} color={colors.primary} />
           </TouchableOpacity>
@@ -189,11 +220,14 @@ function TaskCard({
 
 export default function HomeScreen() {
   const colors = useColors();
-  const { state, fetchTasks, deleteTask, selectCurrentTask } = useTaskContext();
+  const { state, fetchTasks, deleteTask, selectCurrentTask, createTask } = useTaskContext();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
   const [refreshing, setRefreshing] = useState(false);
-  const [creatingChat, setCreatingChat] = useState(false);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [topicDraft, setTopicDraft] = useState("");
+  const [descriptionDraft, setDescriptionDraft] = useState("");
 
   useFocusEffect(
     useCallback(() => {
@@ -209,14 +243,14 @@ export default function HomeScreen() {
 
   const handleDelete = useCallback(
     (task: Task) => {
-      Alert.alert("Delete Task", `Delete "${task.title}"? This cannot be undone.`, [
-        { text: "Cancel", style: "cancel" },
+      Alert.alert("删除任务", `确认删除“${task.title}”吗？此操作无法撤销。`, [
+        { text: "取消", style: "cancel" },
         {
-          text: "Delete",
+          text: "删除",
           style: "destructive",
           onPress: () =>
             void deleteTask(task.id).catch((error) => {
-              Alert.alert("Delete failed", error instanceof Error ? error.message : "Unable to delete task.");
+              Alert.alert("删除失败", error instanceof Error ? error.message : "无法删除该任务。");
             }),
         },
       ]);
@@ -231,36 +265,40 @@ export default function HomeScreen() {
     [selectCurrentTask]
   );
 
-  const handleCreateChat = useCallback(async () => {
-    if (!state.currentTaskId || !state.currentTask) {
-      Alert.alert("Select Current Task", "Select a task as the current task first.");
+  const resetCreateForm = useCallback(() => {
+    setTopicDraft("");
+    setDescriptionDraft("");
+  }, []);
+
+  const handleCloseCreateModal = useCallback(() => {
+    if (creatingTask) return;
+    setCreateModalVisible(false);
+    resetCreateForm();
+  }, [creatingTask, resetCreateForm]);
+
+  const handleCreateTask = useCallback(async () => {
+    const topic = topicDraft.trim();
+    const description = descriptionDraft.trim();
+
+    if (!topic) {
+      Alert.alert("请输入研究主题", "新建任务至少需要一个研究主题。");
       return;
     }
 
-    if (creatingChat) return;
-    setCreatingChat(true);
+    if (creatingTask) return;
+    setCreatingTask(true);
     try {
-      // Check if there's already a session for this task
-      const sessions = await fetchChatSessionsApi();
-      const existingSession = sessions
-        .filter((item) => item.task_id === state.currentTaskId)
-        .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))[0];
-
-      if (existingSession) {
-        // Reuse existing session
-        router.push({ pathname: "/create", params: { sessionId: existingSession.id } });
-      } else {
-        // Create new session if none exists
-        const created = await createChatSessionApi(state.currentTask.title);
-        const bound = await bindChatSessionTaskApi(created.session.id, state.currentTaskId);
-        router.push({ pathname: "/create", params: { sessionId: bound.session.id } });
-      }
+      const task = await createTask(topic, description);
+      selectCurrentTask(task);
+      setCreateModalVisible(false);
+      resetCreateForm();
+      router.push(`/task/${task.id}` as never);
     } catch (error) {
-      Alert.alert("New chat failed", error instanceof Error ? error.message : "Unable to create a new chat.");
+      Alert.alert("新建任务失败", error instanceof Error ? error.message : "暂时无法创建任务。");
     } finally {
-      setCreatingChat(false);
+      setCreatingTask(false);
     }
-  }, [creatingChat, state.currentTask, state.currentTaskId]);
+  }, [createTask, creatingTask, descriptionDraft, resetCreateForm, selectCurrentTask, topicDraft]);
 
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -289,7 +327,7 @@ export default function HomeScreen() {
       {state.loading && state.tasks.length === 0 ? (
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.centerText, { color: colors.muted }]}>Loading tasks...</Text>
+          <Text style={[styles.centerText, { color: colors.muted }]}>正在加载任务...</Text>
         </View>
       ) : (
         <>
@@ -315,21 +353,24 @@ export default function HomeScreen() {
             ListHeaderComponent={
               <View>
                 <LinearGradient
-                  colors={["#fffaf5", "#f1f4f1", "#f7faf7"]}
+                  colors={[
+                    `${colors.background}E6`,
+                    `${colors.surface}CC`,
+                    `${colors.background}99`,
+                  ]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.hero}
                 >
-                  <Text style={[styles.eyebrow, { color: colors.muted }]}>Research Repository</Text>
-                  <Text style={[styles.heroTitle, { color: colors.primary }]}>Active Tasks</Text>
+                  <Text style={[styles.eyebrow, { color: colors.muted }]}>研究工作台</Text>
+                  <Text style={[styles.heroTitle, { color: colors.primary }]}>任务总览</Text>
                   <Text style={[styles.heroDescription, { color: colors.foreground }]}>
-                    Create tasks on mobile, track the latest runs first, and jump into each module
-                    detail from the task page.
+                    在移动端查看任务进度、切换当前任务，并快速进入各模块详情与对话。
                   </Text>
                   <View style={styles.statsRow}>
-                    <StatPill value={stats.total} label="Total" />
-                    <StatPill value={stats.running} label="Running" />
-                    <StatPill value={stats.paused} label="Paused" />
+                    <StatPill value={stats.total} label="总数" colors={colors} />
+                    <StatPill value={stats.running} label="进行中" colors={colors} />
+                    <StatPill value={stats.paused} label="已暂停" colors={colors} />
                   </View>
                 </LinearGradient>
 
@@ -344,7 +385,7 @@ export default function HomeScreen() {
                     <TextInput
                       value={query}
                       onChangeText={setQuery}
-                      placeholder="Search topic or title"
+                      placeholder="搜索任务标题或主题"
                       placeholderTextColor={colors.muted}
                       style={[styles.searchInput, { color: colors.foreground }]}
                     />
@@ -380,9 +421,14 @@ export default function HomeScreen() {
                 </View>
 
                 {state.error ? (
-                  <View style={[styles.errorCard, { borderColor: "#f2c9c6" }]}>
-                    <MaterialIcons name="error-outline" size={18} color="#ba1a1a" />
-                    <Text style={styles.errorText}>{state.error}</Text>
+                  <View
+                    style={[
+                      styles.errorCard,
+                      { borderColor: colors.error, backgroundColor: `${colors.error}15` },
+                    ]}
+                  >
+                    <MaterialIcons name="error-outline" size={18} color={colors.error} />
+                    <Text style={[styles.errorText, { color: colors.error }]}>{state.error}</Text>
                   </View>
                 ) : null}
               </View>
@@ -390,27 +436,117 @@ export default function HomeScreen() {
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <MaterialIcons name="library-books" size={48} color={colors.muted} />
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No matching tasks</Text>
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+                  没有匹配的任务
+                </Text>
                 <Text style={[styles.emptyDescription, { color: colors.muted }]}>
                   {query
-                    ? "Try a different keyword."
-                    : "Create a new task to start a new research run."}
+                    ? "换个关键词再试试。"
+                    : "先创建一个任务，开始新的研究流程。"}
                 </Text>
               </View>
             }
             contentContainerStyle={styles.content}
           />
 
+          <Modal
+            visible={createModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={handleCloseCreateModal}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              style={styles.modalOverlay}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={handleCloseCreateModal}
+                style={styles.modalBackdrop}
+              />
+              <View
+                style={[
+                  styles.modalCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.modalTitle, { color: colors.foreground }]}>新建任务</Text>
+                <Text style={[styles.modalDescription, { color: colors.muted }]}>
+                  输入研究主题后立即创建任务，创建完成后会自动进入任务详情。
+                </Text>
+
+                <View
+                  style={[
+                    styles.modalInputWrap,
+                    { backgroundColor: colors.background, borderColor: colors.border },
+                  ]}
+                >
+                  <TextInput
+                    value={topicDraft}
+                    onChangeText={setTopicDraft}
+                    placeholder="输入研究主题"
+                    placeholderTextColor={colors.muted}
+                    style={[styles.modalInput, { color: colors.foreground }]}
+                  />
+                </View>
+
+                <View
+                  style={[
+                    styles.modalInputWrap,
+                    styles.modalTextareaWrap,
+                    { backgroundColor: colors.background, borderColor: colors.border },
+                  ]}
+                >
+                  <TextInput
+                    value={descriptionDraft}
+                    onChangeText={setDescriptionDraft}
+                    placeholder="补充任务说明（可选）"
+                    placeholderTextColor={colors.muted}
+                    style={[
+                      styles.modalInput,
+                      styles.modalTextarea,
+                      { color: colors.foreground },
+                    ]}
+                    multiline
+                    textAlignVertical="top"
+                  />
+                </View>
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    onPress={handleCloseCreateModal}
+                    disabled={creatingTask}
+                    style={[styles.modalSecondaryButton, { borderColor: colors.border }]}
+                  >
+                    <Text style={[styles.modalSecondaryButtonText, { color: colors.foreground }]}>
+                      取消
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => void handleCreateTask()}
+                    disabled={creatingTask}
+                    style={[styles.modalPrimaryButton, { backgroundColor: colors.primary }]}
+                  >
+                    {creatingTask ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <>
+                        <MaterialIcons name="add-task" size={18} color="#ffffff" />
+                        <Text style={styles.modalPrimaryButtonText}>创建任务</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </Modal>
+
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => void handleCreateChat()}
+            onPress={() => setCreateModalVisible(true)}
             style={[styles.fab, { backgroundColor: colors.primary }]}
           >
-            {creatingChat ? (
-              <MaterialIcons name="hourglass-top" size={24} color="#ffffff" />
-            ) : (
-              <MaterialIcons name="add" size={28} color="#ffffff" />
-            )}
+            <MaterialIcons name="add" size={28} color="#ffffff" />
           </TouchableOpacity>
         </>
       )}
@@ -461,7 +597,6 @@ const styles = StyleSheet.create({
   },
   statPill: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.72)",
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -470,11 +605,9 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 20,
     fontWeight: "800",
-    color: "#181c1b",
   },
   statLabel: {
     fontSize: 11,
-    color: "#6c655e",
   },
   controls: {
     paddingHorizontal: 16,
@@ -514,7 +647,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
     borderWidth: 1,
     borderRadius: 16,
-    backgroundColor: "#fff4f3",
     paddingHorizontal: 14,
     paddingVertical: 12,
     flexDirection: "row",
@@ -522,7 +654,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    color: "#ba1a1a",
     fontSize: 13,
     lineHeight: 18,
   },
@@ -561,13 +692,11 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.mono,
   },
   currentChip: {
-    backgroundColor: "#e9f2ea",
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   currentChipText: {
-    color: "#46664a",
     fontSize: 10,
     fontWeight: "700",
     fontFamily: Fonts.mono,
@@ -638,18 +767,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#f1ede8",
-  },
-  selectButtonActive: {
-    backgroundColor: "#e9f2ea",
   },
   selectButtonText: {
-    color: "#6c655e",
     fontSize: 12,
     fontWeight: "700",
-  },
-  selectButtonTextActive: {
-    color: "#46664a",
   },
   iconButton: {
     width: 32,
@@ -657,7 +778,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f5f5f5",
   },
   emptyState: {
     alignItems: "center",
@@ -675,6 +795,82 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+  },
+  modalCard: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 28,
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 24,
+    lineHeight: 28,
+    fontFamily: Fonts.serif,
+    fontWeight: "700",
+  },
+  modalDescription: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  modalInputWrap: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+  },
+  modalTextareaWrap: {
+    minHeight: 116,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  modalInput: {
+    fontSize: 14,
+    paddingVertical: 14,
+  },
+  modalTextarea: {
+    minHeight: 92,
+    paddingVertical: 0,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalSecondaryButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  modalPrimaryButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  modalPrimaryButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+  },
   fab: {
     position: "absolute",
     right: 20,
@@ -684,8 +880,8 @@ const styles = StyleSheet.create({
     borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#6e3900",
-    shadowOpacity: 0.28,
+    shadowColor: "#000000",
+    shadowOpacity: 0.32,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,

@@ -15,14 +15,13 @@ import { useColors } from "@/hooks/use-colors";
 import { useTaskContext } from "@/lib/task-store";
 import { MODULE_NAMES, type LogEntry } from "@/lib/types";
 
-const LEVEL_TONE = {
-  info: { color: "#46664a", bg: "#e9f2ea" },
-  warn: { color: "#b36a11", bg: "#fff2df" },
-  error: { color: "#ba1a1a", bg: "#fdeceb" },
-} as const;
-
 function LogItem({ entry }: { entry: LogEntry }) {
   const colors = useColors();
+  const LEVEL_TONE = {
+    info: { color: colors.success, bg: `${colors.success}25` },
+    warn: { color: colors.warning, bg: `${colors.warning}25` },
+    error: { color: colors.error, bg: `${colors.error}15` },
+  };
   const tone = LEVEL_TONE[entry.level as keyof typeof LEVEL_TONE] ?? LEVEL_TONE.info;
 
   return (
@@ -33,7 +32,7 @@ function LogItem({ entry }: { entry: LogEntry }) {
             <Text style={[styles.levelBadgeText, { color: tone.color }]}>{entry.level.toUpperCase()}</Text>
           </View>
           <Text style={[styles.moduleText, { color: colors.muted }]}>
-            {entry.module_id ? `${entry.module_id} ${MODULE_NAMES[entry.module_id]}` : "SYSTEM"}
+            {entry.module_id ? `${entry.module_id} ${MODULE_NAMES[entry.module_id]}` : "系统"}
           </Text>
         </View>
         <Text style={[styles.timeText, { color: colors.muted }]}>
@@ -64,7 +63,7 @@ export default function LogsScreen() {
         <View style={styles.headerTextWrap}>
           <Text style={[styles.headerTitle, { color: colors.foreground }]}>执行日志</Text>
           <Text style={[styles.headerSubtitle, { color: colors.muted }]}>
-            {state.wsConnected ? "WebSocket 实时同步中" : "当前使用轮询兜底同步"}
+            {state.wsConnected ? "WebSocket 实时同步中" : "当前使用轮询方式同步"}
           </Text>
         </View>
         <View style={styles.headerIcon} />

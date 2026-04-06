@@ -32,7 +32,7 @@ const env = {
   appSlug: "scholarmind-mobile",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
-  logoUrl: "https://d2xsxph8kpxj0f.cloudfront.net/310519663485918026/UScSoL8wC4U3hnTURhzsYk/icon-9h7ntaocb8AVju4Jw2nVKF.png",
+  logoUrl: "",
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
@@ -43,28 +43,37 @@ const config: ExpoConfig = {
   slug: env.appSlug,
   version: "1.0.0",
   orientation: "portrait",
-  icon: "https://d2xsxph8kpxj0f.cloudfront.net/310519663485918026/UScSoL8wC4U3hnTURhzsYk/icon_fa8dfd2d.png",
+  icon: "./assets/images/icon.png",
   scheme: env.scheme,
   userInterfaceStyle: "automatic",
-  newArchEnabled: true,
+  newArchEnabled: false,
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
-    "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+      NSBonjourServices: ["_scholarmind._tcp."],
+      NSLocalNetworkUsageDescription:
+        "ScholarMind uses your local network to discover backend services on the same Wi-Fi.",
+    },
   },
   android: {
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
-      foregroundImage: "https://d2xsxph8kpxj0f.cloudfront.net/310519663485918026/UScSoL8wC4U3hnTURhzsYk/android-icon-foreground_73a7bc5b.png",
+      foregroundImage: "./assets/images/icon.png",
       backgroundImage: "./assets/images/android-icon-background.png",
       monochromeImage: "./assets/images/android-icon-monochrome.png",
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: env.androidPackage,
-    permissions: ["POST_NOTIFICATIONS"],
+    permissions: [
+      "POST_NOTIFICATIONS",
+      "INTERNET",
+      "ACCESS_NETWORK_STATE",
+      "ACCESS_WIFI_STATE",
+      "CHANGE_WIFI_MULTICAST_STATE",
+    ],
     intentFilters: [
       {
         action: "VIEW",
@@ -82,7 +91,7 @@ const config: ExpoConfig = {
   web: {
     bundler: "metro",
     output: "static",
-    favicon: "https://d2xsxph8kpxj0f.cloudfront.net/310519663485918026/UScSoL8wC4U3hnTURhzsYk/favicon_94d02e20.png",
+    favicon: "./assets/images/icon.png",
   },
   plugins: [
     "expo-router",
@@ -104,7 +113,7 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
-        image: "https://d2xsxph8kpxj0f.cloudfront.net/310519663485918026/UScSoL8wC4U3hnTURhzsYk/splash-icon_74785fc5.png",
+        image: "./assets/images/icon.png",
         imageWidth: 200,
         resizeMode: "contain",
         backgroundColor: "#ffffff",
@@ -119,6 +128,7 @@ const config: ExpoConfig = {
         android: {
           buildArchs: ["armeabi-v7a", "arm64-v8a"],
           minSdkVersion: 24,
+          usesCleartextTraffic: true,
         },
       },
     ],

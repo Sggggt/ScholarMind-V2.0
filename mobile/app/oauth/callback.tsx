@@ -1,4 +1,5 @@
 import { ThemedView } from "@/components/themed-view";
+import { useColors } from "@/hooks/use-colors";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import * as Linking from "expo-linking";
@@ -9,6 +10,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function OAuthCallback() {
   const router = useRouter();
+  const colors = useColors();
   const params = useLocalSearchParams<{
     code?: string;
     state?: string;
@@ -179,11 +181,15 @@ export default function OAuthCallback() {
   }, [params.code, params.state, params.error, params.sessionToken, params.user, router]);
 
   return (
-    <SafeAreaView className="flex-1" edges={["top", "bottom", "left", "right"]}>
+    <SafeAreaView
+      className="flex-1"
+      edges={["top", "bottom", "left", "right"]}
+      style={{ backgroundColor: colors.background }}
+    >
       <ThemedView className="flex-1 items-center justify-center gap-4 p-5">
         {status === "processing" && (
           <>
-            <ActivityIndicator size="large" />
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text className="mt-4 text-base leading-6 text-center text-foreground">
               Completing authentication...
             </Text>

@@ -24,51 +24,13 @@ import {
   getTaskProgressPercent,
 } from "@/lib/task-helpers";
 import { useTaskContext } from "@/lib/task-store";
-import { MODULE_SEQUENCE, type ModuleId, type ModuleState } from "@/lib/types";
-
-const STATUS_TONES = {
-  pending: { color: "#867466", bg: "#f1ede8" },
-  running: { color: "#46664a", bg: "#e9f2ea" },
-  paused: { color: "#b36a11", bg: "#fff2df" },
-  review: { color: "#7a4f92", bg: "#f3ebf7" },
-  completed: { color: "#46664a", bg: "#e8f1e8" },
-  failed: { color: "#ba1a1a", bg: "#fdeceb" },
-  aborted: { color: "#6c655e", bg: "#ece8e4" },
-} as const;
-
-const STATUS_LABELS = {
-  pending: "Pending",
-  running: "Running",
-  paused: "Paused",
-  review: "Review",
-  completed: "Completed",
-  failed: "Failed",
-  aborted: "Aborted",
-} as const;
-
-const MODULE_LABELS: Record<ModuleId, string> = {
-  M1: "Literature Review",
-  M2: "Gap Analysis",
-  M3: "Idea Generation",
-  M4: "Code Generation",
-  M5: "Experiment Design",
-  M6: "Agent Runs",
-  M7: "Result Analysis",
-  M8: "Paper Writing",
-  M9: "Review",
-};
-
-const MODULE_DESCRIPTIONS: Record<ModuleId, string> = {
-  M1: "Survey related work and collect the evidence base.",
-  M2: "Extract research gaps and unresolved questions.",
-  M3: "Generate and score candidate research ideas.",
-  M4: "Turn the selected idea into executable code.",
-  M5: "Define the experiment plan and evaluation setup.",
-  M6: "Run agents and automated experiments.",
-  M7: "Analyze outcomes and failure cases.",
-  M8: "Draft the paper and writing artifacts.",
-  M9: "Review the full output and final quality.",
-};
+import {
+  MODULE_DESCRIPTIONS,
+  MODULE_NAMES,
+  MODULE_SEQUENCE,
+  TASK_STATUS_LABELS,
+  type ModuleState,
+} from "@/lib/types";
 
 function modulePreviewText(
   module: ModuleState,
@@ -87,25 +49,31 @@ function modulePreviewText(
     return context.m2Summary.highlights.join("  ");
   }
   if (module.module_id === "M3" && context.m3Summary.ideaCount > 0) {
-    return `${context.m3Summary.ideaCount} ideas ready. Best candidate: ${context.m3Summary.bestIdeaTitle}`;
+    return `已生成 ${context.m3Summary.ideaCount} 个候选想法，当前最佳：${context.m3Summary.bestIdeaTitle}`;
   }
   if (module.module_id === "M4" && context.m4Summary.fileCount > 0) {
-    const parts = [`📁 ${context.m4Summary.fileCount} files`];
+    const parts = [`已生成 ${context.m4Summary.fileCount} 个文件`];
     if (context.m4Summary.ideaName) {
       parts.push(`· ${context.m4Summary.ideaName}`);
     }
-    // Only show repoPath if it's different from ideaName
-    if (context.m4Summary.repoPath &&
-        context.m4Summary.repoPath !== "Generated code" &&
-        context.m4Summary.repoPath !== context.m4Summary.ideaName) {
+    if (
+      context.m4Summary.repoPath &&
+      context.m4Summary.repoPath !== "Generated code" &&
+      context.m4Summary.repoPath !== context.m4Summary.ideaName
+    ) {
       parts.push(`· ${context.m4Summary.repoPath}`);
     }
     return parts.join(" ");
   }
   if (module.module_id === "M5" && context.m5Summary.experimentCount > 0) {
-    const parts = [`🧪 ${context.m5Summary.experimentCount} experiments planned`];
-    if (context.m5Summary.hypothesis && context.m5Summary.hypothesis !== `${context.m5Summary.experimentCount} experiment runs planned`) {
-      parts.push(`· ${context.m5Summary.hypothesis.slice(0, 50)}${context.m5Summary.hypothesis.length > 50 ? "..." : ""}`);
+    const parts = [`已规划 ${context.m5Summary.experimentCount} 组实验`];
+    if (
+      context.m5Summary.hypothesis &&
+      context.m5Summary.hypothesis !== `${context.m5Summary.experimentCount} experiment runs planned`
+    ) {
+      parts.push(
+        `· ${context.m5Summary.hypothesis.slice(0, 50)}${context.m5Summary.hypothesis.length > 50 ? "..." : ""}`
+      );
     }
     return parts.join(" ");
   }
@@ -118,6 +86,20 @@ function modulePreviewText(
   return MODULE_DESCRIPTIONS[module.module_id];
 }
 
+function getStatusTones(colors: ReturnType<typeof useColors>, status: string) {
+  const tones = {
+    waiting: { color: colors.muted, bg: `${colors.muted}20` },
+    pending: { color: colors.muted, bg: `${colors.muted}20` },
+    running: { color: colors.primary, bg: `${colors.primary}20` },
+    paused: { color: colors.warning, bg: `${colors.warning}25` },
+    review: { color: "#7a4f92", bg: "#f3ebf7" },
+    completed: { color: colors.success, bg: `${colors.success}25` },
+    failed: { color: colors.error, bg: `${colors.error}15` },
+    aborted: { color: colors.muted, bg: `${colors.muted}15` },
+  } as const;
+  return tones[(status ?? "waiting") as keyof typeof tones] ?? tones.waiting;
+}
+
 function ModuleCard({
   taskId,
   module,
@@ -128,9 +110,7 @@ function ModuleCard({
   preview: string;
 }) {
   const colors = useColors();
-  const tone =
-    STATUS_TONES[(module.status === "waiting" ? "pending" : module.status) as keyof typeof STATUS_TONES] ??
-    STATUS_TONES.pending;
+  const tone = getStatusTones(colors, module.status === "waiting" ? "pending" : module.status);
 
   return (
     <TouchableOpacity
@@ -142,12 +122,12 @@ function ModuleCard({
         <View style={styles.moduleCardTitleWrap}>
           <Text style={[styles.moduleEyebrow, { color: colors.muted }]}>{module.module_id}</Text>
           <Text style={[styles.moduleTitle, { color: colors.foreground }]}>
-            {MODULE_LABELS[module.module_id]}
+            {MODULE_NAMES[module.module_id]}
           </Text>
         </View>
         <View style={[styles.moduleBadge, { backgroundColor: tone.bg }]}>
           <Text style={[styles.moduleBadgeText, { color: tone.color }]}>
-            {module.status.toUpperCase()}
+            {TASK_STATUS_LABELS[(module.status === "waiting" ? "pending" : module.status) as keyof typeof TASK_STATUS_LABELS] ?? module.status}
           </Text>
         </View>
       </View>
@@ -189,13 +169,14 @@ export default function TaskDetailScreen() {
   const modules = useMemo(() => {
     if (!task) return [];
     return MODULE_SEQUENCE.map(
-      (moduleId) => task.modules.find((module) => module.module_id === moduleId) ?? {
-        module_id: moduleId,
-        status: "waiting",
-        percent: 0,
-        step: "",
-        message: "",
-      }
+      (moduleId) =>
+        task.modules.find((module) => module.module_id === moduleId) ?? {
+          module_id: moduleId,
+          status: "waiting",
+          percent: 0,
+          step: "",
+          message: "",
+        }
     );
   }, [task]);
 
@@ -206,10 +187,10 @@ export default function TaskDetailScreen() {
 
   const handleAbort = () => {
     if (!task) return;
-    Alert.alert("Stop Task", "Stop this task now?", [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert("终止任务", "现在终止这个任务吗？", [
+      { text: "取消", style: "cancel" },
       {
-        text: "Stop",
+        text: "终止",
         style: "destructive",
         onPress: () => void abortTask(task.id),
       },
@@ -218,10 +199,10 @@ export default function TaskDetailScreen() {
 
   const handleDelete = () => {
     if (!task) return;
-    Alert.alert("Delete Task", `Delete "${task.title}"? This cannot be undone.`, [
-      { text: "Cancel", style: "cancel" },
+    Alert.alert("删除任务", `确认删除“${task.title}”吗？此操作无法撤销。`, [
+      { text: "取消", style: "cancel" },
       {
-        text: "Delete",
+        text: "删除",
         style: "destructive",
         onPress: () =>
           void deleteTask(task.id)
@@ -229,7 +210,7 @@ export default function TaskDetailScreen() {
               router.replace("/" as any);
             })
             .catch((error) => {
-              Alert.alert("Delete failed", error instanceof Error ? error.message : "Unable to delete task.");
+              Alert.alert("删除失败", error instanceof Error ? error.message : "无法删除该任务。");
             }),
       },
     ]);
@@ -240,7 +221,7 @@ export default function TaskDetailScreen() {
       <ScreenContainer>
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.centerText, { color: colors.muted }]}>Loading task details...</Text>
+          <Text style={[styles.centerText, { color: colors.muted }]}>正在加载任务详情...</Text>
         </View>
       </ScreenContainer>
     );
@@ -251,19 +232,19 @@ export default function TaskDetailScreen() {
       <ScreenContainer>
         <View style={styles.centerState}>
           <MaterialIcons name="error-outline" size={44} color={colors.muted} />
-          <Text style={[styles.centerTitle, { color: colors.foreground }]}>Task not found</Text>
+          <Text style={[styles.centerTitle, { color: colors.foreground }]}>未找到任务</Text>
           <TouchableOpacity
             onPress={() => router.back()}
             style={[styles.backButton, { backgroundColor: colors.primary }]}
           >
-            <Text style={styles.backButtonText}>Back</Text>
+            <Text style={styles.backButtonText}>返回</Text>
           </TouchableOpacity>
         </View>
       </ScreenContainer>
     );
   }
 
-  const tone = STATUS_TONES[task.status];
+  const tone = getStatusTones(colors, task.status);
 
   return (
     <ScreenContainer>
@@ -279,15 +260,15 @@ export default function TaskDetailScreen() {
         }
       >
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerIcon}>
+          <TouchableOpacity onPress={() => router.back()} style={[styles.headerIcon, { backgroundColor: colors.surface }]}>
             <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
           </TouchableOpacity>
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => void loadTaskBundle(task.id)} style={styles.headerIcon}>
+            <TouchableOpacity onPress={() => void loadTaskBundle(task.id)} style={[styles.headerIcon, { backgroundColor: colors.surface }]}>
               <MaterialIcons name="refresh" size={20} color={colors.foreground} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleDelete} style={styles.headerIcon}>
-              <MaterialIcons name="delete-outline" size={20} color="#ba1a1a" />
+            <TouchableOpacity onPress={handleDelete} style={[styles.headerIcon, { backgroundColor: colors.surface }]}>
+              <MaterialIcons name="delete-outline" size={20} color={colors.error} />
             </TouchableOpacity>
           </View>
         </View>
@@ -297,12 +278,12 @@ export default function TaskDetailScreen() {
             <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
               <View style={[styles.statusBadgeDot, { backgroundColor: tone.color }]} />
               <Text style={[styles.statusBadgeText, { color: tone.color }]}>
-                {STATUS_LABELS[task.status]}
+                {TASK_STATUS_LABELS[task.status]}
               </Text>
             </View>
-            <View style={[styles.syncBadge, { backgroundColor: state.wsConnected ? "#e9f2ea" : "#f1ede8" }]}>
-              <Text style={[styles.syncBadgeText, { color: state.wsConnected ? "#46664a" : "#867466" }]}>
-                {state.wsConnected ? "WS Live" : "Polling"}
+            <View style={[styles.syncBadge, { backgroundColor: state.wsConnected ? `${colors.success}25` : `${colors.muted}15` }]}>
+              <Text style={[styles.syncBadgeText, { color: state.wsConnected ? colors.success : colors.muted }]}>
+                {state.wsConnected ? "WS 实时同步" : "轮询同步"}
               </Text>
             </View>
           </View>
@@ -315,9 +296,7 @@ export default function TaskDetailScreen() {
 
           <View style={styles.progressMeta}>
             <Text style={[styles.progressMetaLabel, { color: colors.muted }]}>
-              {currentModule
-                ? `${currentModule.module_id} ${MODULE_LABELS[currentModule.module_id]}`
-                : "Waiting to start"}
+              {currentModule ? `${currentModule.module_id} ${MODULE_NAMES[currentModule.module_id]}` : "等待开始"}
             </Text>
             <Text style={[styles.progressMetaValue, { color: tone.color }]}>{progress}%</Text>
           </View>
@@ -335,11 +314,11 @@ export default function TaskDetailScreen() {
 
           <View style={styles.heroMetaRow}>
             <Text style={[styles.heroMeta, { color: colors.muted }]}>
-              Created: {new Date(task.created_at).toLocaleString("zh-CN")}
+              创建时间：{new Date(task.created_at).toLocaleString("zh-CN")}
             </Text>
             {state.lastSyncedAt ? (
               <Text style={[styles.heroMeta, { color: colors.muted }]}>
-                Synced: {new Date(state.lastSyncedAt).toLocaleTimeString("zh-CN")}
+                同步时间：{new Date(state.lastSyncedAt).toLocaleTimeString("zh-CN")}
               </Text>
             ) : null}
           </View>
@@ -352,7 +331,7 @@ export default function TaskDetailScreen() {
                   style={[styles.secondaryAction, { borderColor: colors.border }]}
                 >
                   <MaterialIcons name="pause" size={18} color={colors.foreground} />
-                  <Text style={[styles.secondaryActionText, { color: colors.foreground }]}>Pause</Text>
+                  <Text style={[styles.secondaryActionText, { color: colors.foreground }]}>暂停</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -360,12 +339,12 @@ export default function TaskDetailScreen() {
                   style={[styles.primaryAction, { backgroundColor: colors.primary }]}
                 >
                   <MaterialIcons name="play-arrow" size={18} color="#ffffff" />
-                  <Text style={styles.primaryActionText}>Resume</Text>
+                  <Text style={styles.primaryActionText}>继续</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={handleAbort} style={styles.abortAction}>
-                <MaterialIcons name="stop" size={18} color="#ba1a1a" />
-                <Text style={styles.abortActionText}>Stop</Text>
+              <TouchableOpacity onPress={handleAbort} style={[styles.abortAction, { backgroundColor: `${colors.error}15` }]}>
+                <MaterialIcons name="stop" size={18} color={colors.error} />
+                <Text style={[styles.abortActionText, { color: colors.error }]}>终止</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -378,9 +357,9 @@ export default function TaskDetailScreen() {
           <View style={styles.linkCardLeft}>
             <MaterialIcons name="article" size={20} color={colors.primary} />
             <View style={styles.linkCardTextWrap}>
-              <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>Execution Logs</Text>
+              <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>执行日志</Text>
               <Text style={[styles.linkCardDesc, { color: colors.muted }]}>
-                Open the full task log stream and live updates.
+                查看任务完整日志流和实时更新。
               </Text>
             </View>
           </View>
@@ -393,11 +372,11 @@ export default function TaskDetailScreen() {
             style={[styles.linkCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
           >
             <View style={styles.linkCardLeft}>
-              <MaterialIcons name="lightbulb" size={20} color="#b36a11" />
+              <MaterialIcons name="lightbulb" size={20} color={colors.warning} />
               <View style={styles.linkCardTextWrap}>
-                <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>Idea Board</Text>
+                <Text style={[styles.linkCardTitle, { color: colors.foreground }]}>想法面板</Text>
                 <Text style={[styles.linkCardDesc, { color: colors.muted }]}>
-                  Review and select the M3 candidate ideas.
+                  查看并选择 M3 生成的候选想法。
                 </Text>
               </View>
             </View>
@@ -406,9 +385,9 @@ export default function TaskDetailScreen() {
         ) : null}
 
         <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Workflow Modules</Text>
+          <Text style={[styles.sectionTitle, { color: colors.foreground }]}>流程模块</Text>
           <Text style={[styles.sectionSubtitle, { color: colors.muted }]}>
-            Tap any module to open its own detail view.
+            点击任一模块进入详情页。
           </Text>
         </View>
 
@@ -446,7 +425,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.7)",
   },
   centerState: {
     flex: 1,
@@ -500,8 +478,7 @@ const styles = StyleSheet.create({
   statusBadgeText: {
     fontSize: 11,
     fontFamily: Fonts.mono,
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
   },
   syncBadge: {
     borderRadius: 999,
@@ -537,8 +514,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 11,
     fontFamily: Fonts.mono,
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
   },
   progressMetaValue: {
     fontSize: 13,
@@ -587,7 +563,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: 8,
-    backgroundColor: "#ffffff",
   },
   secondaryActionText: {
     fontSize: 13,
@@ -601,10 +576,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexDirection: "row",
     gap: 6,
-    backgroundColor: "#fff1f0",
   },
   abortActionText: {
-    color: "#ba1a1a",
     fontSize: 13,
     fontWeight: "700",
   },
@@ -668,8 +641,7 @@ const styles = StyleSheet.create({
   moduleEyebrow: {
     fontSize: 10,
     fontFamily: Fonts.mono,
-    textTransform: "uppercase",
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
   moduleTitle: {
     fontSize: 22,

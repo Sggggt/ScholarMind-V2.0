@@ -22,6 +22,8 @@ def capture_current_runtime_settings() -> dict[str, Any]:
         "openai_api_key": config.OPENAI_API_KEY,
         "openai_base_url": config.OPENAI_BASE_URL,
         "openai_model": config.OPENAI_MODEL,
+        "aider_python": getattr(config, "AIDER_PYTHON", ""),
+        "aider_exe": getattr(config, "AIDER_EXE", ""),
         "anthropic_api_key": config.ANTHROPIC_API_KEY,
         "anthropic_model": config.ANTHROPIC_MODEL,
         "search_provider": config.SEARCH_PROVIDER,
@@ -94,6 +96,14 @@ def get_openai_base_url() -> str:
 
 def get_openai_model() -> str:
     return str(current_runtime_settings().get("openai_model", config.OPENAI_MODEL)).strip()
+
+
+def get_aider_python() -> str:
+    return str(current_runtime_settings().get("aider_python", getattr(config, "AIDER_PYTHON", ""))).strip()
+
+
+def get_aider_exe() -> str:
+    return str(current_runtime_settings().get("aider_exe", getattr(config, "AIDER_EXE", ""))).strip()
 
 
 def get_search_provider() -> str:

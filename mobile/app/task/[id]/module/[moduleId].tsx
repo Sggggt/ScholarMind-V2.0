@@ -20,7 +20,7 @@ import {
   fetchReviewReportApi,
 } from "@/lib/api";
 import { useTaskContext } from "@/lib/task-store";
-import type { ModuleId, ModuleState } from "@/lib/types";
+import { MODULE_DESCRIPTIONS, MODULE_NAMES, TASK_STATUS_LABELS, type ModuleId, type ModuleState } from "@/lib/types";
 import {
   adaptM1Artifacts,
   adaptM2Artifacts,
@@ -50,41 +50,6 @@ import {
   ReviewCard,
 } from "@/components/ArtifactDisplay";
 
-const MODULE_LABELS: Record<ModuleId, string> = {
-  M1: "Literature Review",
-  M2: "Gap Analysis",
-  M3: "Idea Generation",
-  M4: "Code Generation",
-  M5: "Experiment Design",
-  M6: "Agent Runs",
-  M7: "Result Analysis",
-  M8: "Paper Writing",
-  M9: "Validation",
-};
-
-const MODULE_DESCRIPTIONS: Record<ModuleId, string> = {
-  M1: "Survey related work and collect the evidence base.",
-  M2: "Extract research gaps and unresolved opportunities.",
-  M3: "Generate, score, and compare candidate ideas.",
-  M4: "Produce the implementation and repository structure.",
-  M5: "Define the experiment plan and evaluation setup.",
-  M6: "Track orchestration and execution traces.",
-  M7: "Analyze results and summarize findings.",
-  M8: "Draft the paper and writing artifacts.",
-  M9: "Review the final output and risks.",
-};
-
-const STATUS_TONES = {
-  waiting: { color: "#867466", bg: "#f1ede8" },
-  pending: { color: "#867466", bg: "#f1ede8" },
-  running: { color: "#46664a", bg: "#e9f2ea" },
-  paused: { color: "#b36a11", bg: "#fff2df" },
-  review: { color: "#7a4f92", bg: "#f3ebf7" },
-  completed: { color: "#46664a", bg: "#e8f1e8" },
-  failed: { color: "#ba1a1a", bg: "#fdeceb" },
-  aborted: { color: "#6c655e", bg: "#ece8e4" },
-} as const;
-
 function getModuleState(taskModules: ModuleState[], moduleId: ModuleId): ModuleState {
   return (
     taskModules.find((module) => module.module_id === moduleId) ?? {
@@ -99,13 +64,27 @@ function getModuleState(taskModules: ModuleState[], moduleId: ModuleId): ModuleS
   );
 }
 
+function getStatusTones(colors: ReturnType<typeof useColors>, status: string) {
+  const tones = {
+    waiting: { color: colors.muted, bg: `${colors.muted}20` },
+    pending: { color: colors.muted, bg: `${colors.muted}20` },
+    running: { color: colors.primary, bg: `${colors.primary}20` },
+    paused: { color: colors.warning, bg: `${colors.warning}25` },
+    review: { color: "#7a4f92", bg: "#f3ebf7" },
+    completed: { color: colors.success, bg: `${colors.success}25` },
+    failed: { color: colors.error, bg: `${colors.error}15` },
+    aborted: { color: colors.muted, bg: `${colors.muted}15` },
+  } as const;
+  return tones[(status ?? "waiting") as keyof typeof tones] ?? tones.waiting;
+}
+
 export default function ModuleDetailScreen() {
   const colors = useColors();
   const { id, moduleId } = useLocalSearchParams<{ id: string; moduleId: ModuleId }>();
   const { state, loadTaskBundle } = useTaskContext();
   const task = state.currentTask?.id === id ? state.currentTask : null;
 
-  const safeModuleId = (moduleId && moduleId in MODULE_LABELS ? moduleId : "M1") as ModuleId;
+  const safeModuleId = (moduleId && moduleId in MODULE_NAMES ? moduleId : "M1") as ModuleId;
   const module = task ? getModuleState(task.modules, safeModuleId) : null;
 
   const [loadingArtifacts, setLoadingArtifacts] = useState(false);
@@ -125,7 +104,7 @@ export default function ModuleDetailScreen() {
       .slice(0, 20);
   }, [safeModuleId, state.logs]);
 
-  const tone = STATUS_TONES[(module?.status ?? "waiting") as keyof typeof STATUS_TONES] ?? STATUS_TONES.waiting;
+  const tone = getStatusTones(colors, module?.status ?? "waiting");
 
   useEffect(() => {
     if (!id) return;
@@ -143,7 +122,6 @@ export default function ModuleDetailScreen() {
     };
 
     void (async () => {
-      // Reset data
       setM1Data(null);
       setM2Data(null);
       setM4Data(null);
@@ -179,7 +157,7 @@ export default function ModuleDetailScreen() {
           setM4Data(adaptM4Artifacts(codeGenInfo));
         }
         if (!cancelled && tree.length) {
-          setRepoTree(tree.map((n: { kind: string; name: string }) => `${n.kind === "folder" ? "📁" : "📄"} ${n.name}`));
+          setRepoTree(tree.map((n: { kind: string; name: string }) => `${n.kind === "folder" ? "目录" : "文件"} · ${n.name}`));
         }
       }
 
@@ -235,17 +213,17 @@ export default function ModuleDetailScreen() {
         }
       >
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerIcon}>
+          <TouchableOpacity onPress={() => router.back()} style={[styles.headerIcon, { backgroundColor: colors.surface }]}>
             <MaterialIcons name="arrow-back" size={22} color={colors.foreground} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => (id ? void loadTaskBundle(id) : undefined)} style={styles.headerIcon}>
+          <TouchableOpacity onPress={() => (id ? void loadTaskBundle(id) : undefined)} style={[styles.headerIcon, { backgroundColor: colors.surface }]}>
             <MaterialIcons name="refresh" size={20} color={colors.foreground} />
           </TouchableOpacity>
         </View>
 
         <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.eyebrow, { color: colors.muted }]}>{safeModuleId}</Text>
-          <Text style={[styles.title, { color: colors.primary }]}>{MODULE_LABELS[safeModuleId]}</Text>
+          <Text style={[styles.title, { color: colors.primary }]}>{MODULE_NAMES[safeModuleId]}</Text>
           <Text style={[styles.description, { color: colors.foreground }]}>
             {MODULE_DESCRIPTIONS[safeModuleId]}
           </Text>
@@ -253,7 +231,7 @@ export default function ModuleDetailScreen() {
           <View style={styles.statusRow}>
             <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
               <Text style={[styles.statusBadgeText, { color: tone.color }]}>
-                {(module?.status ?? "waiting").toUpperCase()}
+                {TASK_STATUS_LABELS[(module?.status === "waiting" ? "pending" : module?.status ?? "pending") as keyof typeof TASK_STATUS_LABELS] ?? module?.status ?? "waiting"}
               </Text>
             </View>
             <Text style={[styles.percentText, { color: tone.color }]}>{module?.percent ?? 0}%</Text>
@@ -269,75 +247,69 @@ export default function ModuleDetailScreen() {
 
           {module?.step ? (
             <View style={styles.infoBlock}>
-              <Text style={[styles.infoLabel, { color: colors.muted }]}>Current Step</Text>
+              <Text style={[styles.infoLabel, { color: colors.muted }]}>当前步骤</Text>
               <Text style={[styles.infoValue, { color: colors.foreground }]}>{module.step}</Text>
             </View>
           ) : null}
         </View>
 
         {loadingArtifacts && (
-          <View style={styles.loadingCard}>
+          <View style={[styles.loadingCard, { backgroundColor: colors.surface }]}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={[styles.loadingText, { color: colors.muted }]}>Loading artifacts...</Text>
+            <Text style={[styles.loadingText, { color: colors.muted }]}>正在加载产物...</Text>
           </View>
         )}
 
-        {/* M1: Literature Review */}
         {safeModuleId === "M1" && m1Data && (
           <>
-            <SectionCard title="Overview" icon="summarize">
-              <Text style={[styles.summaryText, { color: colors.foreground }]}>{m1Data.summary || "No summary available."}</Text>
+            <SectionCard title="概览" icon="summarize">
+              <Text style={[styles.summaryText, { color: colors.foreground }]}>{m1Data.summary || "暂无摘要。"}</Text>
             </SectionCard>
 
             <SectionCard
-              title={`Papers (${m1Data.papers.length})`}
+              title={`论文列表（${m1Data.papers.length}）`}
               icon="library-books"
-              action={<Text style={[styles.countText, { color: colors.muted }]}>{m1Data.papers.length} sources</Text>}
+              action={<Text style={[styles.countText, { color: colors.muted }]}>{m1Data.papers.length} 篇</Text>}
             >
               {m1Data.papers.length > 0 ? (
                 m1Data.papers.map((paper) => <LiteratureCard key={paper.id} paper={paper} />)
               ) : (
-                <Text style={[styles.emptyText, { color: colors.muted }]}>No papers available yet.</Text>
+                <Text style={[styles.emptyText, { color: colors.muted }]}>暂时还没有论文数据。</Text>
               )}
             </SectionCard>
           </>
         )}
 
-        {/* M2: Gap Analysis */}
         {safeModuleId === "M2" && m2Data && (
-          <>
-            <SectionCard title="Research Gaps" icon="lightbulb">
-              {m2Data.gaps.length > 0 ? (
-                m2Data.gaps.map((gap) => <GapCard key={gap.id} gap={gap} />)
-              ) : (
-                <Text style={[styles.emptyText, { color: colors.muted }]}>No gaps identified yet.</Text>
-              )}
-            </SectionCard>
-          </>
+          <SectionCard title="研究空白" icon="lightbulb">
+            {m2Data.gaps.length > 0 ? (
+              m2Data.gaps.map((gap) => <GapCard key={gap.id} gap={gap} />)
+            ) : (
+              <Text style={[styles.emptyText, { color: colors.muted }]}>暂未识别出研究空白。</Text>
+            )}
+          </SectionCard>
         )}
 
-        {/* M3: Idea Generation */}
         {safeModuleId === "M3" && (
-          <SectionCard title="Idea Generation" icon="psychology">
+          <SectionCard title="想法生成" icon="psychology">
             <Text style={[styles.emptyText, { color: colors.muted }]}>
-              View and manage candidate ideas on the Idea Board.
+              候选想法请前往想法面板查看和管理。
             </Text>
             <TouchableOpacity
               onPress={() => router.push(`/task/${id}/ideas` as any)}
               style={[styles.primaryButton, { backgroundColor: colors.primary }]}
             >
-              <Text style={styles.primaryButtonText}>Open Idea Board</Text>
+              <Text style={styles.primaryButtonText}>打开想法面板</Text>
               <MaterialIcons name="arrow-forward" size={16} color="#ffffff" />
             </TouchableOpacity>
           </SectionCard>
         )}
 
-        {/* M4: Code Generation */}
         {safeModuleId === "M4" && m4Data && (
           <>
             <CodeGenCard info={m4Data} />
             {repoTree.length > 0 && (
-              <SectionCard title="Repository Structure" icon="folder">
+              <SectionCard title="仓库结构" icon="folder">
                 {repoTree.map((item, i) => (
                   <Text key={i} style={[styles.codeFileText, { color: colors.foreground }]}>{item}</Text>
                 ))}
@@ -346,19 +318,16 @@ export default function ModuleDetailScreen() {
           </>
         )}
 
-        {/* M5: Experiment Design */}
         {safeModuleId === "M5" && m5Data && <ExperimentPlanCard plan={m5Data} />}
 
-        {/* M6: Agent Runs */}
         {safeModuleId === "M6" && (
-          <SectionCard title="Agent Orchestration" icon="smart-toy">
+          <SectionCard title="Agent 编排" icon="smart-toy">
             <Text style={[styles.emptyText, { color: colors.muted }]}>
-              Agent runs are tracked in real-time. View logs below for execution traces.
+              Agent 运行过程会实时追踪，具体执行轨迹可在下方日志查看。
             </Text>
           </SectionCard>
         )}
 
-        {/* M7: Results Analysis */}
         {safeModuleId === "M7" && m7Data && m7Data.results && m7Data.results.length > 0 && (
           <>
             {m7Data.results.map((result, index) => (
@@ -367,31 +336,26 @@ export default function ModuleDetailScreen() {
           </>
         )}
 
-        {/* M8: Paper Writing */}
         {safeModuleId === "M8" && m8Data && (
-          <>
-            <SectionCard
-              title={`Paper (${m8Data.sections.length} sections)`}
-              icon="description"
-              action={<Text style={[styles.countText, { color: colors.muted }]}>~{m8Data.wordCount} words</Text>}
-            >
-              {m8Data.sections.map((section) => (
-                <PaperSectionCard key={section.id} section={section} />
-              ))}
-            </SectionCard>
-          </>
+          <SectionCard
+            title={`论文内容（${m8Data.sections.length} 节）`}
+            icon="description"
+            action={<Text style={[styles.countText, { color: colors.muted }]}>约 {m8Data.wordCount} 词</Text>}
+          >
+            {m8Data.sections.map((section) => (
+              <PaperSectionCard key={section.id} section={section} />
+            ))}
+          </SectionCard>
         )}
 
-        {/* M9: Validation */}
         {safeModuleId === "M9" && m9Data && <ReviewCard review={m9Data} />}
 
-        {/* Module Logs */}
         <SectionCard
-          title="Module Logs"
+          title="模块日志"
           icon="list-alt"
           action={
             <TouchableOpacity onPress={() => router.push(`/task/${id}/logs` as any)}>
-              <Text style={[styles.linkText, { color: colors.primary }]}>View All</Text>
+              <Text style={[styles.linkText, { color: colors.primary }]}>查看全部</Text>
             </TouchableOpacity>
           }
         >
@@ -405,7 +369,7 @@ export default function ModuleDetailScreen() {
               </View>
             ))
           ) : (
-            <Text style={[styles.emptyText, { color: colors.muted }]}>No logs for this module yet.</Text>
+            <Text style={[styles.emptyText, { color: colors.muted }]}>当前模块还没有日志。</Text>
           )}
         </SectionCard>
       </ScrollView>
@@ -430,7 +394,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.7)",
   },
   heroCard: {
     borderWidth: 1,
@@ -441,8 +404,7 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 10,
     fontFamily: Fonts.mono,
-    textTransform: "uppercase",
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
   },
   title: {
     fontSize: 34,
@@ -487,8 +449,7 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 10,
     fontFamily: Fonts.mono,
-    textTransform: "uppercase",
-    letterSpacing: 1.1,
+    letterSpacing: 0.8,
   },
   infoValue: {
     fontSize: 14,
@@ -504,7 +465,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 12,
     padding: 20,
-    backgroundColor: "#f9f9f9",
     borderRadius: 16,
   },
   loadingText: {
@@ -513,7 +473,6 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 13,
     lineHeight: 20,
-    fontStyle: "italic",
   },
   countText: {
     fontSize: 11,

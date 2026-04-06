@@ -15,11 +15,11 @@ import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useTaskContext } from "@/lib/task-store";
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, colors }: { label: string; value: string; colors: ReturnType<typeof useColors> }) {
   return (
-    <View style={styles.metricItem}>
-      <Text style={styles.metricLabel}>{label}</Text>
-      <Text style={styles.metricValue}>{value}</Text>
+    <View style={[styles.metricItem, { backgroundColor: `${colors.border}60` }]}>
+      <Text style={[styles.metricLabel, { color: colors.muted }]}>{label}</Text>
+      <Text style={[styles.metricValue, { color: colors.foreground }]}>{value}</Text>
     </View>
   );
 }
@@ -33,12 +33,12 @@ export default function IdeasScreen() {
 
   const headerDescription = useMemo(() => {
     if (state.ideas.status === "generating") {
-      return "系统仍在生成更多候选方案，已产出的结果也会先展示在这里。";
+      return "系统仍在生成更多候选方案，已产出的结果会先显示在这里。";
     }
     if (state.currentTask?.status === "paused" && state.currentTask?.current_module === "M3") {
-      return "M3 已暂停等待人工决策。选择一个 Idea 后，后端会从 M4 继续执行。";
+      return "M3 已暂停并等待人工决策。选择一个想法后，任务会从 M4 继续执行。";
     }
-    return "查看 M3 候选 Idea，并在需要时继续生成更多方案。";
+    return "查看 M3 生成的候选想法，并在需要时继续生成更多方案。";
   }, [state.currentTask?.current_module, state.currentTask?.status, state.ideas.status]);
 
   const handleContinue = async () => {
@@ -46,9 +46,9 @@ export default function IdeasScreen() {
     setContinuing(true);
     try {
       await continueIdeas(id);
-      Alert.alert("已提交", "后端正在继续生成更多 Idea。");
+      Alert.alert("已提交", "后端正在继续生成更多想法。");
     } catch (error) {
-      Alert.alert("操作失败", error instanceof Error ? error.message : "无法继续生成 Idea。");
+      Alert.alert("操作失败", error instanceof Error ? error.message : "无法继续生成想法。");
     } finally {
       setContinuing(false);
     }
@@ -59,11 +59,11 @@ export default function IdeasScreen() {
     setSubmittingId(String(ideaIndex));
     try {
       await selectIdea(id, ideaIndex);
-      Alert.alert("已推进到 M4", `已选择“${ideaTitle}”，任务将继续执行。`, [
+      Alert.alert("已进入 M4", `已选择“${ideaTitle}”，任务将继续向后执行。`, [
         { text: "返回详情", onPress: () => router.replace(`/task/${id}` as any) },
       ]);
     } catch (error) {
-      Alert.alert("选择失败", error instanceof Error ? error.message : "无法选择当前 Idea。");
+      Alert.alert("选择失败", error instanceof Error ? error.message : "无法选择当前想法。");
     } finally {
       setSubmittingId(null);
     }
@@ -81,8 +81,8 @@ export default function IdeasScreen() {
           </TouchableOpacity>
         </View>
 
-        <Text style={[styles.eyebrow, { color: colors.muted }]}>Idea Selection (M3)</Text>
-        <Text style={[styles.title, { color: colors.primary }]}>Select a Research Trajectory</Text>
+        <Text style={[styles.eyebrow, { color: colors.muted }]}>想法选择（M3）</Text>
+        <Text style={[styles.title, { color: colors.primary }]}>选择研究方向</Text>
         <Text style={[styles.description, { color: colors.foreground }]}>{headerDescription}</Text>
 
         {state.ideas.ideas.length === 0 ? (
@@ -93,10 +93,10 @@ export default function IdeasScreen() {
               <MaterialIcons name="lightbulb-outline" size={42} color={colors.muted} />
             )}
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-              {state.ideas.status === "generating" ? "正在生成 Idea" : "暂无候选 Idea"}
+              {state.ideas.status === "generating" ? "正在生成想法" : "暂无候选想法"}
             </Text>
             <Text style={[styles.emptyText, { color: colors.muted }]}>
-              {state.ideas.message || "后端一旦产出候选方案，这里会立即刷新。"}
+              {state.ideas.message || "后端一旦生成候选方案，这里会立即刷新显示。"}
             </Text>
           </View>
         ) : (
@@ -108,14 +108,14 @@ export default function IdeasScreen() {
               <View style={styles.ideaHeader}>
                 <View style={styles.ideaTitleWrap}>
                   {idea.recommended ? (
-                    <View style={styles.recommendedBadge}>
-                      <Text style={styles.recommendedBadgeText}>推荐</Text>
+                    <View style={[styles.recommendedBadge, { backgroundColor: `${colors.warning}25` }]}>
+                      <Text style={[styles.recommendedBadgeText, { color: colors.warning }]}>推荐</Text>
                     </View>
                   ) : null}
                   <Text style={[styles.ideaTitle, { color: colors.foreground }]}>{idea.title}</Text>
                 </View>
                 <View style={styles.scoreWrap}>
-                  <Text style={[styles.scoreEyebrow, { color: colors.muted }]}>SCORE</Text>
+                  <Text style={[styles.scoreEyebrow, { color: colors.muted }]}>评分</Text>
                   <Text style={[styles.scoreValue, { color: colors.primary }]}>
                     {idea.overallScore.toFixed(1)}
                   </Text>
@@ -125,10 +125,10 @@ export default function IdeasScreen() {
               <Text style={[styles.ideaPremise, { color: colors.foreground }]}>{idea.premise}</Text>
 
               <View style={styles.metricGrid}>
-                <Metric label="创新" value={idea.innovation.toFixed(1)} />
-                <Metric label="可行" value={idea.feasibility.toFixed(1)} />
-                <Metric label="证据" value={idea.evidenceStrength.toFixed(1)} />
-                <Metric label="风险" value={idea.risk.toFixed(1)} />
+                <Metric label="创新性" value={idea.innovation.toFixed(1)} colors={colors} />
+                <Metric label="可行性" value={idea.feasibility.toFixed(1)} colors={colors} />
+                <Metric label="证据强度" value={idea.evidenceStrength.toFixed(1)} colors={colors} />
+                <Metric label="风险" value={idea.risk.toFixed(1)} colors={colors} />
               </View>
 
               <TouchableOpacity
@@ -140,7 +140,7 @@ export default function IdeasScreen() {
                   <ActivityIndicator color="#ffffff" />
                 ) : (
                   <>
-                    <Text style={styles.selectButtonText}>选择该 Idea 并推进</Text>
+                    <Text style={styles.selectButtonText}>选择此想法并继续</Text>
                     <MaterialIcons name="arrow-forward" size={18} color="#ffffff" />
                   </>
                 )}
@@ -160,7 +160,7 @@ export default function IdeasScreen() {
             <>
               <MaterialIcons name="refresh" size={18} color={colors.primary} />
               <Text style={[styles.continueButtonText, { color: colors.primary }]}>
-                Continue generating more ideas
+                继续生成更多想法
               </Text>
             </>
           )}
@@ -191,8 +191,7 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 10,
     fontFamily: Fonts.mono,
-    textTransform: "uppercase",
-    letterSpacing: 1.8,
+    letterSpacing: 1.2,
   },
   title: {
     fontSize: 34,
@@ -239,12 +238,10 @@ const styles = StyleSheet.create({
   recommendedBadge: {
     alignSelf: "flex-start",
     borderRadius: 999,
-    backgroundColor: "#fff2df",
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   recommendedBadgeText: {
-    color: "#b36a11",
     fontSize: 11,
     fontWeight: "700",
     fontFamily: Fonts.mono,
@@ -278,7 +275,6 @@ const styles = StyleSheet.create({
   },
   metricItem: {
     minWidth: "47%",
-    backgroundColor: "#f1f4f1",
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -287,13 +283,10 @@ const styles = StyleSheet.create({
   metricLabel: {
     fontSize: 10,
     fontFamily: Fonts.mono,
-    color: "#6c655e",
-    textTransform: "uppercase",
-    letterSpacing: 1.2,
+    letterSpacing: 0.6,
   },
   metricValue: {
     fontSize: 16,
-    color: "#181c1b",
     fontWeight: "800",
   },
   selectButton: {

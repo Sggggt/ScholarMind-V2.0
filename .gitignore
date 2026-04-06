@@ -13,6 +13,7 @@ frontend/dist/
 
 # Backend
 backend/venv/
+backend/.venv-aider-py311/
 backend/workspace/
 backend/repos/
 backend/static/

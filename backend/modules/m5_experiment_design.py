@@ -8,43 +8,26 @@ from __future__ import annotations
 核心依赖: AI-Scientist perform_experiments.py
 """
 
-import asyncio
 import json
 import os
 import shutil
 
+import config
+from modules.aider_runner import check_aider_available, run_aider_prompt
 from modules.base import BaseModule
 from modules.ai_scientist_bridge import (
     create_async_client_zhipu,
     get_response_from_llm_async,
     extract_json_between_markers,
 )
-from modules.experiment_guard import is_valid_python_file, rewrite_experiment_with_llm, validate_experiment_file
+from modules.experiment_guard import (
+    build_fallback_experiment_code,
+    is_valid_python_file,
+    rewrite_experiment_with_llm,
+    validate_experiment_file,
+)
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
-import config
-from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
-
-
-def _aider_available() -> bool:
-    """检查 Aider 是否可用"""
-    # 先检查 OpenAI 版本兼容性 - Aider 需要 openai < 1.0
-    try:
-        import openai
-        # 如果是新版 OpenAI SDK (>=1.0)，api_base 属性不存在，Aider 不可用
-        if not hasattr(openai, 'api_base'):
-            return False
-    except ImportError:
-        pass
-    # 尝试导入 Aider
-    try:
-        import importlib
-        importlib.import_module('aider.coders')
-        importlib.import_module('aider.models')
-        importlib.import_module('aider.io')
-        return True
-    except (ImportError, AttributeError):
-        return False
 
 # AI-Scientist 的实验 prompt (共享常量，M6 也会引用)
 CODER_PROMPT = """Your goal is to implement the following idea: {title}.
@@ -69,6 +52,19 @@ class ExperimentDesignModule(BaseModule):
     name = "实验设计"
 
     MAX_RUNS = 5
+
+    async def _write_fallback_experiment(
+        self,
+        experiment_path: str,
+        idea_title: str,
+        idea_experiment: str,
+        tracer: Tracer,
+        reason: str,
+    ) -> None:
+        code = build_fallback_experiment_code(idea_title, idea_experiment)
+        with open(experiment_path, "w", encoding="utf-8") as handle:
+            handle.write(code)
+        await tracer.log(5, "implement_experiments", f"使用本地 fallback experiment.py: {reason}", level="warn")
 
     async def execute(self, context: dict, tracer: Tracer, state: TaskStateMachine) -> dict:
         best_idea = context.get("best_idea", {})
@@ -115,10 +111,21 @@ class ExperimentDesignModule(BaseModule):
 
         experiment_path = os.path.join(project_dir, "experiment.py")
         used_llm_rewrite = False
+        aider_status = await check_aider_available()
+        full_prompt = CODER_PROMPT.format(
+            title=idea_title,
+            idea=idea_experiment,
+            max_runs=self.MAX_RUNS,
+            baseline_results=json.dumps(baseline_results, indent=2),
+        )
 
-        if not _aider_available():
-            await tracer.log(5, "implement_experiments",
-                             "Aider 不可用，改为 LLM 全量重写 experiment.py", level="warn")
+        if not aider_status.available:
+            await tracer.log(
+                5,
+                "implement_experiments",
+                f"Aider 不可用，改为 LLM 全量重写 experiment.py: {aider_status.detail}",
+                level="warn",
+            )
             code = await rewrite_experiment_with_llm(
                 idea_title=idea_title,
                 idea_experiment=idea_experiment,
@@ -130,35 +137,17 @@ class ExperimentDesignModule(BaseModule):
             used_llm_rewrite = True
         else:
             try:
-                from aider.coders import Coder
-                from aider.models import Model
-                from aider.io import InputOutput
-
-                os.environ["OPENAI_API_KEY"] = get_openai_api_key()
-                os.environ["OPENAI_API_BASE"] = get_openai_base_url()
-
-                aider_model = Model(f"openai/{get_openai_model()}")
-                io = InputOutput(yes=True)
-                fnames = [os.path.join(project_dir, "experiment.py")]
-
-                coder = Coder.create(
-                    main_model=aider_model,
-                    fnames=fnames,
-                    io=io,
-                    stream=False,
-                    use_git=True,
+                result = await run_aider_prompt(
+                    prompt=full_prompt,
+                    files=[experiment_path],
+                    cwd=project_dir,
                     edit_format="diff",
+                    timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
                 )
-
-                # 发送完整实验计划给 Aider (使用 asyncio.to_thread 包装同步调用)
-                full_prompt = CODER_PROMPT.format(
-                    title=idea_title,
-                    idea=idea_experiment,
-                    max_runs=self.MAX_RUNS,
-                    baseline_results=json.dumps(baseline_results, indent=2),
-                )
-                coder_out = await asyncio.to_thread(coder.run, full_prompt)
-                await tracer.log(5, "implement_experiments", "Aider 完成实验代码修改")
+                if result.ok:
+                    await tracer.log(5, "implement_experiments", "Aider 完成实验代码修改")
+                else:
+                    raise RuntimeError(result.output or result.detail)
 
             except Exception as e:
                 await tracer.log(5, "implement_experiments",
@@ -191,6 +180,15 @@ class ExperimentDesignModule(BaseModule):
             used_llm_rewrite = True
 
         if not is_valid_python_file(experiment_path):
+            await self._write_fallback_experiment(
+                experiment_path,
+                idea_title,
+                idea_experiment,
+                tracer,
+                "LLM/Aider 结果不是有效 Python",
+            )
+
+        if not is_valid_python_file(experiment_path):
             raise RuntimeError("M5 generated experiment.py is not valid Python")
 
         validation = validate_experiment_file(experiment_path, idea_title, idea_experiment)
@@ -210,11 +208,28 @@ class ExperimentDesignModule(BaseModule):
             with open(experiment_path, "w", encoding="utf-8") as handle:
                 handle.write(code)
             if not is_valid_python_file(experiment_path):
-                raise RuntimeError("M5 LLM rewrite produced invalid Python")
+                await self._write_fallback_experiment(
+                    experiment_path,
+                    idea_title,
+                    idea_experiment,
+                    tracer,
+                    "LLM 全量重写后仍然不是有效 Python",
+                )
+                if not is_valid_python_file(experiment_path):
+                    raise RuntimeError("M5 fallback experiment.py is not valid Python")
             validation = validate_experiment_file(experiment_path, idea_title, idea_experiment)
 
         if not validation.ok:
-            raise RuntimeError(f"M5 experiment gate failed: {validation.summary()}")
+            await self._write_fallback_experiment(
+                experiment_path,
+                idea_title,
+                idea_experiment,
+                tracer,
+                f"静态门禁失败: {validation.summary()}",
+            )
+            validation = validate_experiment_file(experiment_path, idea_title, idea_experiment)
+            if not validation.ok:
+                raise RuntimeError(f"M5 experiment gate failed: {validation.summary()}")
         await tracer.log(5, "implement_experiments", "experiment.py 通过静态门禁")
 
         # ── 保存产出 ──

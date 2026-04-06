@@ -1,5 +1,4 @@
-// Visual components for displaying artifact content on mobile
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from "react-native";
+import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import React from "react";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useColors } from "@/hooks/use-colors";
@@ -14,7 +13,6 @@ import type {
   ValidationReview,
 } from "@/lib/artifact-types";
 
-// Common UI components
 export function SectionCard({
   title,
   icon,
@@ -67,55 +65,86 @@ export function InfoRow({ label, value, icon }: { label: string; value: string; 
   );
 }
 
-// M1: Literature Display
 export function LiteratureCard({ paper }: { paper: PaperRecord }) {
   const colors = useColors();
+  const hasUrl = Boolean(paper.url);
+
+  const handleOpenPaper = async () => {
+    if (!paper.url) return;
+    try {
+      const supported = await Linking.canOpenURL(paper.url);
+      if (supported) {
+        await Linking.openURL(paper.url);
+      }
+    } catch {
+      // Ignore URL open failures.
+    }
+  };
 
   return (
-    <View style={[styles.paperCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <TouchableOpacity
+      activeOpacity={hasUrl ? 0.88 : 1}
+      disabled={!hasUrl}
+      onPress={() => void handleOpenPaper()}
+      style={[styles.paperCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
       <View style={styles.paperHeader}>
         <View style={styles.paperSourceWrap}>
           <Text style={[styles.paperSource, { color: colors.primary }]}>{paper.source}</Text>
           <Text style={[styles.paperYear, { color: colors.muted }]}>· {paper.year}</Text>
         </View>
-        {paper.citations > 0 && (
-          <View style={[styles.citationBadge, { backgroundColor: "#f1f4f1" }]}>
-            <MaterialIcons name="format-quote" size={12} color="#46664a" />
-            <Text style={styles.citationText}>{paper.citations}</Text>
-          </View>
-        )}
+        <View style={styles.paperHeaderRight}>
+          {paper.citations > 0 && (
+            <View style={[styles.citationBadge, { backgroundColor: `${colors.success}20` }]}>
+              <MaterialIcons name="format-quote" size={12} color={colors.success} />
+              <Text style={[styles.citationText, { color: colors.success }]}>{paper.citations}</Text>
+            </View>
+          )}
+          {hasUrl ? <MaterialIcons name="open-in-new" size={16} color={colors.primary} /> : null}
+        </View>
       </View>
       <Text style={[styles.paperTitle, { color: colors.foreground }]} numberOfLines={3}>
         {paper.title}
       </Text>
-      <Text style={[styles.paperAuthors, { color: colors.muted }]} numberOfLines={1}>
-        {paper.authors}
+      <Text style={[styles.paperMetaLabel, { color: colors.muted }]}>{`\u4f5c\u8005`}</Text>
+      <Text style={[styles.paperAuthors, { color: colors.foreground }]} numberOfLines={3}>
+        {paper.authors || "\u6682\u65e0\u4f5c\u8005\u4fe1\u606f"}
       </Text>
-      <Text style={[styles.paperAbstract, { color: colors.foreground }]} numberOfLines={3}>
-        {paper.abstract}
+      <Text style={[styles.paperMetaLabel, { color: colors.muted }]}>{`\u6458\u8981`}</Text>
+      <Text style={[styles.paperAbstract, { color: colors.foreground }]} numberOfLines={8}>
+        {paper.abstract || "\u6682\u65e0\u6458\u8981"}
       </Text>
-    </View>
+      {paper.url ? (
+        <View style={[styles.paperLinkRow, { borderTopColor: colors.border }]}>
+          <MaterialIcons name="link" size={14} color={colors.primary} />
+          <Text style={[styles.paperLinkText, { color: colors.primary }]} numberOfLines={1}>
+            {paper.url}
+          </Text>
+        </View>
+      ) : null}
+    </TouchableOpacity>
   );
 }
 
-// M2: Gap Display
 export function GapCard({ gap }: { gap: ResearchGap }) {
   const colors = useColors();
 
-  const impactColors = {
-    high: "#fdeceb",
-    medium: "#fff2df",
-    low: "#e9f2ea",
+  const getImpactColors = () => {
+    switch (gap.impact) {
+      case "high":
+        return { bg: `${colors.error}15`, text: colors.error };
+      case "medium":
+        return { bg: `${colors.warning}25`, text: colors.warning };
+      case "low":
+        return { bg: `${colors.success}25`, text: colors.success };
+      default:
+        return { bg: `${colors.warning}25`, text: colors.warning };
+    }
   };
 
-  const impactTextColors = {
-    high: "#ba1a1a",
-    medium: "#b36a11",
-    low: "#46664a",
-  };
-
-  const bgColor = impactColors[gap.impact as keyof typeof impactColors] || impactColors.medium;
-  const textColor = impactTextColors[gap.impact as keyof typeof impactTextColors] || impactTextColors.medium;
+  const impactColors = getImpactColors();
+  const impactLabel =
+    gap.impact === "high" ? "高影响" : gap.impact === "medium" ? "中影响" : "低影响";
 
   return (
     <View style={[styles.gapCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -123,10 +152,8 @@ export function GapCard({ gap }: { gap: ResearchGap }) {
         <Text style={[styles.gapTitle, { color: colors.foreground }]} numberOfLines={2}>
           {gap.title}
         </Text>
-        <View style={[styles.gapBadge, { backgroundColor: bgColor }]}>
-          <Text style={[styles.gapBadgeText, { color: textColor }]}>
-            {gap.impact.toUpperCase()} IMPACT
-          </Text>
+        <View style={[styles.gapBadge, { backgroundColor: impactColors.bg }]}>
+          <Text style={[styles.gapBadgeText, { color: impactColors.text }]}>{impactLabel}</Text>
         </View>
       </View>
       <Text style={[styles.gapDescription, { color: colors.muted }]} numberOfLines={3}>
@@ -143,23 +170,22 @@ export function GapCard({ gap }: { gap: ResearchGap }) {
   );
 }
 
-// M5: Experiment Plan Display
 export function ExperimentPlanCard({ plan }: { plan: ExperimentPlan }) {
   const colors = useColors();
 
   return (
     <View style={[styles.planCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.planSection}>
-        <Text style={[styles.planSectionTitle, { color: colors.primary }]}>Core Setup</Text>
-        <InfoRow label="Dataset" value={plan.dataset} icon="storage" />
-        <InfoRow label="Model" value={plan.model} icon="memory" />
-        <InfoRow label="Baseline" value={plan.baseline} icon="timeline" />
+        <Text style={[styles.planSectionTitle, { color: colors.primary }]}>核心设置</Text>
+        <InfoRow label="数据集" value={plan.dataset} icon="storage" />
+        <InfoRow label="模型" value={plan.model} icon="memory" />
+        <InfoRow label="基线" value={plan.baseline} icon="timeline" />
       </View>
 
       <View style={styles.planDivider} />
 
       <View style={styles.planSection}>
-        <Text style={[styles.planSectionTitle, { color: colors.primary }]}>Evaluation Metrics</Text>
+        <Text style={[styles.planSectionTitle, { color: colors.primary }]}>评估指标</Text>
         <View style={styles.metricsRow}>
           {plan.metrics.map((metric, i) => (
             <MetricPill key={i} label={metric} value="-" />
@@ -170,7 +196,7 @@ export function ExperimentPlanCard({ plan }: { plan: ExperimentPlan }) {
       <View style={styles.planDivider} />
 
       <View style={styles.planSection}>
-        <Text style={[styles.planSectionTitle, { color: colors.primary }]}>Hypothesis</Text>
+        <Text style={[styles.planSectionTitle, { color: colors.primary }]}>研究假设</Text>
         <Text style={[styles.planText, { color: colors.foreground }]}>{plan.hypothesis}</Text>
       </View>
 
@@ -178,11 +204,15 @@ export function ExperimentPlanCard({ plan }: { plan: ExperimentPlan }) {
         <>
           <View style={styles.planDivider} />
           <View style={styles.planSection}>
-            <Text style={[styles.planSectionTitle, { color: colors.primary }]}>Experiments</Text>
+            <Text style={[styles.planSectionTitle, { color: colors.primary }]}>实验设计</Text>
             {plan.experiments.map((exp, i) => (
               <View key={i} style={[styles.experimentItem, { backgroundColor: colors.border }]}>
-                <Text style={[styles.experimentName, { color: colors.foreground }]} numberOfLines={1}>{exp.name}</Text>
-                <Text style={[styles.experimentDesc, { color: colors.muted }]} numberOfLines={3} ellipsizeMode="tail">{exp.description}</Text>
+                <Text style={[styles.experimentName, { color: colors.foreground }]} numberOfLines={1}>
+                  {exp.name}
+                </Text>
+                <Text style={[styles.experimentDesc, { color: colors.muted }]} numberOfLines={3} ellipsizeMode="tail">
+                  {exp.description}
+                </Text>
               </View>
             ))}
           </View>
@@ -192,23 +222,20 @@ export function ExperimentPlanCard({ plan }: { plan: ExperimentPlan }) {
   );
 }
 
-// M7: Results Display
-export function ResultCard({ result, id }: { result: ExperimentResult; id?: string }) {
+export function ResultCard({ result }: { result: ExperimentResult; id?: string }) {
   const colors = useColors();
+
+  const statusColor = result.passed ? colors.success : colors.error;
+  const statusBg = result.passed ? `${colors.success}25` : `${colors.error}15`;
 
   return (
     <View style={[styles.resultCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <View style={styles.resultHeader}>
         <Text style={[styles.resultLabel, { color: colors.foreground }]}>{result.label}</Text>
-        <View
-          style={[
-            styles.resultStatus,
-            { backgroundColor: result.passed ? "#e9f2ea" : "#fdeceb" },
-          ]}
-        >
-          <MaterialIcons name={result.passed ? "check-circle" : "error"} size={16} color={result.passed ? "#46664a" : "#ba1a1a"} />
-          <Text style={[styles.resultStatusText, { color: result.passed ? "#46664a" : "#ba1a1a" }]}>
-            {result.passed ? "PASSED" : "FAILED"}
+        <View style={[styles.resultStatus, { backgroundColor: statusBg }]}>
+          <MaterialIcons name={result.passed ? "check-circle" : "error"} size={16} color={statusColor} />
+          <Text style={[styles.resultStatusText, { color: statusColor }]}>
+            {result.passed ? "通过" : "未通过"}
           </Text>
         </View>
       </View>
@@ -228,7 +255,7 @@ export function ResultCard({ result, id }: { result: ExperimentResult; id?: stri
 
       {result.keyFindings && result.keyFindings.length > 0 && (
         <View style={styles.resultFindings}>
-          <Text style={[styles.resultFindingsTitle, { color: colors.primary }]}>Key Findings</Text>
+          <Text style={[styles.resultFindingsTitle, { color: colors.primary }]}>关键发现</Text>
           {result.keyFindings.map((finding, i) => (
             <View key={i} style={styles.findingItem}>
               <MaterialIcons name="arrow-right" size={14} color={colors.primary} />
@@ -241,19 +268,18 @@ export function ResultCard({ result, id }: { result: ExperimentResult; id?: stri
   );
 }
 
-// M4: Code Gen Display
 export function CodeGenCard({ info }: { info: CodeGenInfo }) {
   const colors = useColors();
 
   return (
     <View style={[styles.codeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <InfoRow label="Repository" value={info.repo_path} icon="folder" />
-      <InfoRow label="Files Generated" value={String(info.main_files.length)} icon="code" />
+      <InfoRow label="仓库路径" value={info.repo_path} icon="folder" />
+      <InfoRow label="生成文件数" value={String(info.main_files.length)} icon="code" />
       <Text style={[styles.codeDesc, { color: colors.muted }]}>{info.description}</Text>
 
       {info.main_files.length > 0 && (
         <View style={styles.fileList}>
-          <Text style={[styles.fileListTitle, { color: colors.primary }]}>Main Files</Text>
+          <Text style={[styles.fileListTitle, { color: colors.primary }]}>主要文件</Text>
           {info.main_files.map((file, i) => (
             <View key={i} style={styles.fileItem}>
               <MaterialIcons name="insert-drive-file" size={16} color={colors.muted} />
@@ -266,7 +292,6 @@ export function CodeGenCard({ info }: { info: CodeGenInfo }) {
   );
 }
 
-// M8: Paper Section Display
 export function PaperSectionCard({ section }: { section: WritingSection }) {
   const colors = useColors();
 
@@ -278,32 +303,40 @@ export function PaperSectionCard({ section }: { section: WritingSection }) {
   );
 }
 
-// M9: Review Display
 export function ReviewCard({ review }: { review: ValidationReview }) {
   const colors = useColors();
-  const decisionColors = {
-    Accept: "#e9f2ea",
-    Revise: "#fff2df",
-    Reject: "#fdeceb",
-    Pending: "#f1ede8",
+
+  const getDecisionColors = () => {
+    switch (review.decision) {
+      case "Accept":
+        return { bg: `${colors.success}25`, text: colors.success, label: "通过" };
+      case "Revise":
+        return { bg: `${colors.warning}25`, text: colors.warning, label: "需修改" };
+      case "Reject":
+        return { bg: `${colors.error}15`, text: colors.error, label: "拒绝" };
+      case "Pending":
+        return { bg: `${colors.muted}20`, text: colors.muted, label: "待定" };
+      default:
+        return { bg: `${colors.muted}20`, text: colors.muted, label: "待定" };
+    }
   };
 
-  const bgColor = decisionColors[review.decision as keyof typeof decisionColors] || decisionColors.Pending;
+  const decisionColors = getDecisionColors();
 
   return (
     <View style={[styles.reviewCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-      <View style={[styles.reviewDecision, { backgroundColor: bgColor }]}>
-        <Text style={[styles.reviewDecisionText, { color: colors.foreground }]}>{review.decision.toUpperCase()}</Text>
+      <View style={[styles.reviewDecision, { backgroundColor: decisionColors.bg }]}>
+        <Text style={[styles.reviewDecisionText, { color: decisionColors.text }]}>{decisionColors.label}</Text>
       </View>
 
       <Text style={[styles.reviewSummary, { color: colors.foreground }]}>{review.summary}</Text>
 
       {review.strengths.length > 0 && (
         <View style={styles.reviewSection}>
-          <Text style={[styles.reviewSectionTitle, { color: colors.primary }]}>Strengths</Text>
+          <Text style={[styles.reviewSectionTitle, { color: colors.primary }]}>优点</Text>
           {review.strengths.map((s, i) => (
             <View key={i} style={styles.reviewItem}>
-              <MaterialIcons name="check-circle" size={14} color="#46664a" />
+              <MaterialIcons name="check-circle" size={14} color={colors.success} />
               <Text style={[styles.reviewItemText, { color: colors.foreground }]}>{s}</Text>
             </View>
           ))}
@@ -312,10 +345,10 @@ export function ReviewCard({ review }: { review: ValidationReview }) {
 
       {review.weaknesses.length > 0 && (
         <View style={styles.reviewSection}>
-          <Text style={[styles.reviewSectionTitle, { color: colors.primary }]}>Weaknesses</Text>
+          <Text style={[styles.reviewSectionTitle, { color: colors.primary }]}>不足</Text>
           {review.weaknesses.map((w, i) => (
             <View key={i} style={styles.reviewItem}>
-              <MaterialIcons name="error" size={14} color="#ba1a1a" />
+              <MaterialIcons name="error" size={14} color={colors.error} />
               <Text style={[styles.reviewItemText, { color: colors.foreground }]}>{w}</Text>
             </View>
           ))}
@@ -324,10 +357,10 @@ export function ReviewCard({ review }: { review: ValidationReview }) {
 
       {review.questions.length > 0 && (
         <View style={styles.reviewSection}>
-          <Text style={[styles.reviewSectionTitle, { color: colors.primary }]}>Questions</Text>
+          <Text style={[styles.reviewSectionTitle, { color: colors.primary }]}>问题</Text>
           {review.questions.map((q, i) => (
             <View key={i} style={styles.reviewItem}>
-              <MaterialIcons name="help" size={14} color="#b36a11" />
+              <MaterialIcons name="help" size={14} color={colors.warning} />
               <Text style={[styles.reviewItemText, { color: colors.foreground }]}>{q}</Text>
             </View>
           ))}
@@ -397,7 +430,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "right",
   },
-  // Paper Card
   paperCard: {
     borderWidth: 1,
     borderRadius: 16,
@@ -408,6 +440,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  paperHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   paperSourceWrap: {
     flexDirection: "row",
@@ -432,21 +469,39 @@ const styles = StyleSheet.create({
   citationText: {
     fontSize: 11,
     fontWeight: "700",
-    color: "#46664a",
   },
   paperTitle: {
     fontSize: 15,
     fontWeight: "700",
     lineHeight: 20,
   },
+  paperMetaLabel: {
+    fontSize: 10,
+    fontFamily: Fonts.mono,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
   paperAuthors: {
     fontSize: 12,
+    lineHeight: 18,
   },
   paperAbstract: {
     fontSize: 13,
     lineHeight: 20,
   },
-  // Gap Card
+  paperLinkRow: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  paperLinkText: {
+    flex: 1,
+    fontSize: 11,
+    fontFamily: Fonts.mono,
+  },
   gapCard: {
     borderWidth: 1,
     borderRadius: 16,
@@ -492,7 +547,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "600",
   },
-  // Experiment Plan Card
   planCard: {
     borderWidth: 1,
     borderRadius: 18,
@@ -534,7 +588,6 @@ const styles = StyleSheet.create({
   experimentDesc: {
     fontSize: 12,
   },
-  // Result Card
   resultCard: {
     borderWidth: 1,
     borderRadius: 18,
@@ -600,7 +653,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
   },
-  // Code Gen Card
   codeCard: {
     borderWidth: 1,
     borderRadius: 18,
@@ -629,7 +681,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: Fonts.mono,
   },
-  // Paper Section Card
   paperSectionCard: {
     borderWidth: 1,
     borderRadius: 16,
@@ -644,7 +695,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
-  // Review Card
   reviewCard: {
     borderWidth: 1,
     borderRadius: 18,

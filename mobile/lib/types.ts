@@ -202,32 +202,32 @@ export const MODULE_SEQUENCE: ModuleId[] = [
 export const MODULE_NAMES: Record<ModuleId, string> = {
   M1: "文献调研",
   M2: "研究空白",
-  M3: "Idea 生成",
+  M3: "想法生成",
   M4: "代码生成",
   M5: "实验设计",
-  M6: "Agent 实验",
+  M6: "Agent 运行",
   M7: "结果分析",
   M8: "论文写作",
-  M9: "评审打分",
+  M9: "评审验证",
 };
 
 export const MODULE_DESCRIPTIONS: Record<ModuleId, string> = {
-  M1: "汇总当前主题的文献综述与证据来源。",
-  M2: "提炼尚未被充分回答的问题与研究缺口。",
-  M3: "生成候选研究 Idea，并等待人工决策。",
-  M4: "基于选定 Idea 继续推进代码与实验。",
-  M5: "规划实验方案和评测设置。",
-  M6: "执行自动化实验与代理协作。",
-  M7: "分析结果、失败案例与结论。",
+  M1: "梳理相关工作并汇总证据基础。",
+  M2: "提炼尚未充分回答的研究问题与空白。",
+  M3: "生成候选研究想法并等待人工决策。",
+  M4: "围绕选定想法继续推进代码与实现。",
+  M5: "规划实验方案与评测设置。",
+  M6: "跟踪自动化执行与 Agent 协作过程。",
+  M7: "分析实验结果、失败案例与结论。",
   M8: "生成论文草稿与写作产物。",
-  M9: "输出评审与整体质量评分。",
+  M9: "完成最终评审与整体质量检查。",
 };
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  pending: "等待中",
-  running: "运行中",
+  pending: "待开始",
+  running: "进行中",
   paused: "已暂停",
-  review: "待审阅",
+  review: "待评审",
   completed: "已完成",
   failed: "失败",
   aborted: "已终止",
@@ -240,3 +240,38 @@ export const DEFAULT_IDEAS_STATE: TaskIdeasState = {
   bestIdeaIndex: 0,
   message: "",
 };
+
+export type DiscoveryStatus = "idle" | "scanning" | "stopped" | "error";
+
+export interface DiscoveredDevice {
+  name: string;
+  host: string;
+  addresses: string[];
+  port: number;
+  deviceId: string;
+  fingerprint: string;
+  fullName: string;
+  url: string;
+  displayName: string;
+  apiPath?: string;
+  wsPath?: string;
+  healthPath?: string;
+  role?: string;
+  version?: string;
+}
+
+export interface SavedBackendSelection {
+  url: string;
+  source: "mdns" | "manual";
+  deviceId?: string;
+  displayName: string;
+  host?: string;
+  port?: number;
+  lastSeenAt: string;
+}
+
+export interface DiscoveryState {
+  status: DiscoveryStatus;
+  devices: DiscoveredDevice[];
+  error?: string;
+}

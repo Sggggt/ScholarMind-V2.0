@@ -12,6 +12,10 @@ from fastapi import Request
 
 import config
 
+API_BASE_PATH = "/api"
+WS_BASE_PATH = "/api/ws"
+HEALTH_PATH = "/api/health"
+
 
 @dataclass(frozen=True)
 class ConnectionAddress:
@@ -73,10 +77,10 @@ def _is_public_host(hostname: str) -> bool:
 def _http_to_ws(url: str) -> str:
     normalized = _normalize_base_url(url)
     if normalized.startswith("https://"):
-        return f"wss://{normalized.removeprefix('https://')}/ws"
+        return f"wss://{normalized.removeprefix('https://')}{WS_BASE_PATH}"
     if normalized.startswith("http://"):
-        return f"ws://{normalized.removeprefix('http://')}/ws"
-    return f"{normalized}/ws"
+        return f"ws://{normalized.removeprefix('http://')}{WS_BASE_PATH}"
+    return f"{normalized}{WS_BASE_PATH}"
 
 
 def _build_base_url(scheme: str, hostname: str, port: int | None) -> str:
@@ -221,9 +225,9 @@ def build_connection_info(request: Request | None = None, mobile_connection_coun
     return {
         "host": config.HOST,
         "port": config.PORT,
-        "api_base_path": "/api",
-        "ws_base_path": "/ws",
-        "health_path": "/api/health",
+        "api_base_path": API_BASE_PATH,
+        "ws_base_path": WS_BASE_PATH,
+        "health_path": HEALTH_PATH,
         "public_base_url": configured_public,
         "lan_urls": [asdict(address) for address in lan_urls],
         "public_urls": [asdict(address) for address in public_urls],

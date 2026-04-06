@@ -28,6 +28,7 @@ DEFAULT_LOCAL_LLM_SERVER_URL = "http://127.0.0.1:1234/v1"
 DEFAULT_LOCAL_LLM_MODEL = "local-gguf"
 DEFAULT_LOCAL_LLM_CONTEXT_SIZE = 4096
 DEFAULT_LOCAL_LLM_GPU_LAYERS = 0
+DEFAULT_AIDER_VENV_NAME = ".venv-aider-py311"
 LOCAL_GGUF_PROVIDER = "local-gguf"
 
 
@@ -83,6 +84,20 @@ def _normalize_base_url(url: str, fallback: str) -> str:
     return normalized
 
 
+def _normalize_path(value: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        return ""
+    return str(Path(normalized).expanduser())
+
+
+def default_aider_python_path() -> str:
+    venv_dir = BASE_DIR / DEFAULT_AIDER_VENV_NAME
+    if os.name == "nt":
+        return str(venv_dir / "Scripts" / "python.exe")
+    return str(venv_dir / "bin" / "python")
+
+
 def is_local_gguf_provider(provider: str | None = None) -> bool:
     return (provider or LLM_PROVIDER).strip().lower() == LOCAL_GGUF_PROVIDER
 
@@ -114,6 +129,8 @@ def refresh_runtime_config() -> None:
     global LOCAL_LLM_MODEL_ALIAS
     global LOCAL_LLM_CONTEXT_SIZE
     global LOCAL_LLM_GPU_LAYERS
+    global AIDER_PYTHON
+    global AIDER_EXE
     global SSH_HOST
     global SSH_PORT
     global SSH_USER
@@ -137,6 +154,7 @@ def refresh_runtime_config() -> None:
     global HOST
     global PORT
     global ALLOWED_ORIGINS
+    global MDNS_ENABLED
 
     LLM_PROVIDER = _read_str("LLM_PROVIDER", "openai")
     OPENAI_API_KEY = _read_str("OPENAI_API_KEY", "")
@@ -168,6 +186,8 @@ def refresh_runtime_config() -> None:
         _read_str("LOCAL_LLM_SERVER_URL", local_server_fallback),
         local_server_fallback,
     )
+    AIDER_PYTHON = _normalize_path(_read_str("AIDER_PYTHON", ""))
+    AIDER_EXE = _normalize_path(_read_str("AIDER_EXE", ""))
 
     SSH_HOST = _read_str("SSH_HOST", "")
     SSH_PORT = _read_int("SSH_PORT", 22)
@@ -199,6 +219,7 @@ def refresh_runtime_config() -> None:
     HOST = _read_str("HOST", "0.0.0.0")
     PORT = _read_int("PORT", 8000)
     ALLOWED_ORIGINS = _read_str("ALLOWED_ORIGINS", "*")
+    MDNS_ENABLED = _read_bool("MDNS_ENABLED", True)
 
 
 def get_runtime_settings() -> dict[str, str | int]:

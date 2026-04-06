@@ -10,12 +10,14 @@ from __future__ import annotations
 """
 
 import ast
+import asyncio
 import json
 import os
 import shutil
 import subprocess
-import asyncio
 
+import config
+from modules.aider_runner import check_aider_available, run_aider_prompt
 from modules.base import BaseModule
 from modules.experiment_guard import (
     build_fallback_experiment_code,
@@ -31,29 +33,6 @@ from modules.ai_scientist_bridge import (
 )
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
-import config
-from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
-
-
-def _aider_available() -> bool:
-    """检查 Aider 是否可用"""
-    # 先检查 OpenAI 版本兼容性 - Aider 需要 openai < 1.0
-    try:
-        import openai
-        # 如果是新版 OpenAI SDK (>=1.0)，api_base 属性不存在，Aider 不可用
-        if not hasattr(openai, 'api_base'):
-            return False
-    except ImportError:
-        pass
-    # 尝试导入 Aider
-    try:
-        import importlib
-        importlib.import_module('aider.coders')
-        importlib.import_module('aider.models')
-        importlib.import_module('aider.io')
-        return True
-    except (ImportError, AttributeError):
-        return False
 
 
 def _is_valid_code(filepath: str) -> bool:
@@ -391,39 +370,17 @@ class CodeGenModule(BaseModule):
         self, project_dir, idea, baseline_results, tracer, state,
     ) -> bool:
         """使用 Aider 修改 experiment.py (AI-Scientist 的方式)"""
-        # 首先检查 Aider 是否可用
-        if not _aider_available():
-            await tracer.log(4, "aider", "Aider 未安装，跳过 Aider 实现", level="warn")
+        availability = await check_aider_available()
+        if not availability.available:
+            await tracer.log(4, "aider", f"Aider 不可用，跳过实现: {availability.detail}", level="warn")
             return False
 
         try:
-            from aider.coders import Coder
-            from aider.models import Model
-            from aider.io import InputOutput
-
-            # 配置 Aider 使用智谱AI (litellm 需要 openai/ 前缀)
-            os.environ["OPENAI_API_KEY"] = get_openai_api_key()
-            os.environ["OPENAI_API_BASE"] = get_openai_base_url()
-
-            model_name = f"openai/{get_openai_model()}"
-            model = Model(model_name)
-            io = InputOutput(yes=True)
-
-            # 多文件支持: experiment.py + plot.py
             fnames = [
                 os.path.join(project_dir, "experiment.py"),
                 os.path.join(project_dir, "plot.py"),
             ]
             fnames = [f for f in fnames if os.path.exists(f)]
-
-            coder = Coder.create(
-                main_model=model,
-                fnames=fnames,
-                io=io,
-                stream=False,
-                use_git=True,
-                edit_format="whole",  # 用 whole 格式生成完整文件，而非 diff
-            )
 
             # 丰富的实现 prompt (含 checklist 和格式示例)
             prompt = f"""Your goal is to implement the following research idea: {idea.get('Title', '')}.
@@ -453,9 +410,19 @@ class CodeGenModule(BaseModule):
 
 Write the COMPLETE experiment.py file now. Do not leave any TODO or placeholder."""
 
-            coder_out = await asyncio.to_thread(coder.run, prompt)
-            await tracer.log(4, "aider", f"Aider 输出: {str(coder_out)[:500]}")
-            return True
+            result = await run_aider_prompt(
+                prompt=prompt,
+                files=fnames,
+                cwd=project_dir,
+                edit_format="whole",
+                timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
+            )
+            output = result.output or result.detail
+            if result.ok:
+                await tracer.log(4, "aider", f"Aider 输出: {output[:500]}")
+                return True
+            await tracer.log(4, "aider", f"Aider 调用失败: {output[:500]}", level="warn")
+            return False
 
         except Exception as e:
             await tracer.log(4, "aider", f"Aider 调用失败: {e}", level="warn")

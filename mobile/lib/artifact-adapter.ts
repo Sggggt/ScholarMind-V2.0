@@ -28,6 +28,13 @@ function readString(value: unknown, fallback = ""): string {
   return fallback;
 }
 
+function readFirstString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function readNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -79,12 +86,19 @@ export function adaptM1Artifacts(
   const papers: PaperRecord[] = sources
     .map((source, index) => {
       const title = readString(source.title || source.Title, `Paper ${index + 1}`);
-      const url = readString(source.url, "");
-      const sourceName = readString(source.source, url ? new URL(url).hostname : "Unknown");
+      const metadata = asObject(source.metadata);
+      const url = readFirstString(source.url, source.link, source.paper_url, metadata.url);
+      const sourceName = readFirstString(
+        source.source,
+        source.venue,
+        metadata.source,
+        metadata.venue,
+        url ? new URL(url).hostname : "Unknown"
+      );
 
       // Read authors - could be array or string
       let authors = "Unknown authors";
-      const authorsData = source.authors;
+      const authorsData = source.authors ?? source.author ?? metadata.authors ?? metadata.author;
       if (Array.isArray(authorsData)) {
         authors = authorsData
           .map((a) => (typeof a === "string" ? a : readString(asObject(a).name)))
@@ -100,10 +114,20 @@ export function adaptM1Artifacts(
         title: cleanMarkdown(title),
         source: sourceName,
         url: url || undefined,
-        year: readNumber(source.year, currentYear - (index % 5)),
+        year: readNumber(source.year ?? metadata.year, currentYear - (index % 5)),
         authors,
         abstract: summarizeMarkdown(
-          readString(source.content_preview || source.snippet || source.summary || source.abstract, "No abstract available.")
+          readFirstString(
+            source.content_preview,
+            source.snippet,
+            source.summary,
+            source.abstract,
+            source.description,
+            source.content,
+            metadata.abstract,
+            metadata.summary,
+            "No abstract available."
+          )
         ),
         citations: readNumber(source.citations || source.citation_count, 0),
       };
@@ -214,7 +238,7 @@ export function adaptM4Artifacts(codeGenPayload: unknown): CodeGenInfo {
   // Backend returns: code_files, file_count, idea_name, project_dir, run_command
   const codeFiles = asArray<string>(data.code_files || data.main_files || data.files);
   const fileCount = readNumber(data.file_count, codeFiles.length);
-  const projectDir = readString(data.project_dir, data.repo_path);
+  const projectDir = readString(data.project_dir, readString(data.repo_path));
 
   // Extract folder name from path
   const folderName = projectDir ? projectDir.split(/[\\/]/).pop() || projectDir : "";

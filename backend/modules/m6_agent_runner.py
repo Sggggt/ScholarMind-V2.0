@@ -9,45 +9,24 @@ from __future__ import annotations
 核心依赖: Fabric (SSH) + AIDE (实验) + AI-Scientist (代码修改)
 """
 
+import asyncio
 import json
 import os
 import shutil
 import subprocess
-import asyncio
 from subprocess import TimeoutExpired
 
+import config
+from modules.aider_runner import check_aider_available, run_aider_prompt
 from modules.base import BaseModule
 from modules.ssh_runner import ssh_runner
 from modules.experiment_sim import generate_realistic_results, generate_experiment_figures, results_to_final_info
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
-import config
-from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 MAX_ITERS = 4
 MAX_RUNS = 5
 MAX_STDERR_OUTPUT = 1500
-
-
-def _aider_available() -> bool:
-    """检查 Aider 是否可用"""
-    # 先检查 OpenAI 版本兼容性 - Aider 需要 openai < 1.0
-    try:
-        import openai
-        # 如果是新版 OpenAI SDK (>=1.0)，api_base 属性不存在，Aider 不可用
-        if not hasattr(openai, 'api_base'):
-            return False
-    except ImportError:
-        pass
-    # 尝试导入 Aider
-    try:
-        import importlib
-        importlib.import_module('aider.coders')
-        importlib.import_module('aider.models')
-        importlib.import_module('aider.io')
-        return True
-    except (ImportError, AttributeError):
-        return False
 
 
 class AgentRunnerModule(BaseModule):
@@ -261,8 +240,9 @@ class AgentRunnerModule(BaseModule):
         raw_idea = best_idea.get("_raw", best_idea)
         baseline_results = context.get("baseline_results", {})
 
-        # 初始化 Aider
-        coder = await self._init_coder(project_dir)
+        aider_status = await check_aider_available()
+        if not aider_status.available:
+            await tracer.log(6, "aider", f"Aider 不可用，跳过代码迭代: {aider_status.detail}", level="warn")
 
         from modules.m5_experiment_design import CODER_PROMPT
         next_prompt = CODER_PROMPT.format(
@@ -282,13 +262,21 @@ class AgentRunnerModule(BaseModule):
                 await tracer.log(6, "max_iters", "达到最大迭代次数", level="warn")
                 break
 
-            if coder:
+            if aider_status.available:
                 try:
-                    coder_out = await asyncio.to_thread(coder.run, next_prompt)
-                    if "ALL_COMPLETED" in str(coder_out):
+                    result = await run_aider_prompt(
+                        prompt=next_prompt,
+                        files=[os.path.join(project_dir, "experiment.py")],
+                        cwd=project_dir,
+                        edit_format="diff",
+                        timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
+                    )
+                    if result.ok and "ALL_COMPLETED" in result.output:
                         break
-                except Exception:
-                    pass
+                    if not result.ok:
+                        await tracer.log(6, "aider", f"Aider 迭代失败，继续执行当前代码: {result.output or result.detail}", level="warn")
+                except Exception as exc:
+                    await tracer.log(6, "aider", f"Aider 迭代失败，继续执行当前代码: {exc}", level="warn")
 
             await tracer.log(6, f"run_{run_num}", f"执行 run_{run_num}")
             returncode, next_prompt, metrics = await asyncio.to_thread(
@@ -424,26 +412,3 @@ Implement the next experiment or respond with 'ALL_COMPLETED'."""
         except Exception:
             pass
 
-    async def _init_coder(self, project_dir):
-        """初始化 Aider"""
-        if not _aider_available():
-            return None
-
-        try:
-            from aider.coders import Coder
-            from aider.models import Model
-            from aider.io import InputOutput
-
-            os.environ["OPENAI_API_KEY"] = get_openai_api_key()
-            os.environ["OPENAI_API_BASE"] = get_openai_base_url()
-
-            model = Model(f"openai/{get_openai_model()}")
-            io = InputOutput(yes=True)
-            fnames = [os.path.join(project_dir, "experiment.py")]
-
-            return Coder.create(
-                main_model=model, fnames=fnames,
-                io=io, stream=False, use_git=True, edit_format="diff",
-            )
-        except Exception:
-            return None

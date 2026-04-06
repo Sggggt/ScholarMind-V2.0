@@ -116,13 +116,14 @@ class ConnectionInfoResponse(BaseModel):
     host: str
     port: int
     api_base_path: str = "/api"
-    ws_base_path: str = "/ws"
+    ws_base_path: str = "/api/ws"
     health_path: str = "/api/health"
     public_base_url: str = ""
     lan_urls: list[ConnectionAddressResponse] = []
     public_urls: list[ConnectionAddressResponse] = []
     recommended_mobile_url: str = ""
     recommended_mobile_ws_url: str = ""
+    mobile_connection_count: int = 0
     notes: list[str] = []
 
 

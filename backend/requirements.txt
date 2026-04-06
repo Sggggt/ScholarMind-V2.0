@@ -13,8 +13,11 @@ requests==2.33.1
 
 openai==2.30.0
 backoff==2.2.1
-aider-chat>=0.45.0
+# aider-chat is intentionally excluded from the main backend venv.
+# Use a separate Python 3.11 env and point AIDER_PYTHON/AIDER_EXE at it.
 
 semanticscholar==0.8.4
 numpy==2.4.4
 pypdf==6.9.2
+
+zeroconf>=0.132.0

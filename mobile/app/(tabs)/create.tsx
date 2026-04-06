@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
@@ -14,12 +15,19 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
-import { fetchChatSessionApi, fetchChatSessionsApi, sendChatMessageApi } from "@/lib/api";
+import {
+  bindChatSessionTaskApi,
+  createChatSessionApi,
+  fetchChatSessionApi,
+  fetchChatSessionsApi,
+  sendChatMessageApi,
+} from "@/lib/api";
 import { useTaskContext } from "@/lib/task-store";
-import type { ChatMessage, ChatSession } from "@/lib/types";
+import type { ChatMessage, ChatSession, Task } from "@/lib/types";
 
 function formatTimeLabel(value: string) {
   const date = new Date(value);
@@ -51,12 +59,17 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             { color: isAssistant ? colors.muted : "rgba(255,255,255,0.78)" },
           ]}
         >
-          {isAssistant ? "ScholarMind" : "You"}
+          {isAssistant ? "ScholarMind" : "我"}
         </Text>
         <Text style={[styles.messageText, { color: isAssistant ? colors.foreground : "#ffffff" }]}>
           {message.content}
         </Text>
-        <Text style={[styles.messageMeta, { color: isAssistant ? colors.muted : "rgba(255,255,255,0.7)" }]}>
+        <Text
+          style={[
+            styles.messageMeta,
+            { color: isAssistant ? colors.muted : "rgba(255,255,255,0.7)" },
+          ]}
+        >
           {formatTimeLabel(message.created_at)}
         </Text>
       </View>
@@ -71,73 +84,92 @@ export default function TaskChatScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [draft, setDraft] = useState("");
   const [session, setSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [allTaskSessions, setAllTaskSessions] = useState<ChatSession[]>([]);
   const [error, setError] = useState("");
 
-  // Load chat data
-  const loadCurrentTaskChat = useCallback(async (showLoading = true) => {
-    if (!state.currentTaskId) {
-      setSession(null);
-      setMessages([]);
-      setAllTaskSessions([]);
-      return;
-    }
-
-    if (showLoading) setLoading(true);
-    try {
-      setError("");
-      const sessions = await fetchChatSessionsApi();
-      const taskSessions = sessions
-        .filter((item) => item.task_id === state.currentTaskId)
-        .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
-      setAllTaskSessions(taskSessions);
-
-      const requestedSessionId = typeof params.sessionId === "string" ? params.sessionId : "";
-      const targetSession =
-        taskSessions.find((item) => item.id === requestedSessionId) ?? taskSessions[0] ?? null;
-
-      if (!targetSession) {
+  const loadCurrentTaskChat = useCallback(
+    async (showLoading = true) => {
+      if (!state.currentTaskId) {
         setSession(null);
         setMessages([]);
+        setAllTaskSessions([]);
+        if (showLoading) {
+          setLoading(false);
+          setRefreshing(false);
+        }
         return;
       }
 
-      const detail = await fetchChatSessionApi(targetSession.id);
-      setSession(detail.session);
-      setMessages(detail.messages);
-      if (detail.task) {
-        selectCurrentTask(detail.task);
+      if (showLoading) {
+        setLoading(true);
       }
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load the current task chat.");
-      setSession(null);
-      setMessages([]);
-      setAllTaskSessions([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [params.sessionId, selectCurrentTask, state.currentTaskId]);
 
-  // Initial load and refresh on focus
-  useFocusEffect(
-    useCallback(() => {
-      void loadCurrentTaskChat(true);
-    }, [loadCurrentTaskChat])
+      try {
+        setError("");
+        const sessions = await fetchChatSessionsApi();
+        const taskSessions = sessions
+          .filter((item) => item.task_id === state.currentTaskId)
+          .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+        setAllTaskSessions(taskSessions);
+
+        const requestedSessionId = typeof params.sessionId === "string" ? params.sessionId : "";
+        const targetSession =
+          taskSessions.find((item) => item.id === requestedSessionId) ?? taskSessions[0] ?? null;
+
+        if (!targetSession) {
+          setSession(null);
+          setMessages([]);
+          return;
+        }
+
+        const detail = await fetchChatSessionApi(targetSession.id);
+        setSession(detail.session);
+        setMessages(detail.messages);
+        if (detail.task) {
+          selectCurrentTask(detail.task);
+        }
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "无法加载当前任务对话。");
+        setSession(null);
+        setMessages([]);
+        setAllTaskSessions([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [params.sessionId, selectCurrentTask, state.currentTaskId]
   );
 
-  // Also reload when sessionId changes (when switching between sessions)
+  useFocusEffect(
+    useCallback(() => {
+      if (!state.currentTaskId || !state.currentTask) {
+        void fetchTasks({ background: true });
+      }
+      void loadCurrentTaskChat(true);
+    }, [fetchTasks, loadCurrentTaskChat, state.currentTask, state.currentTaskId])
+  );
+
   useEffect(() => {
     void loadCurrentTaskChat(false);
-  }, [params.sessionId]);
+  }, [loadCurrentTaskChat, params.sessionId, state.currentTaskId]);
+
+  useEffect(() => {
+    if (!state.currentTaskId || state.currentTask) {
+      return;
+    }
+
+    void loadTaskBundle(state.currentTaskId, { background: true });
+  }, [loadTaskBundle, state.currentTask, state.currentTaskId]);
 
   const chatStatusText = useMemo(() => {
-    if (!state.currentTask) return "Select a current task from the tasks page first.";
-    if (!session) return "No chat has been created for the current task yet.";
-    return `Current task chat. ${allTaskSessions.length} linked chat session(s).`;
+    if (!state.currentTask) return "请选择一个任务作为当前任务。";
+    if (!session) return "当前任务还没有创建对话。";
+    return `当前任务对话，共关联 ${allTaskSessions.length} 个会话。`;
   }, [allTaskSessions.length, session, state.currentTask]);
 
   const handleSend = useCallback(async () => {
@@ -177,7 +209,7 @@ export default function TaskChatScreen() {
     } catch {
       setMessages((current) => current.filter((item) => item.id !== optimisticMessage.id));
       setDraft(trimmedDraft);
-      setError("Unable to send the message right now.");
+      setError("当前无法发送消息。");
     } finally {
       setSending(false);
     }
@@ -188,11 +220,48 @@ export default function TaskChatScreen() {
     void loadCurrentTaskChat(false);
   }, [loadCurrentTaskChat]);
 
-  // Switch to a different session
-  const handleSwitchSession = useCallback((targetSession: ChatSession) => {
-    if (targetSession.id === session?.id) return;
-    router.push({ pathname: "/create", params: { sessionId: targetSession.id } });
-  }, [session?.id]);
+  const handleCreateSession = useCallback(async () => {
+    if (!state.currentTask || creatingSession) {
+      return;
+    }
+
+    setCreatingSession(true);
+    try {
+      setError("");
+      const created = await createChatSessionApi(state.currentTask.title || state.currentTask.topic);
+      const bound = await bindChatSessionTaskApi(created.session.id, state.currentTask.id);
+
+      setSession(bound.session);
+      setMessages(bound.messages);
+      setAllTaskSessions((current) => [
+        bound.session,
+        ...current.filter((item) => item.id !== bound.session.id),
+      ]);
+
+      if (bound.task) {
+        selectCurrentTask(bound.task);
+      }
+
+      router.replace(`/create?sessionId=${bound.session.id}` as never);
+    } catch (createError) {
+      Alert.alert(
+        "创建对话失败",
+        createError instanceof Error ? createError.message : "暂时无法为当前任务创建对话。"
+      );
+    } finally {
+      setCreatingSession(false);
+    }
+  }, [creatingSession, selectCurrentTask, state.currentTask]);
+
+  const recentTasks = useMemo(() => state.tasks.slice(0, 4), [state.tasks]);
+
+  const handlePickTask = useCallback(
+    (task: Task) => {
+      selectCurrentTask(task);
+      void loadTaskBundle(task.id, { background: true });
+    },
+    [loadTaskBundle, selectCurrentTask]
+  );
 
   return (
     <ScreenContainer>
@@ -201,32 +270,42 @@ export default function TaskChatScreen() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.flex}>
-          {/* Compact Header with Gradient */}
           <LinearGradient
-            colors={["#f5efe6", "#ebe5d6", "#e1dbcc"]}
+            colors={[
+              `${colors.background}E6`,
+              `${colors.surface}CC`,
+              `${colors.background}99`,
+            ]}
             style={styles.compactHeader}
           >
             <View style={styles.compactHeaderContent}>
               <View style={styles.compactHeaderLeft}>
                 <Text style={[styles.compactTitle, { color: colors.primary }]} numberOfLines={1}>
-                  {state.currentTask?.title || "No Current Task"}
+                  {state.currentTask?.title || "未选择当前任务"}
                 </Text>
-                <Text style={[styles.compactSubtitle, { color: colors.muted }]} numberOfLines={1}>
+                <Text
+                  style={[styles.compactSubtitle, { color: colors.muted }]}
+                  numberOfLines={1}
+                >
                   {chatStatusText}
                 </Text>
               </View>
               <View style={styles.compactHeaderActions}>
-                <TouchableOpacity onPress={handleRefresh} style={styles.compactIcon}>
+                <TouchableOpacity
+                  onPress={handleRefresh}
+                  style={[styles.compactIcon, { backgroundColor: colors.surface }]}
+                >
                   <MaterialIcons name="refresh" size={18} color={colors.primary} />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push("/")} style={styles.compactIcon}>
+                <TouchableOpacity
+                  onPress={() => router.push("/")}
+                  style={[styles.compactIcon, { backgroundColor: colors.surface }]}
+                >
                   <MaterialIcons name="assignment" size={18} color={colors.primary} />
                 </TouchableOpacity>
               </View>
             </View>
           </LinearGradient>
-
-          {/* Session selector removed - showing current chat only */}
 
           <ScrollView
             style={styles.flex}
@@ -243,23 +322,70 @@ export default function TaskChatScreen() {
             {loading ? (
               <View style={styles.centerState}>
                 <ActivityIndicator color={colors.primary} />
-                <Text style={[styles.centerText, { color: colors.muted }]}>Loading current task chat...</Text>
+                <Text style={[styles.centerText, { color: colors.muted }]}>
+                  正在加载当前任务对话...
+                </Text>
               </View>
             ) : !state.currentTask ? (
               <View style={styles.emptyCard}>
-                <MaterialIcons name="chat-bubble-outline" size={42} color={colors.muted} />
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No current task selected</Text>
-                <Text style={[styles.emptyText, { color: colors.muted }]}>
-                  Go to the tasks tab and choose one task as the current task first.
+                <MaterialIcons name="assignment-turned-in" size={42} color={colors.muted} />
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+                  先选择一个任务
                 </Text>
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  对话页会绑定到一个任务。你可以直接在这里选择最近任务，不用回任务页。
+                </Text>
+                {recentTasks.length > 0 ? (
+                  <View style={styles.taskPickerList}>
+                    {recentTasks.map((task) => (
+                      <TouchableOpacity
+                        key={task.id}
+                        onPress={() => handlePickTask(task)}
+                        style={[
+                          styles.taskPickerCard,
+                          { backgroundColor: colors.surface, borderColor: colors.border },
+                        ]}
+                      >
+                        <Text
+                          style={[styles.taskPickerTitle, { color: colors.foreground }]}
+                          numberOfLines={1}
+                        >
+                          {task.title}
+                        </Text>
+                        <Text
+                          style={[styles.taskPickerMeta, { color: colors.muted }]}
+                          numberOfLines={2}
+                        >
+                          {task.topic}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
               </View>
             ) : !session ? (
               <View style={styles.emptyCard}>
                 <MaterialIcons name="forum" size={42} color={colors.muted} />
-                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No chat for this task</Text>
-                <Text style={[styles.emptyText, { color: colors.muted }]}>
-                  Use the new chat button on the tasks page to create a chat for the current task.
+                <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+                  当前任务还没有对话
                 </Text>
+                <Text style={[styles.emptyText, { color: colors.muted }]}>
+                  现在可以直接为当前任务创建对话，不需要再回任务页。
+                </Text>
+                <TouchableOpacity
+                  onPress={() => void handleCreateSession()}
+                  disabled={creatingSession}
+                  style={[styles.createSessionButton, { backgroundColor: colors.primary }]}
+                >
+                  {creatingSession ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <>
+                      <MaterialIcons name="add-comment" size={18} color="#ffffff" />
+                      <Text style={styles.createSessionButtonText}>创建对话</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
               </View>
             ) : (
               <>
@@ -290,7 +416,7 @@ export default function TaskChatScreen() {
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
-                placeholder={session ? "Talk to ScholarMind about the current task..." : "Create a task chat from the tasks page first"}
+                placeholder={session ? "输入你想和 ScholarMind 讨论的内容..." : "请先选择任务并创建对话"}
                 placeholderTextColor={colors.muted}
                 style={[styles.composerInput, { color: colors.foreground }]}
                 multiline
@@ -323,7 +449,6 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  // Compact header with gradient
   compactHeader: {
     paddingTop: 8,
     paddingBottom: 10,
@@ -361,7 +486,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
   },
   messagesContent: {
     paddingHorizontal: 16,
@@ -394,6 +518,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     textAlign: "center",
+  },
+  taskPickerList: {
+    width: "100%",
+    gap: 10,
+    marginTop: 8,
+  },
+  taskPickerCard: {
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  taskPickerTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  taskPickerMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  createSessionButton: {
+    marginTop: 8,
+    minWidth: 136,
+    height: 46,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  createSessionButtonText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
   },
   errorText: {
     color: "#ba1a1a",

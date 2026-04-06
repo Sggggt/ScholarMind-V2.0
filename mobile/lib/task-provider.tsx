@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, type ReactNode } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppState } from "react-native";
 import {
   ApiError,
@@ -35,6 +36,9 @@ type SyncHandle = {
   unsubscribe: () => void;
 };
 
+const CURRENT_TASK_ID_KEY = "scholarmind_current_task_id";
+const CURRENT_TASK_SNAPSHOT_KEY = "scholarmind_current_task_snapshot";
+
 export function TaskProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(taskReducer, initialTaskState);
   const syncRef = useRef<SyncHandle | null>(null);
@@ -54,6 +58,74 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       refreshTimerRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreCurrentTask = async () => {
+      try {
+        const entries = await AsyncStorage.multiGet([
+          CURRENT_TASK_ID_KEY,
+          CURRENT_TASK_SNAPSHOT_KEY,
+        ]);
+        const savedTaskId = entries[0]?.[1] ?? "";
+        const savedTaskSnapshot = entries[1]?.[1] ?? "";
+
+        if (!savedTaskId || cancelled) {
+          return;
+        }
+
+        dispatch({ type: "OPEN_TASK_CONTEXT", payload: savedTaskId });
+
+        if (!savedTaskSnapshot) {
+          return;
+        }
+
+        try {
+          const parsedTask = JSON.parse(savedTaskSnapshot) as Task;
+          if (!cancelled && parsedTask?.id === savedTaskId) {
+            dispatch({ type: "SET_CURRENT_TASK", payload: parsedTask });
+          }
+        } catch {
+          // Ignore malformed cached task snapshots.
+        }
+      } catch {
+        // Ignore storage restore failures.
+      }
+    };
+
+    void restoreCurrentTask();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const persistCurrentTask = async () => {
+      try {
+        if (state.currentTask) {
+          await AsyncStorage.multiSet([
+            [CURRENT_TASK_ID_KEY, state.currentTask.id],
+            [CURRENT_TASK_SNAPSHOT_KEY, JSON.stringify(state.currentTask)],
+          ]);
+          return;
+        }
+
+        if (state.currentTaskId) {
+          await AsyncStorage.setItem(CURRENT_TASK_ID_KEY, state.currentTaskId);
+          await AsyncStorage.removeItem(CURRENT_TASK_SNAPSHOT_KEY);
+          return;
+        }
+
+        await AsyncStorage.multiRemove([CURRENT_TASK_ID_KEY, CURRENT_TASK_SNAPSHOT_KEY]);
+      } catch {
+        // Ignore storage persistence failures.
+      }
+    };
+
+    void persistCurrentTask();
+  }, [state.currentTask, state.currentTaskId]);
 
   const fetchTasks = useCallback(async (options?: { background?: boolean }) => {
     if (!options?.background) {

@@ -10,6 +10,7 @@ import type {
   NetworkMode,
   RepoTreeNode,
   ReviewReport,
+  SavedBackendSelection,
   Task,
   TaskOutput,
   TaskIdeasState,
@@ -20,11 +21,13 @@ import { buildGlobalWsUrl, probeWebSocket } from "./websocket";
 const BACKEND_URL_KEY = "scholarmind_backend_url";
 const RESOLVED_WS_URL_KEY = "scholarmind_resolved_ws_url";
 const NETWORK_MODE_KEY = "scholarmind_network_mode";
+const BACKEND_SELECTION_KEY = "scholarmind_backend_selection";
 const REQUEST_TIMEOUT_MS = 15000;
 
 let cachedUrl: string | null = null;
 let cachedWsUrl: string | null = null;
 let cachedNetworkMode: NetworkMode | null = null;
+let cachedSelection: SavedBackendSelection | null | undefined;
 
 export class ApiError extends Error {
   status: number;
@@ -85,20 +88,63 @@ export async function getNetworkMode(): Promise<NetworkMode> {
   return cachedNetworkMode;
 }
 
-export async function setBackendUrl(url: string): Promise<void> {
+export async function getBackendSelection(): Promise<SavedBackendSelection | null> {
+  if (cachedSelection !== undefined) {
+    return cachedSelection;
+  }
+
+  const raw = await AsyncStorage.getItem(BACKEND_SELECTION_KEY);
+  if (!raw) {
+    cachedSelection = null;
+    return cachedSelection;
+  }
+
+  try {
+    cachedSelection = JSON.parse(raw) as SavedBackendSelection;
+  } catch {
+    cachedSelection = null;
+  }
+
+  return cachedSelection;
+}
+
+export async function setBackendUrl(
+  url: string,
+  options?: { selection?: SavedBackendSelection | null }
+): Promise<void> {
   const normalizedUrl = normalizeBackendUrl(url);
   const resolvedWsUrl = normalizedUrl ? buildGlobalWsUrl(normalizedUrl) : "";
   const networkMode = normalizedUrl ? inferNetworkMode(normalizedUrl) : "unknown";
+  const selection =
+    normalizedUrl
+      ? options?.selection ?? {
+          url: normalizedUrl,
+          source: "manual" as const,
+          displayName: "Manual backend",
+          lastSeenAt: new Date().toISOString(),
+        }
+      : null;
 
   cachedUrl = normalizedUrl;
   cachedWsUrl = resolvedWsUrl;
   cachedNetworkMode = networkMode;
+  cachedSelection = selection;
 
-  await AsyncStorage.multiSet([
+  const entries: [string, string][] = [
     [BACKEND_URL_KEY, normalizedUrl],
     [RESOLVED_WS_URL_KEY, resolvedWsUrl],
     [NETWORK_MODE_KEY, networkMode],
-  ]);
+  ];
+
+  if (selection) {
+    entries.push([BACKEND_SELECTION_KEY, JSON.stringify(selection)]);
+  }
+
+  await AsyncStorage.multiSet(entries);
+
+  if (!selection) {
+    await AsyncStorage.removeItem(BACKEND_SELECTION_KEY);
+  }
 }
 
 function createAbortSignal(timeoutMs = REQUEST_TIMEOUT_MS): { signal: AbortSignal; cleanup: () => void } {

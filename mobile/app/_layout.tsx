@@ -3,10 +3,9 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import "react-native-reanimated";
 import { Platform } from "react-native";
 import "@/lib/_core/nativewind-pressable";
-import { ThemeProvider } from "@/lib/theme-provider";
+import { ThemeProvider, useThemeContext } from "@/lib/theme-provider";
 import {
   SafeAreaFrameContext,
   SafeAreaInsetsContext,
@@ -17,6 +16,11 @@ import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 
 import { initManusRuntime, subscribeSafeAreaInsets } from "@/lib/_core/manus-runtime";
 import { TaskProvider } from "@/lib/task-provider";
+
+function StatusBarWrapper() {
+  const { colorScheme } = useThemeContext();
+  return <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />;
+}
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -69,7 +73,7 @@ export default function RootLayout() {
           <Stack.Screen name="task/[id]" options={{ presentation: "card" }} />
           <Stack.Screen name="oauth/callback" />
         </Stack>
-        <StatusBar style="dark" />
+        <StatusBarWrapper />
       </TaskProvider>
     </GestureHandlerRootView>
   );

@@ -7,16 +7,13 @@ import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
 import { Fonts } from "@/constants/theme";
 
-// ScholarMind 对话标签页图标 - 设计理念：学术智慧 + AI 对话
 function ScholarChatTabIcon({ size = 28, color = "#46664a" }: { size?: number; color?: string }) {
   const brainSize = size * 0.75;
   const bubbleSize = size * 0.35;
 
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      {/* 大脑图标 - 代表 ScholarMind 的智能核心 */}
       <MaterialIcons name="psychology" size={brainSize} color={color} />
-      {/* 右下角小气泡 - 代表对话交互 */}
       <View
         style={{
           position: "absolute",
@@ -49,6 +46,9 @@ export default function TabLayout() {
         tabBarInactiveTintColor: colors.muted,
         headerShown: false,
         tabBarButton: HapticTab,
+        sceneStyle: {
+          backgroundColor: colors.background,
+        },
         tabBarStyle: {
           paddingTop: 10,
           paddingBottom: bottomPadding,
@@ -65,8 +65,7 @@ export default function TabLayout() {
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "700",
-          textTransform: "uppercase",
-          letterSpacing: 1.1,
+          letterSpacing: 0.4,
           fontFamily: Fonts.sans,
         },
       }}
