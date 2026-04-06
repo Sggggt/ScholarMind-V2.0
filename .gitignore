@@ -83,5 +83,11 @@ id_ed25519.*
 # Temporary files
 tmp/
 
+# Local debug artifacts / privacy-sensitive dumps
+mobile/.current_screen.png
+mobile/.window_dump*.xml
+mobile/.metro-*.log
+react-client/tsconfig.tsbuildinfo
+
 # Templates
 template/
