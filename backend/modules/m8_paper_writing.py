@@ -213,7 +213,8 @@ class PaperWritingModule(BaseModule):
         await tracer.log(8, "assemble", "组装完整 LaTeX 文档")
 
         full_latex = self._normalize_latex_for_compilation(
-            self._assemble_paper(idea_title, sections_latex, bib_entries)
+            self._assemble_paper(idea_title, sections_latex, bib_entries),
+            paper_dir,
         )
 
         tex_path = os.path.join(paper_dir, "paper.tex")
@@ -307,7 +308,11 @@ class PaperWritingModule(BaseModule):
         figures = context.get("figure_paths", [])
         if figures:
             fig_names = [os.path.basename(f) for f in figures]
-            parts.append(f"\nAvailable Figures (use \\includegraphics): {fig_names}")
+            parts.append(f"\nAvailable Figures (use only these exact filenames in \\includegraphics): {fig_names}")
+        else:
+            parts.append(
+                "\nAvailable Figures: none. Do NOT add \\includegraphics or figure environments that depend on external image files."
+            )
 
         return "\n".join(parts)
 
@@ -372,7 +377,9 @@ Target length: {guide['word_target']}
 6. For tables use \\begin{{table}} with \\toprule/\\midrule/\\bottomrule
 7. ONLY use numbers that appear in the experiment results above — do NOT invent numbers
 8. Meet the target word count — do not write less
-9. Every claim should be supported by either data or a citation"""
+9. Every claim should be supported by either data or a citation
+10. Only use \\includegraphics if the paper context explicitly provides available figure filenames
+11. If no figure filenames are provided, do not invent image files such as pipeline.png or result.png"""
 
         section_latex, _ = await call_llm(
             prompt,
@@ -650,7 +657,7 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 """
 
     def _add_labels_to_sections_and_figures(self, latex: str) -> str:
-        """Add \label{} commands to sections and figures that don't have them."""
+        r"""Add \label{} commands to sections and figures that don't have them."""
         normalized = latex
 
         # 为 section 添加 label (如果还没有)
@@ -727,10 +734,177 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 
         return normalized
 
-    def _normalize_latex_for_compilation(self, latex: str) -> str:
+    def _escape_texttt_content(self, text: str) -> str:
+        replacements = {
+            "\\": r"\textbackslash{}",
+            "{": r"\{",
+            "}": r"\}",
+            "_": r"\_",
+            "#": r"\#",
+            "$": r"\$",
+            "%": r"\%",
+            "&": r"\&",
+        }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+        return text
+
+    def _normalize_inline_markdown(self, latex: str) -> str:
+        latex = re.sub(
+            r"\*\*([^*\n]+)\*\*",
+            lambda match: rf"\textbf{{{match.group(1).strip()}}}",
+            latex,
+        )
+        latex = re.sub(
+            r"`([^`\n]+)`",
+            lambda match: rf"\texttt{{{self._escape_texttt_content(match.group(1).strip())}}}",
+            latex,
+        )
+        return latex
+
+    def _convert_markdown_lists(self, latex: str) -> str:
+        def replace_numbered(match: re.Match[str]) -> str:
+            lines = [line.strip() for line in match.group(0).splitlines() if line.strip()]
+            items = [re.sub(r"^\d+\.\s+", "", line).strip() for line in lines]
+            body = "\n".join(f"  \\item {item}" for item in items)
+            return f"\\begin{{enumerate}}\n{body}\n\\end{{enumerate}}"
+
+        def replace_bullets(match: re.Match[str]) -> str:
+            lines = [line.strip() for line in match.group(0).splitlines() if line.strip()]
+            items = [re.sub(r"^-+\s+", "", line).strip() for line in lines]
+            body = "\n".join(f"  \\item {item}" for item in items)
+            return f"\\begin{{itemize}}\n{body}\n\\end{{itemize}}"
+
+        latex = re.sub(
+            r"(?m)(?:^\d+\.\s+.+(?:\r?\n|$)){2,}",
+            replace_numbered,
+            latex,
+        )
+        latex = re.sub(
+            r"(?m)(?:^-+\s+.+(?:\r?\n|$)){2,}",
+            replace_bullets,
+            latex,
+        )
+        return latex
+
+    def _escape_problematic_identifiers(self, latex: str) -> str:
+        protected: dict[str, str] = {}
+        counter = 0
+
+        def protect(pattern: str, text: str) -> str:
+            nonlocal counter
+
+            def store(match: re.Match[str]) -> str:
+                nonlocal counter
+                token = f"SMPTOKENX{counter}Z"
+                protected[token] = match.group(0)
+                counter += 1
+                return token
+
+            return re.sub(pattern, store, text)
+
+        patterns = [
+            r"\\(?:label|cite|citet|citep|ref|pageref|url|bibliography|bibliographystyle)\{[^{}]*\}",
+            r"\\includegraphics(?:\[[^\]]*\])?\{[^{}]*\}",
+            r"\\(?:section|subsection|subsubsection|title|author)\*?\{[^{}]*\}",
+            r"\\(?:begin|end)\{[^{}]*\}",
+        ]
+        for pattern in patterns:
+            latex = protect(pattern, latex)
+
+        latex = re.sub(
+            r"(?<!\\)\b([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)\b",
+            lambda match: match.group(1).replace("_", r"\_"),
+            latex,
+        )
+
+        for token, original in protected.items():
+            latex = latex.replace(token, original)
+        return latex
+
+    def _normalize_algorithm_blocks(self, latex: str) -> str:
+        def replace_algorithm(match: re.Match[str]) -> str:
+            body = match.group("body")
+            caption_match = re.search(r"\\caption\{([^{}]*)\}", body, re.DOTALL)
+            label_match = re.search(r"\\label\{([^{}]*)\}", body)
+
+            caption = caption_match.group(1).strip() if caption_match else "Algorithm"
+            label = label_match.group(1).strip() if label_match else ""
+
+            body = re.sub(r"\\caption\{[^{}]*\}", "", body, flags=re.DOTALL)
+            body = re.sub(r"\\label\{[^{}]*\}", "", body)
+            body = re.sub(r"\\begin\{algorithmic\}(?:\[[^\]]*\])?", "", body)
+            body = re.sub(r"\\end\{algorithmic\}", "", body)
+
+            replacements = [
+                (r"\\(?:State|STATE)\s*", "\n"),
+                (r"\\(?:Require|REQUIRE)\s*", r"\n\\textbf{Input:} "),
+                (r"\\(?:Ensure|ENSURE)\s*", r"\n\\textbf{Output:} "),
+                (r"\\(?:ForAll|FORALL|Forall)\s*\{([^}]*)\}", r"\n\\textbf{For each:} \1\n"),
+                (r"\\(?:For|FOR)\s*\{([^}]*)\}", r"\n\\textbf{For:} \1\n"),
+                (r"\\(?:EndFor|ENDFOR|EndFOR)", ""),
+                (r"\\(?:If|IF)\s*\{([^}]*)\}", r"\n\\textbf{If:} \1\n"),
+                (r"\\(?:Else|ELSE)", r"\n\\textbf{Else}\n"),
+                (r"\\(?:EndIf|ENDIF|EndIF)", ""),
+                (r"\\(?:While|WHILE)\s*\{([^}]*)\}", r"\n\\textbf{While:} \1\n"),
+                (r"\\(?:EndWhile|ENDWHILE|EndWHILE)", ""),
+                (r"\\(?:Return|RETURN)\s*\{([^}]*)\}", r"\n\\textbf{Return:} \1\n"),
+                (r"\\(?:Return|RETURN)\s*", r"\n\\textbf{Return:} "),
+            ]
+            for pattern, replacement in replacements:
+                body = re.sub(pattern, replacement, body)
+
+            body = re.sub(r"\n{3,}", "\n\n", body).strip()
+            label_line = f"\n\\label{{{label}}}" if label else ""
+
+            return (
+                "\\begin{figure}[h]\n"
+                "\\centering\n"
+                "\\fbox{\\begin{minipage}{0.92\\linewidth}\\small\n"
+                "\\begin{flushleft}\n"
+                f"{body}\n"
+                "\\end{flushleft}\n"
+                "\\end{minipage}}\n"
+                f"\\caption{{{caption}}}{label_line}\n"
+                "\\end{figure}"
+            )
+
+        return re.sub(
+            r"\\begin\{algorithm\}(?:\[[^\]]*\])?(?P<body>.*?)\\end\{algorithm\}",
+            replace_algorithm,
+            latex,
+            flags=re.DOTALL,
+        )
+
+    def _replace_missing_graphics(self, latex: str, paper_dir: str) -> str:
+        def filename_to_title(path: str) -> str:
+            stem = os.path.splitext(os.path.basename(path))[0] or path
+            title = stem.replace("_", " ").replace("-", " ").strip()
+            words = [word.capitalize() for word in title.split()]
+            return " ".join(words) or "Figure"
+
+        def replace_graphic(match: re.Match[str]) -> str:
+            path = match.group("path").strip()
+            candidate = path if os.path.isabs(path) else os.path.join(paper_dir, path)
+            if os.path.exists(candidate):
+                return match.group(0)
+
+            title = filename_to_title(path)
+            return (
+                f"\\fbox{{\\parbox[c][0.22\\textheight][c]{{0.8\\textwidth}}"
+                f"{{\\centering \\textbf{{{title}}}\\\\Schematic overview}}}}"
+            )
+
+        return re.sub(
+            r"\\includegraphics(?:\[[^\]]*\])?\{(?P<path>[^{}]+)\}",
+            replace_graphic,
+            latex,
+        )
+
+    def _normalize_latex_for_compilation(self, latex: str, paper_dir: str) -> str:
         """Rewrite common LLM-generated LaTeX patterns into a leaner compilable subset."""
-        # 先添加 labels
-        normalized = self._add_labels_to_sections_and_figures(latex)
+        normalized = self._normalize_inline_markdown(latex)
+        normalized = self._convert_markdown_lists(normalized)
         normalized = normalized.replace("\\usepackage{algorithm}\n", "")
         normalized = normalized.replace("\\usepackage{algorithmic}\n", "")
         normalized = normalized.replace("\\usepackage{filecontents}\n", "")
@@ -745,6 +919,10 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
                 "\\usepackage{xcolor}\n",
                 "\\usepackage{xcolor}\n\\usepackage{tikz}\n\\usepackage{pgfplots}\n\\pgfplotsset{compat=1.18}\n",
             )
+        normalized = self._normalize_algorithm_blocks(normalized)
+        normalized = self._add_labels_to_sections_and_figures(normalized)
+        normalized = self._replace_missing_graphics(normalized, paper_dir)
+        normalized = self._escape_problematic_identifiers(normalized)
 
         # 修复 definition/theorem 环境问题 - 如果内容有问题，移除环境标记
         normalized = re.sub(
@@ -789,41 +967,6 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 
         normalized = re.sub(r"\\multirow\{[^}]*\}\{[^}]*\}\{([^}]*)\}", r"\1", normalized)
 
-        # 修复 algorithm 块 - 避免双重嵌套
-        # 检查是否已经在 figure 环境中，如果是则只替换 algorithm 为 minipage
-        if "\\begin{figure}" in normalized and "\\begin{algorithm}" in normalized:
-            # 已经在 figure 中，只替换 algorithm 环境为 minipage
-            normalized = re.sub(
-                r"\\begin\{algorithm\}\[[^\]]*\]",
-                r"\\centering\n\\fbox{\\begin{minipage}{0.92\\linewidth}\\small",
-                normalized,
-            )
-            normalized = re.sub(r"\\end\{algorithm\}", r"\\end{minipage}}", normalized)
-        else:
-            # 不在 figure 中，添加完整的 figure 包装
-            normalized = re.sub(
-                r"\\begin\{algorithm\}\[[^\]]*\]",
-                r"\\begin{figure}[h]\n\\centering\n\\fbox{\\begin{minipage}{0.92\\linewidth}\\small",
-                normalized,
-            )
-            normalized = re.sub(r"\\end\{algorithm\}", r"\\end{minipage}}\n\\end{figure}", normalized)
-        normalized = re.sub(r"\\begin\{algorithmic\}\[[^\]]*\]", r"\\begin{flushleft}", normalized)
-        normalized = re.sub(r"\\end\{algorithmic\}", r"\\end{flushleft}", normalized)
-        normalized = re.sub(r"\\STATE\s*", r"\\par ", normalized)
-        normalized = re.sub(r"\\FOR\{([^}]*)\}", r"\\par \\textbf{For:} \1", normalized)
-        normalized = re.sub(r"\\ENDFOR", "", normalized)
-        normalized = re.sub(r"\\IF\{([^}]*)\}", r"\\par \\textbf{If:} \1", normalized)
-        normalized = re.sub(r"\\ELSE", r"\\par \\textbf{Else}", normalized)
-        normalized = re.sub(r"\\ENDIF", "", normalized)
-        normalized = re.sub(r"\\WHILE\{([^}]*)\}", r"\\par \\textbf{While:} \1", normalized)
-        normalized = re.sub(r"\\ENDWHILE", "", normalized)
-        normalized = re.sub(r"\\RETURN\{([^}]*)\}", r"\\par \\textbf{Return:} \1", normalized)
-        normalized = re.sub(r"\\REQUIRE\s*", r"\\par \\textbf{Input:} ", normalized)
-        normalized = re.sub(r"\\ENSURE\s*", r"\\par \\textbf{Output:} ", normalized)
-        # 修复: 处理裸的 \RETURN 后（不跟参数）
-        normalized = re.sub(r"\\RETURN\s*", r"\\par \\textbf{Return}", normalized)
-        # 修复: 处理 \RETURN$ 格式（后跟数学模式）
-        normalized = re.sub(r"\\RETURN\s*\$", r"\\par \\textbf{Return}$", normalized)
         return self._normalize_tabular_columns(normalized)
 
     def _normalize_tabular_columns(self, latex: str) -> str:
