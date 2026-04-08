@@ -3,9 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
   RefreshControl,
   StyleSheet,
   Text,
@@ -20,6 +17,7 @@ import { router, useFocusEffect } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
+import { createChatSessionApi } from "@/lib/api";
 import { getCurrentModuleState, getTaskProgressPercent } from "@/lib/task-helpers";
 import { useTaskContext } from "@/lib/task-store";
 import { MODULE_NAMES, TASK_STATUS_LABELS, type Task } from "@/lib/types";
@@ -220,14 +218,11 @@ function TaskCard({
 
 export default function HomeScreen() {
   const colors = useColors();
-  const { state, fetchTasks, deleteTask, selectCurrentTask, createTask } = useTaskContext();
+  const { state, fetchTasks, deleteTask, selectCurrentTask } = useTaskContext();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["key"]>("all");
   const [refreshing, setRefreshing] = useState(false);
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [creatingTask, setCreatingTask] = useState(false);
-  const [topicDraft, setTopicDraft] = useState("");
-  const [descriptionDraft, setDescriptionDraft] = useState("");
+  const [startingConversation, setStartingConversation] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -237,8 +232,11 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchTasks();
-    setRefreshing(false);
+    try {
+      await fetchTasks();
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchTasks]);
 
   const handleDelete = useCallback(
@@ -265,40 +263,21 @@ export default function HomeScreen() {
     [selectCurrentTask]
   );
 
-  const resetCreateForm = useCallback(() => {
-    setTopicDraft("");
-    setDescriptionDraft("");
-  }, []);
-
-  const handleCloseCreateModal = useCallback(() => {
-    if (creatingTask) return;
-    setCreateModalVisible(false);
-    resetCreateForm();
-  }, [creatingTask, resetCreateForm]);
-
-  const handleCreateTask = useCallback(async () => {
-    const topic = topicDraft.trim();
-    const description = descriptionDraft.trim();
-
-    if (!topic) {
-      Alert.alert("请输入研究主题", "新建任务至少需要一个研究主题。");
+  const handleStartConversation = useCallback(async () => {
+    if (startingConversation) {
       return;
     }
 
-    if (creatingTask) return;
-    setCreatingTask(true);
+    setStartingConversation(true);
     try {
-      const task = await createTask(topic, description);
-      selectCurrentTask(task);
-      setCreateModalVisible(false);
-      resetCreateForm();
-      router.push(`/task/${task.id}` as never);
+      const created = await createChatSessionApi("");
+      router.push(`/create?sessionId=${created.session.id}` as never);
     } catch (error) {
-      Alert.alert("新建任务失败", error instanceof Error ? error.message : "暂时无法创建任务。");
+      Alert.alert("新建对话失败", error instanceof Error ? error.message : "暂时无法创建新对话。");
     } finally {
-      setCreatingTask(false);
+      setStartingConversation(false);
     }
-  }, [createTask, creatingTask, descriptionDraft, resetCreateForm, selectCurrentTask, topicDraft]);
+  }, [startingConversation]);
 
   const filteredTasks = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -362,8 +341,27 @@ export default function HomeScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.hero}
                 >
-                  <Text style={[styles.eyebrow, { color: colors.muted }]}>研究工作台</Text>
-                  <Text style={[styles.heroTitle, { color: colors.primary }]}>任务总览</Text>
+                  <View style={styles.heroTopRow}>
+                    <View style={styles.heroCopy}>
+                      <Text style={[styles.eyebrow, { color: colors.muted }]}>研究工作台</Text>
+                      <Text style={[styles.heroTitle, { color: colors.primary }]}>任务总览</Text>
+                    </View>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => void onRefresh()}
+                      disabled={refreshing}
+                      style={[
+                        styles.heroRefreshButton,
+                        { backgroundColor: colors.surface, borderColor: colors.border },
+                      ]}
+                    >
+                      {refreshing ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <MaterialIcons name="refresh" size={18} color={colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  </View>
                   <Text style={[styles.heroDescription, { color: colors.foreground }]}>
                     在移动端查看任务进度、切换当前任务，并快速进入各模块详情与对话。
                   </Text>
@@ -442,111 +440,24 @@ export default function HomeScreen() {
                 <Text style={[styles.emptyDescription, { color: colors.muted }]}>
                   {query
                     ? "换个关键词再试试。"
-                    : "先创建一个任务，开始新的研究流程。"}
+                    : "点右下角开始一个新对话，首条消息会自动创建任务。"}
                 </Text>
               </View>
             }
             contentContainerStyle={styles.content}
           />
 
-          <Modal
-            visible={createModalVisible}
-            transparent
-            animationType="fade"
-            onRequestClose={handleCloseCreateModal}
-          >
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-              style={styles.modalOverlay}
-            >
-              <TouchableOpacity
-                activeOpacity={1}
-                onPress={handleCloseCreateModal}
-                style={styles.modalBackdrop}
-              />
-              <View
-                style={[
-                  styles.modalCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
-                ]}
-              >
-                <Text style={[styles.modalTitle, { color: colors.foreground }]}>新建任务</Text>
-                <Text style={[styles.modalDescription, { color: colors.muted }]}>
-                  输入研究主题后立即创建任务，创建完成后会自动进入任务详情。
-                </Text>
-
-                <View
-                  style={[
-                    styles.modalInputWrap,
-                    { backgroundColor: colors.background, borderColor: colors.border },
-                  ]}
-                >
-                  <TextInput
-                    value={topicDraft}
-                    onChangeText={setTopicDraft}
-                    placeholder="输入研究主题"
-                    placeholderTextColor={colors.muted}
-                    style={[styles.modalInput, { color: colors.foreground }]}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.modalInputWrap,
-                    styles.modalTextareaWrap,
-                    { backgroundColor: colors.background, borderColor: colors.border },
-                  ]}
-                >
-                  <TextInput
-                    value={descriptionDraft}
-                    onChangeText={setDescriptionDraft}
-                    placeholder="补充任务说明（可选）"
-                    placeholderTextColor={colors.muted}
-                    style={[
-                      styles.modalInput,
-                      styles.modalTextarea,
-                      { color: colors.foreground },
-                    ]}
-                    multiline
-                    textAlignVertical="top"
-                  />
-                </View>
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    onPress={handleCloseCreateModal}
-                    disabled={creatingTask}
-                    style={[styles.modalSecondaryButton, { borderColor: colors.border }]}
-                  >
-                    <Text style={[styles.modalSecondaryButtonText, { color: colors.foreground }]}>
-                      取消
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => void handleCreateTask()}
-                    disabled={creatingTask}
-                    style={[styles.modalPrimaryButton, { backgroundColor: colors.primary }]}
-                  >
-                    {creatingTask ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <>
-                        <MaterialIcons name="add-task" size={18} color="#ffffff" />
-                        <Text style={styles.modalPrimaryButtonText}>创建任务</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </KeyboardAvoidingView>
-          </Modal>
-
           <TouchableOpacity
             activeOpacity={0.9}
-            onPress={() => setCreateModalVisible(true)}
+            onPress={() => void handleStartConversation()}
+            disabled={startingConversation}
             style={[styles.fab, { backgroundColor: colors.primary }]}
           >
-            <MaterialIcons name="add" size={28} color="#ffffff" />
+            {startingConversation ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <MaterialIcons name="add" size={28} color="#ffffff" />
+            )}
           </TouchableOpacity>
         </>
       )}
@@ -572,6 +483,24 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 24,
     gap: 10,
+  },
+  heroTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  heroCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  heroRefreshButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   eyebrow: {
     fontSize: 10,
@@ -794,82 +723,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 13,
     lineHeight: 20,
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-  },
-  modalCard: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 28,
-    gap: 12,
-  },
-  modalTitle: {
-    fontSize: 24,
-    lineHeight: 28,
-    fontFamily: Fonts.serif,
-    fontWeight: "700",
-  },
-  modalDescription: {
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  modalInputWrap: {
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-  },
-  modalTextareaWrap: {
-    minHeight: 116,
-    paddingTop: 10,
-    paddingBottom: 10,
-  },
-  modalInput: {
-    fontSize: 14,
-    paddingVertical: 14,
-  },
-  modalTextarea: {
-    minHeight: 92,
-    paddingVertical: 0,
-  },
-  modalActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  modalSecondaryButton: {
-    flex: 1,
-    height: 50,
-    borderWidth: 1,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalSecondaryButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  modalPrimaryButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  modalPrimaryButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
   },
   fab: {
     position: "absolute",

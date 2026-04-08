@@ -63,11 +63,11 @@ export function ScreenContainer({
       <SafeAreaView
         edges={edges}
         className={cn("flex-1", safeAreaClassName)}
-        style={[{ backgroundColor: colors.background }, style]}
+        style={[{ flex: 1, backgroundColor: colors.background }, style]}
       >
         <View
           className={cn("flex-1", className)}
-          style={{ backgroundColor: colors.background }}
+          style={{ flex: 1, backgroundColor: colors.background }}
         >
           {children}
         </View>

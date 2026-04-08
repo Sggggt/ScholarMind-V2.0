@@ -161,6 +161,7 @@ async def create_task_and_start(
 
 
 async def _run_pipeline(orch: PipelineOrchestrator, task_id: str):
+    orch._task = asyncio.current_task()
     try:
         await orch.run()
     finally:
@@ -315,6 +316,7 @@ async def delete_task_with_dependencies(db: AsyncSession, task: Task) -> None:
     existing = get_running_orchestrator(task.id)
     if existing:
         existing.abort()
+        _running.pop(task.id, None)
 
     await db.execute(
         sql_delete(ChatMessage).where(
@@ -326,3 +328,6 @@ async def delete_task_with_dependencies(db: AsyncSession, task: Task) -> None:
     await db.execute(sql_delete(TaskOutput).where(TaskOutput.task_id == task.id))
     await db.delete(task)
     await db.commit()
+
+    # Remove backend-managed task artifacts, but keep any user-selected local code directory.
+    _safe_remove_path(config.WORKSPACE_DIR / task.id)

@@ -16,10 +16,9 @@ import glob
 
 from modules.base import BaseModule
 from modules.ai_scientist_bridge import (
-    create_client_zhipu,
-    get_response_from_llm,
     extract_json_between_markers,
 )
+from modules.llm_client import call_llm
 from pipeline.tracer import Tracer
 from pipeline.state import TaskStateMachine
 
@@ -34,7 +33,7 @@ class AnalysisModule(BaseModule):
         experiment_results = context.get("experiment_results", [])
         workspace = context["workspace"]
 
-        client, model = create_client_zhipu()
+        state.check_control()
 
         # ── Step 1: 收集所有 run 结果 (AI-Scientist 格式) ──
         tracer.step_start()
@@ -124,10 +123,11 @@ ANALYSIS JSON:
 }}
 ```"""
 
-        text, _ = get_response_from_llm(
-            analysis_prompt, client, model,
-            system_message="You are a meticulous ML researcher.",
+        text, _ = await call_llm(
+            analysis_prompt,
+            system="You are a meticulous ML researcher.",
             temperature=0.3,
+            state=state,
         )
 
         analysis_data = extract_json_between_markers(text) or {
@@ -159,10 +159,12 @@ Include:
 3. Discussion of results
 4. Limitations"""
 
-        report_md, _ = get_response_from_llm(
-            report_prompt, client, model,
-            system_message="You are a scientific report writer.",
+        state.check_control()
+        report_md, _ = await call_llm(
+            report_prompt,
+            system="You are a scientific report writer.",
             temperature=0.3,
+            state=state,
         )
 
         # ── 保存产出 ──

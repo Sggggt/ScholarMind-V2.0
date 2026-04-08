@@ -10,6 +10,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
+from pipeline.state import TaskStateMachine
 from runtime_config import get_openai_api_key, get_openai_base_url, get_openai_model
 
 
@@ -67,6 +68,7 @@ async def call_llm(
     temperature: float = 0.7,
     max_tokens: int = 4096,
     response_format: str | None = None,
+    state: TaskStateMachine | None = None,
 ) -> tuple[str, int]:
     """
     Call the configured LLM and return (response_text, token_usage).
@@ -95,11 +97,12 @@ async def call_llm(
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=30.0)) as client:
-                resp = await client.post(
+                request = client.post(
                     _chat_completions_url(),
                     json=body,
                     headers=_request_headers(),
                 )
+                resp = await (state.run_interruptible(request) if state else request)
                 resp.raise_for_status()
                 data = resp.json()
                 break
@@ -107,6 +110,9 @@ async def call_llm(
             last_err = err
             status_code = err.response.status_code if err.response is not None else None
             if status_code is not None and _is_retryable_status(status_code) and attempt < max_retries - 1:
+                if state:
+                    await state.wait_if_paused()
+                    state.check_control()
                 await asyncio.sleep(_compute_retry_delay(attempt, err.response))
                 continue
             raise
@@ -119,6 +125,9 @@ async def call_llm(
         ) as err:
             last_err = err
             if attempt < max_retries - 1:
+                if state:
+                    await state.wait_if_paused()
+                    state.check_control()
                 await asyncio.sleep(_compute_retry_delay(attempt))
                 continue
             raise

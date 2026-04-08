@@ -6,11 +6,10 @@ from __future__ import annotations
                   ↘ failed
                   ↘ paused → running
                   ↘ aborted
-
-模块内回退: M7结果不达标 → 回退到M6重新实验(最多 N 次)
 """
 
 import asyncio
+from contextlib import suppress
 from datetime import datetime, timezone
 
 from sqlalchemy import update
@@ -20,6 +19,14 @@ from db.models import Task
 
 def _utcnow():
     return datetime.now(timezone.utc)
+
+
+class TaskAborted(Exception):
+    """Raised when the task is aborted to immediately unwind the call stack."""
+
+
+class TaskPaused(Exception):
+    """Raised when the task is paused to unwind back to the orchestrator."""
 
 
 class TaskStateMachine:
@@ -70,6 +77,69 @@ class TaskStateMachine:
             await db.commit()
             return count
 
+    # ── 控制信号检查（模块调用，立即抛异常） ──────────────
+
+    def check_control(self):
+        """Call this at every await point in modules.
+        Raises TaskAborted or TaskPaused immediately."""
+        if self._aborted:
+            raise TaskAborted()
+        if not self._paused.is_set():
+            raise TaskPaused()
+
+    async def checkpoint(self):
+        """Async version — also handles abort + pause.
+        When paused, blocks until resumed (or aborted)."""
+        if self._aborted:
+            raise TaskAborted()
+        if not self._paused.is_set():
+            await self._paused.wait()
+            if self._aborted:
+                raise TaskAborted()
+
+    async def wait_if_paused(self):
+        """Backward-compatible alias used by modules."""
+        await self.checkpoint()
+
+    async def run_interruptible(
+        self,
+        awaitable,
+        *,
+        cancel_on_pause: bool = True,
+        poll_interval: float = 0.5,
+    ):
+        """Await a long-running operation while polling pause/abort state.
+
+        When `cancel_on_pause` is True, a pause request cancels the in-flight awaitable
+        and unwinds to the orchestrator immediately.
+        """
+        task = asyncio.create_task(awaitable)
+
+        try:
+            while True:
+                if self._aborted:
+                    task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await task
+                    raise TaskAborted()
+
+                if cancel_on_pause and not self._paused.is_set():
+                    task.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await task
+                    raise TaskPaused()
+
+                try:
+                    return await asyncio.wait_for(asyncio.shield(task), timeout=poll_interval)
+                except asyncio.TimeoutError:
+                    continue
+        except BaseException:
+            if not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+            raise
+
     # ── 暂停/恢复 ─────────────────────────────────────
 
     def pause(self):
@@ -77,9 +147,6 @@ class TaskStateMachine:
 
     def resume(self):
         self._paused.set()
-
-    async def wait_if_paused(self):
-        await self._paused.wait()
 
     # ── 终止 ──────────────────────────────────────────
 

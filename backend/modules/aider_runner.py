@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import config
+from pipeline.state import TaskStateMachine
 from runtime_config import get_aider_exe, get_aider_python, get_openai_api_key, get_openai_base_url, get_openai_model
 
 
@@ -183,6 +184,7 @@ async def run_aider_prompt(
     edit_format: str = "diff",
     timeout: int = 600,
     read_only_files: list[str] | None = None,
+    state: TaskStateMachine | None = None,
 ) -> AiderRunResult:
     availability = await check_aider_available()
     if not availability.available:
@@ -198,6 +200,37 @@ async def run_aider_prompt(
     editable_files = [os.path.abspath(path) for path in files if path]
     readonly = [os.path.abspath(path) for path in (read_only_files or []) if path]
     prompt_file_path = ""
+
+    async def _run_command(command: list[str]) -> tuple[int, str, str]:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=cwd,
+            env=_build_aider_env(),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            communicate = process.communicate()
+            if state:
+                stdout, stderr = await state.run_interruptible(
+                    asyncio.wait_for(communicate, timeout=timeout)
+                )
+            else:
+                stdout, stderr = await asyncio.wait_for(communicate, timeout=timeout)
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+            raise
+
+        return (
+            process.returncode or 0,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
 
     async def _run_once(selected_edit_format: str) -> AiderRunResult:
         command = [
@@ -223,24 +256,14 @@ async def run_aider_prompt(
         for path in readonly:
             command.extend(["--read", path])
 
-        completed = await asyncio.to_thread(
-            subprocess.run,
-            command,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            env=_build_aider_env(),
-        )
-        combined_output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
-        ok = completed.returncode == 0 and not _looks_like_aider_failure(combined_output)
+        returncode, stdout, stderr = await _run_command(command)
+        combined_output = "\n".join(part for part in [stdout, stderr] if part)
+        ok = returncode == 0 and not _looks_like_aider_failure(combined_output)
         return AiderRunResult(
             ok=ok,
-            returncode=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
             detail="ok" if ok else "aider failed or reported an upstream LLM error",
             command=command,
         )

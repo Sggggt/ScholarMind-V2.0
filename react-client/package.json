@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "demo": "vite --config demo/vite.config.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

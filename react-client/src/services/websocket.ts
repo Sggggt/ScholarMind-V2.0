@@ -22,9 +22,9 @@ function buildWsUrl(taskId: string) {
     return `${wsBase}/ws/${taskId}?client_type=desktop`;
   }
 
-  // 相对路径情况：apiBase = '/api'，直接构建 '/ws'
+  // 相对路径情况：apiBase = '/api'，需要带上 /api 前缀才能被 Vite 代理转发
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws/${taskId}?client_type=desktop`;
+  return `${protocol}//${window.location.host}${apiBase}/ws/${taskId}?client_type=desktop`;
 }
 
 export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHandlers) {

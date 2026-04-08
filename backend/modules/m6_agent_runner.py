@@ -177,6 +177,8 @@ class AgentRunnerModule(BaseModule):
                 if state.is_aborted:
                     break
 
+                await state.wait_if_paused()
+
                 await tracer.log(6, f"ssh_run_{run_num}", f"SSH 执行 run_{run_num}")
                 cmd = f"python experiment.py --out_dir=run_{run_num}"
 
@@ -229,7 +231,7 @@ class AgentRunnerModule(BaseModule):
         results = []
 
         # 尝试用 AIDE 运行真实实验
-        aide_results = await self._try_aide(project_dir, context, tracer)
+        aide_results = await self._try_aide(project_dir, context, tracer, state)
         if aide_results:
             return aide_results
 
@@ -270,6 +272,7 @@ class AgentRunnerModule(BaseModule):
                         cwd=project_dir,
                         edit_format="diff",
                         timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
+                        state=state,
                     )
                     if result.ok and "ALL_COMPLETED" in result.output:
                         break
@@ -279,9 +282,8 @@ class AgentRunnerModule(BaseModule):
                     await tracer.log(6, "aider", f"Aider 迭代失败，继续执行当前代码: {exc}", level="warn")
 
             await tracer.log(6, f"run_{run_num}", f"执行 run_{run_num}")
-            returncode, next_prompt, metrics = await asyncio.to_thread(
-                self._run_experiment_local,
-                project_dir, run_num, timeout
+            returncode, next_prompt, metrics = await self._run_experiment_local_async(
+                project_dir, run_num, timeout, state
             )
 
             if returncode == 0:
@@ -305,11 +307,11 @@ class AgentRunnerModule(BaseModule):
                 current_iter += 1
 
         # 运行 plot.py
-        await asyncio.to_thread(self._run_plotting, project_dir)
+        await self._run_plotting_async(project_dir, state)
 
         return results
 
-    async def _try_aide(self, project_dir, context, tracer) -> list[dict] | None:
+    async def _try_aide(self, project_dir, context, tracer, state: TaskStateMachine) -> list[dict] | None:
         """尝试用 AIDE 框架运行实验"""
         try:
             import aide
@@ -332,7 +334,7 @@ class AgentRunnerModule(BaseModule):
                 eval="accuracy",
             )
 
-            best_solution = await asyncio.to_thread(exp.run, steps=3)
+            best_solution = await state.run_interruptible(asyncio.to_thread(exp.run, steps=3))
 
             if best_solution:
                 # 保存 AIDE 结果
@@ -411,4 +413,80 @@ Implement the next experiment or respond with 'ALL_COMPLETED'."""
             )
         except Exception:
             pass
+
+    async def _run_experiment_local_async(self, folder_name, run_num, timeout, state: TaskStateMachine):
+        cwd = os.path.abspath(folder_name)
+
+        src = os.path.join(folder_name, "experiment.py")
+        dst = os.path.join(folder_name, f"run_{run_num}.py")
+        if os.path.exists(src):
+            shutil.copy(src, dst)
+
+        process = await asyncio.create_subprocess_exec(
+            "python",
+            "experiment.py",
+            f"--out_dir=run_{run_num}",
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _, stderr = await state.run_interruptible(
+                asyncio.wait_for(process.communicate(), timeout=timeout)
+            )
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+            raise
+
+        stderr_output = stderr.decode("utf-8", errors="replace") if stderr else ""
+        if process.returncode != 0:
+            if len(stderr_output) > MAX_STDERR_OUTPUT:
+                stderr_output = "..." + stderr_output[-MAX_STDERR_OUTPUT:]
+            if os.path.exists(os.path.join(cwd, f"run_{run_num}")):
+                shutil.rmtree(os.path.join(cwd, f"run_{run_num}"))
+            return process.returncode or 1, f"Run failed: {stderr_output}", {}
+
+        info_path = os.path.join(cwd, f"run_{run_num}", "final_info.json")
+        metrics = {}
+        if os.path.exists(info_path):
+            with open(info_path) as f:
+                data = json.load(f)
+            metrics = {
+                k: v["means"] for k, v in data.items()
+                if isinstance(v, dict) and "means" in v
+            }
+
+        next_prompt = f"""Run {run_num} completed. Results:
+{json.dumps(metrics, indent=2)}
+Implement the next experiment or respond with 'ALL_COMPLETED'."""
+
+        return 0, next_prompt, metrics
+
+    async def _run_plotting_async(self, folder_name, state: TaskStateMachine, timeout=600):
+        plot_path = os.path.join(folder_name, "plot.py")
+        if not os.path.exists(plot_path):
+            return
+
+        process = await asyncio.create_subprocess_exec(
+            "python",
+            "plot.py",
+            cwd=os.path.abspath(folder_name),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            await state.run_interruptible(asyncio.wait_for(process.communicate(), timeout=timeout))
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+            raise
 

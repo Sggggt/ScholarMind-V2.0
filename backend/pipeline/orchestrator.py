@@ -6,6 +6,7 @@ import glob
 import json
 import os
 import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 from db.database import async_session
@@ -19,21 +20,26 @@ from modules.m6_agent_runner import AgentRunnerModule
 from modules.m7_analysis import AnalysisModule
 from modules.m8_paper_writing import PaperWritingModule
 from modules.m9_review import ReviewModule
-from pipeline.state import TaskStateMachine
+from pipeline.state import TaskStateMachine, TaskAborted, TaskPaused
 from pipeline.tracer import Tracer
 
 import config
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 from runtime_config import bind_runtime_settings, reset_runtime_settings, resolve_runtime_settings
 
 
 class PipelineOrchestrator:
-    """Execute the research pipeline and support resuming from a module."""
+    """Execute the research pipeline with instant abort/pause support."""
 
     def __init__(self, task_id: str, start_module: int = 1):
         self.task_id = task_id
         self.start_module = max(1, min(9, int(start_module)))
         self.state = TaskStateMachine(task_id)
         self.tracer = Tracer(task_id)
+        self._task: asyncio.Task | None = None
 
         self.modules = [
             LiteratureModule(),
@@ -47,6 +53,8 @@ class PipelineOrchestrator:
             ReviewModule(),
         ]
 
+    # ── public control surface ─────────────────────────
+
     def pause(self):
         self.state.pause()
 
@@ -55,9 +63,14 @@ class PipelineOrchestrator:
 
     def abort(self):
         self.state.abort()
+        # Force-cancel the running asyncio.Task if one exists
+        if self._task and not self._task.done():
+            self._task.cancel()
 
     async def submit_review(self, approved: bool, feedback: str):
         await self.state.submit_review(approved, feedback)
+
+    # ── internals ──────────────────────────────────────
 
     async def _load_task(self) -> Task | None:
         async with async_session() as db:
@@ -242,30 +255,47 @@ class PipelineOrchestrator:
 
         return context
 
+    def _save_checkpoint(self, completed_module: int, context: dict):
+        """Write checkpoint so restart/resume knows exactly where to pick up."""
+        workspace = Path(config.WORKSPACE_DIR / self.task_id)
+        workspace.mkdir(parents=True, exist_ok=True)
+        checkpoint = {
+            "task_id": self.task_id,
+            "last_completed_module": completed_module,
+            "next_module": completed_module + 1,
+            "topic": context.get("topic", ""),
+            "saved_at": _utcnow().isoformat(),
+        }
+        (workspace / "_checkpoint.json").write_text(
+            json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    async def _execute_module(self, mod, module_number: int, context: dict) -> dict:
+        """Run a single module with abort/pause guards."""
+        self.state.check_control()
+
+        await self.state.set_progress(module_number, mod.name, 10)
+        await self.tracer.log(module_number, "start", f"开始{mod.name}")
+        self.tracer.step_start()
+
+        context = await mod.execute(context, self.tracer, self.state)
+
+        self.state.check_control()
+
+        await self.state.set_progress(module_number, mod.name, 100)
+        await self.tracer.log(
+            module_number,
+            "done",
+            f"{mod.name} 完成",
+            duration_ms=self.tracer.step_elapsed_ms(),
+        )
+        self._save_checkpoint(module_number, context)
+        return context
+
     async def _run_linear_modules(self, context: dict, start_module: int, end_module: int) -> dict:
         for module_number in range(start_module, end_module + 1):
             mod = self.modules[module_number - 1]
-
-            if self.state.is_aborted:
-                await self.state.set_status("aborted")
-                return context
-
-            await self.state.wait_if_paused()
-
-            await self.state.set_progress(module_number, mod.name, 10)
-            await self.tracer.log(module_number, "start", f"开始{mod.name}")
-            self.tracer.step_start()
-
-            context = await mod.execute(context, self.tracer, self.state)
-
-            await self.state.set_progress(module_number, mod.name, 100)
-            await self.tracer.log(
-                module_number,
-                "done",
-                f"{mod.name} 完成",
-                duration_ms=self.tracer.step_elapsed_ms(),
-            )
-
+            context = await self._execute_module(mod, module_number, context)
         return context
 
     async def run(self):
@@ -278,41 +308,21 @@ class PipelineOrchestrator:
         runtime_token = bind_runtime_settings(context.get("runtime_settings"))
 
         try:
-            # M1-M2: 文献和缺口分析，线性执行
+            # M1-M2: 文献和缺口分析
             if self.start_module <= 2:
                 context = await self._run_linear_modules(context, self.start_module, 2)
 
             # M3: 构思生成，执行后暂停等待用户选择
             if self.start_module <= 3:
-                if self.state.is_aborted:
-                    await self.state.set_status("aborted")
-                    return
-
-                await self.state.wait_if_paused()
-
                 mod3 = self.modules[2]
-                await self.state.set_progress(3, mod3.name, 10)
-                await self.tracer.log(3, "start", f"开始{mod3.name}")
-                self.tracer.step_start()
-
-                context = await mod3.execute(context, self.tracer, self.state)
-
-                await self.state.set_progress(3, mod3.name, 100)
-                await self.tracer.log(
-                    3,
-                    "done",
-                    f"{mod3.name} 完成，等待用户选择 Idea 推进到下一阶段",
-                    duration_ms=self.tracer.step_elapsed_ms(),
-                )
+                context = await self._execute_module(mod3, 3, context)
 
                 # M3 完成后暂停，等待用户调用 select-idea API
                 await self.state.set_status("paused")
                 await self.tracer.log(3, "paused", "M3 已完成，任务暂停等待用户选择 Idea")
-
-                # M3 完成后不再自动执行后续模块
                 return
 
-            # M4-M6: 代码生成、实验设计、Agent运行（由 select-idea 触发）
+            # M4-M6: 代码生成、实验设计、Agent运行
             if 4 <= self.start_module <= 6:
                 context = await self._run_linear_modules(context, self.start_module, 6)
 
@@ -322,26 +332,8 @@ class PipelineOrchestrator:
 
             if self.start_module <= 7:
                 while True:
-                    if self.state.is_aborted:
-                        await self.state.set_status("aborted")
-                        return
-
-                    await self.state.wait_if_paused()
-
                     mod7 = self.modules[6]
-                    await self.state.set_progress(7, mod7.name, 10)
-                    await self.tracer.log(7, "start", f"开始{mod7.name}")
-                    self.tracer.step_start()
-
-                    context = await mod7.execute(context, self.tracer, self.state)
-
-                    await self.state.set_progress(7, mod7.name, 100)
-                    await self.tracer.log(
-                        7,
-                        "done",
-                        f"{mod7.name} 完成",
-                        duration_ms=self.tracer.step_elapsed_ms(),
-                    )
+                    context = await self._execute_module(mod7, 7, context)
 
                     if context.get("analysis_passed", False):
                         break
@@ -349,50 +341,48 @@ class PipelineOrchestrator:
                     retry_count = await self.state.increment_retry()
                     if retry_count >= max_retries:
                         await self.tracer.log(
-                            7,
-                            "max_retries",
+                            7, "max_retries",
                             f"已达最大重试次数 {max_retries}，使用当前结果继续",
                             level="warn",
                         )
                         break
 
                     await self.tracer.log(
-                        7,
-                        "retry",
+                        7, "retry",
                         f"结果未达标，回退到 M6 重新实验（第 {retry_count} 次重试）",
                         level="warn",
                     )
 
                     mod6 = self.modules[5]
-                    await self.state.set_progress(6, mod6.name, 55)
-                    await self.tracer.log(6, "start", f"重新开始{mod6.name}")
-                    self.tracer.step_start()
-                    context = await mod6.execute(context, self.tracer, self.state)
-                    await self.state.set_progress(6, mod6.name, 100)
-                    await self.tracer.log(
-                        6,
-                        "done",
-                        f"{mod6.name} 完成",
-                        duration_ms=self.tracer.step_elapsed_ms(),
-                    )
+                    context = await self._execute_module(mod6, 6, context)
 
-            if self.start_module <= 8 and not self.state.is_aborted:
+            if self.start_module <= 8:
                 context = await self._run_linear_modules(context, 8, 8)
 
-            if self.start_module <= 9 and not self.state.is_aborted:
+            if self.start_module <= 9:
                 context = await self._run_linear_modules(context, 9, 9)
-
-            if self.state.is_aborted:
-                await self.state.set_status("aborted")
-                return
 
             await self.state.set_progress(9, "completed", 100)
             await self.state.set_status("completed")
             await self.tracer.mark_completed()
 
+        except TaskAborted:
+            await self.tracer.log(0, "aborted", "任务已被用户终止")
+            await self.state.set_status("aborted")
+        except TaskPaused:
+            await self.tracer.log(0, "paused", "任务已暂停")
+            await self.state.set_status("paused")
+        except asyncio.CancelledError:
+            # CancelledError means the orchestrator task was force-cancelled (abort)
+            await self.tracer.log(0, "cancelled", "任务被强制取消")
+            await self.state.set_status("aborted")
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             await self.tracer.log_error(0, "pipeline_error", error_msg)
             await self.state.set_status("failed")
         finally:
             reset_runtime_settings(runtime_token)
+
+
+# Need this import at the bottom to avoid circular imports
+import asyncio

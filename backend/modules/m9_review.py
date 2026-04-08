@@ -17,10 +17,8 @@ import asyncio
 import numpy as np
 
 from modules.base import BaseModule
-from modules.llm_client import call_llm, call_llm_json
+from modules.llm_client import call_llm
 from modules.ai_scientist_bridge import (
-    create_client_zhipu,
-    get_response_from_llm,
     extract_json_between_markers,
     search_for_papers,
 )
@@ -99,7 +97,6 @@ class ReviewModule(BaseModule):
         workspace = context["workspace"]
         num_reviewers = context.get("config", {}).get("num_reviewers", 3)
 
-        client, model = create_client_zhipu()
 
         # ── Step 1: 加载论文内容 ──
         tracer.step_start()
@@ -121,7 +118,7 @@ class ReviewModule(BaseModule):
         await tracer.log(9, "literature_grounding", "搜索相关文献用于 grounded 评审")
 
         related_papers_context = await self._search_related_papers(
-            paper_text, best_idea, tracer
+            paper_text, best_idea, tracer, state
         )
 
         await tracer.log(9, "literature_grounding",
@@ -138,13 +135,15 @@ class ReviewModule(BaseModule):
             if state.is_aborted:
                 break
 
+            await state.wait_if_paused()
+
             reviewer_prompt = prompts[i % 2]
             bias = "严格" if i % 2 == 0 else "宽松"
             await tracer.log(9, f"reviewer_{i+1}",
                              f"审稿人 {i+1}/{num_reviewers} ({bias})")
 
-            review = self._perform_grounded_review(
-                paper_text, related_papers_context, client, model, reviewer_prompt
+            review = await self._perform_grounded_review(
+                paper_text, related_papers_context, reviewer_prompt, state
             )
             if review:
                 all_reviews.append(review)
@@ -160,7 +159,8 @@ class ReviewModule(BaseModule):
         tracer.step_start()
         await tracer.log(9, "meta_review", "Area Chair 汇总 Meta-Review")
 
-        meta_review = self._get_meta_review(client, model, all_reviews)
+        state.check_control()
+        meta_review = await self._get_meta_review(all_reviews, state)
         if meta_review is None and all_reviews:
             meta_review = all_reviews[0]
 
@@ -227,7 +227,7 @@ class ReviewModule(BaseModule):
 
     # ── V2 新增: 文献搜索 ──
 
-    async def _search_related_papers(self, paper_text, best_idea, tracer) -> str:
+    async def _search_related_papers(self, paper_text, best_idea, tracer, state: TaskStateMachine) -> str:
         """搜索相关论文用于 grounding 评审"""
         raw_idea = best_idea.get("_raw", best_idea)
         title = raw_idea.get("Title", best_idea.get("title", ""))
@@ -257,7 +257,8 @@ class ReviewModule(BaseModule):
 
         for query in queries[:5]:
             try:
-                papers = await asyncio.to_thread(search_for_papers, query, 5)
+                await state.wait_if_paused()
+                papers = await state.run_interruptible(asyncio.to_thread(search_for_papers, query, 5))
                 if papers:
                     for p in papers:
                         t = p.get("title", "")
@@ -293,7 +294,7 @@ class ReviewModule(BaseModule):
 
     # ── 评审核心 ──
 
-    def _perform_grounded_review(self, paper_text, related_papers_ctx, client, model, system_prompt):
+    async def _perform_grounded_review(self, paper_text, related_papers_ctx, system_prompt, state: TaskStateMachine):
         """单个审稿人的 grounded 评审"""
         grounding_instruction = ""
         if related_papers_ctx:
@@ -316,17 +317,18 @@ Here is the paper you are asked to review:
 ```"""
 
         try:
-            text, _ = get_response_from_llm(
-                base_prompt, client, model,
-                system_message=system_prompt,
+            text, _ = await call_llm(
+                base_prompt,
+                system=system_prompt,
                 temperature=0.75,
+                state=state,
             )
             return extract_json_between_markers(text)
         except Exception as e:
             print(f"Review failed: {e}")
             return None
 
-    def _get_meta_review(self, client, model, reviews):
+    async def _get_meta_review(self, reviews, state: TaskStateMachine):
         """Area Chair meta-review"""
         if not reviews:
             return None
@@ -338,10 +340,11 @@ Here is the paper you are asked to review:
         base_prompt = neurips_form_v2 + review_text
 
         try:
-            text, _ = get_response_from_llm(
-                base_prompt, client, model,
-                system_message=meta_reviewer_system_prompt.format(reviewer_count=len(reviews)),
+            text, _ = await call_llm(
+                base_prompt,
+                system=meta_reviewer_system_prompt.format(reviewer_count=len(reviews)),
                 temperature=0.5,
+                state=state,
             )
             return extract_json_between_markers(text)
         except Exception as e:

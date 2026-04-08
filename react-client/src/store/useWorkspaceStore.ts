@@ -37,6 +37,7 @@ import {
   abortTask,
   clearTaskApiCache,
   createChatSession,
+  deleteTask,
   deleteChatSession,
   getChatSession,
   getChatSessions,
@@ -104,6 +105,7 @@ interface WorkspaceState {
   addChatMessage: (content: string) => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
+  deleteTaskHistory: (taskId: string) => Promise<void>;
   createSession: () => Promise<string>;
   setActivePaper: (paperId: string) => void;
   setSelectedIdeas: (ideaIds: string[]) => void;
@@ -242,6 +244,36 @@ function appendTaskStatusMessage(state: WorkspaceState, sessionId: string, task?
 
   const statusMessage = buildTaskStatusMessage(task);
   return statusMessage ? appendMessagesToSession(state, sessionId, [statusMessage]) : {};
+}
+
+function removeTaskHistoryState(state: WorkspaceState, taskId: string) {
+  const removedSessionIds = new Set(
+    state.sessions.filter((session) => session.taskId === taskId).map((session) => session.id),
+  );
+  const sessions = state.sessions.filter((session) => session.taskId !== taskId);
+
+  const chatMessagesBySession = Object.fromEntries(
+    Object.entries(state.chatMessagesBySession).filter(([sessionId]) => !removedSessionIds.has(sessionId)),
+  );
+  const { [taskId]: removedTask, ...tasksById } = state.tasksById;
+  const { [taskId]: removedLogs, ...runLogsBySession } = state.runLogsBySession;
+  void removedTask;
+  void removedLogs;
+
+  const deletingCurrentSession = removedSessionIds.has(state.currentSessionId);
+  const nextSessionId = deletingCurrentSession ? pickDefaultSessionId(sessions) : state.currentSessionId;
+  const nextMessages = nextSessionId ? chatMessagesBySession[nextSessionId] ?? draftChatMessages : draftChatMessages;
+  const deletingCurrentTask = state.currentTaskId === taskId;
+
+  return {
+    sessions,
+    chatMessagesBySession,
+    tasksById,
+    runLogsBySession,
+    currentSessionId: nextSessionId,
+    ...(deletingCurrentSession ? { chatMessages: nextMessages, isSessionLoading: Boolean(nextSessionId) } : {}),
+    ...(deletingCurrentTask ? resetTaskView() : {}),
+  };
 }
 
 function syncSessionTaskState(sessions: RecentSession[], task: BackendTaskResponse) {
@@ -1073,6 +1105,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           ...(deletingCurrent && !nextSessionId ? resetTaskView() : {}),
         };
       });
+
+      const nextSessionId = get().currentSessionId;
+      if (nextSessionId) {
+        await get().selectSession(nextSessionId);
+      } else {
+        set({ chatMessages: draftChatMessages });
+      }
+    } catch (error) {
+      set({ taskError: getErrorMessage(error) });
+    }
+  },
+  deleteTaskHistory: async (taskId) => {
+    try {
+      await deleteTask(taskId);
+
+      set((state) => ({
+        ...removeTaskHistoryState(state, taskId),
+      }));
 
       const nextSessionId = get().currentSessionId;
       if (nextSessionId) {

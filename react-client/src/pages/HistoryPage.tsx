@@ -13,6 +13,7 @@ export default function HistoryPage() {
   const isInitializing = useWorkspaceStore((state) => state.isInitializing);
   const selectSession = useWorkspaceStore((state) => state.selectSession);
   const deleteSession = useWorkspaceStore((state) => state.deleteSession);
+  const deleteTaskHistory = useWorkspaceStore((state) => state.deleteTaskHistory);
   const restartCurrentTask = useWorkspaceStore((state) => state.restartCurrentTask);
   const [query, setQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export default function HistoryPage() {
                         <button
                           className="button-ghost danger"
                           onClick={() => {
-                            void deleteSession(session.id);
+                            void (session.taskId ? deleteTaskHistory(session.taskId) : deleteSession(session.id));
                             setDeletingId(null);
                           }}
                           type="button"

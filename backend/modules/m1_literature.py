@@ -166,8 +166,7 @@ class LiteratureModule(BaseModule):
                 topic, domain, tracer, state
             )
 
-        if state.is_aborted:
-            return context
+        state.check_control()
 
         review_path = os.path.join(workspace, "m1_literature_review.md")
         sources_path = os.path.join(workspace, "m1_sources.json")
@@ -268,9 +267,11 @@ class LiteratureModule(BaseModule):
         # 添加超时控制（默认10分钟）
         research_timeout = config.PAPERQA_TIMEOUT * 2  # 使用 PaperQA 超时的 2 倍
         try:
-            await asyncio.wait_for(
-                researcher.conduct_research(),
-                timeout=research_timeout
+            await state.run_interruptible(
+                asyncio.wait_for(
+                    researcher.conduct_research(),
+                    timeout=research_timeout
+                )
             )
         except asyncio.TimeoutError:
             await tracer.log(1, "deep_research", f"文献调研超时({research_timeout}s)，使用降级方案", level="warn")
@@ -283,15 +284,16 @@ class LiteratureModule(BaseModule):
             output_data={"sources_count": len(researcher.visited_urls)},
         )
 
-        if state.is_aborted:
-            return "", [], [], {}
+        state.check_control()
 
         tracer.step_start()
         await tracer.log(1, "write_report", "生成文献综述报告")
         try:
-            report = await asyncio.wait_for(
-                researcher.write_report(),
-                timeout=300  # 5分钟超时
+            report = await state.run_interruptible(
+                asyncio.wait_for(
+                    researcher.write_report(),
+                    timeout=300  # 5分钟超时
+                )
             )
         except asyncio.TimeoutError:
             await tracer.log(1, "write_report", "报告生成超时，使用基础报告", level="warn")
@@ -350,6 +352,7 @@ class LiteratureModule(BaseModule):
                 deduped.append(paper)
             if len(deduped) >= 15 or state.is_aborted:
                 break
+            await state.wait_if_paused()
             await asyncio.sleep(0.5)
 
         await tracer.log(
@@ -431,6 +434,7 @@ Evidence:
                     ),
                     temperature=0.2,
                     max_tokens=3200,
+                    state=state,
                 )
                 await tracer.log(
                     1,

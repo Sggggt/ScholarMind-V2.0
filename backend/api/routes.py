@@ -150,6 +150,17 @@ def _chat_session_to_response(session: ChatSession) -> dict:
     }
 
 
+async def _purge_orphaned_chat_sessions(db: AsyncSession, sessions: list[ChatSession]) -> list[ChatSession]:
+    orphaned = [session for session in sessions if session.task_id and session.task is None]
+    if orphaned:
+        for session in orphaned:
+            await db.delete(session)
+        await db.commit()
+
+    orphaned_ids = {session.id for session in orphaned}
+    return [session for session in sessions if session.id not in orphaned_ids]
+
+
 async def _get_chat_session_or_404(db: AsyncSession, session_id: str) -> ChatSession:
     stmt = (
         select(ChatSession)
@@ -160,6 +171,10 @@ async def _get_chat_session_or_404(db: AsyncSession, session_id: str) -> ChatSes
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(404, "会话不存在")
+    if session.task_id and session.task is None:
+        await db.delete(session)
+        await db.commit()
+        raise HTTPException(404, "Session references a deleted task")
     return session
 
 
@@ -265,7 +280,7 @@ async def list_chat_sessions(db: AsyncSession = Depends(get_db)):
         .options(selectinload(ChatSession.messages), selectinload(ChatSession.task))
     )
     result = await db.execute(stmt)
-    sessions = result.scalars().all()
+    sessions = await _purge_orphaned_chat_sessions(db, result.scalars().all())
     return [_chat_session_to_response(session) for session in sessions]
 
 

@@ -131,18 +131,29 @@ class IdeaScoringModule(BaseModule):
     module_id = 3
     name = "Idea生成与打分"
 
-    async def _request_llm(self, *args, timeout: int | None = None, **kwargs):
+    async def _request_llm(
+        self,
+        *args,
+        timeout: int | None = None,
+        state: TaskStateMachine | None = None,
+        **kwargs,
+    ):
         """异步 LLM 调用，使用原生异步重试机制（方案B）"""
-        # 直接调用异步函数，不再使用 asyncio.to_thread
-        # 这样超时可以被正确处理
-        result = await get_response_from_llm_async(*args, **kwargs)
-        return result
+        timeout = timeout or config.AI_SCIENTIST_TIMEOUT
+        request = asyncio.wait_for(get_response_from_llm_async(*args, **kwargs), timeout=timeout)
+        return await (state.run_interruptible(request) if state else request)
 
-    async def _search_papers(self, query: str, result_limit: int = 10):
-        return await asyncio.wait_for(
+    async def _search_papers(
+        self,
+        query: str,
+        result_limit: int = 10,
+        state: TaskStateMachine | None = None,
+    ):
+        request = asyncio.wait_for(
             asyncio.to_thread(search_for_papers, query, result_limit),
             timeout=min(config.AI_SCIENTIST_TIMEOUT, 30),
         )
+        return await (state.run_interruptible(request) if state else request)
 
     @staticmethod
     def _build_scored_idea(idea: dict) -> dict:
@@ -291,10 +302,12 @@ class IdeaScoringModule(BaseModule):
         idea_system_prompt = prompt["system"]
 
         for gen_idx in range(start_idx, max_ideas):
-            # ── 支持随时中断 ──
+            # ── 支持随时中断/暂停 ──
             if state.is_aborted:
                 await tracer.log(3, "aborted", f"用户中断，已生成 {len(generated_ideas)} 个 idea")
                 break
+
+            await state.wait_if_paused()
 
             await tracer.log(3, "generate_ideas", f"生成第 {gen_idx + 1}/{max_ideas} 个 idea...")
             try:
@@ -312,6 +325,7 @@ class IdeaScoringModule(BaseModule):
                     model=model,
                     system_message=idea_system_prompt,
                     msg_history=msg_history,
+                    state=state,
                 )
                 json_output = extract_json_between_markers(text)
                 if json_output is None:
@@ -328,6 +342,7 @@ class IdeaScoringModule(BaseModule):
                         model=model,
                         system_message=idea_system_prompt,
                         msg_history=msg_history,
+                        state=state,
                     )
                     refined = extract_json_between_markers(text)
                     if refined is None:
@@ -413,7 +428,16 @@ class IdeaScoringModule(BaseModule):
                 if state.is_aborted:
                     break
                 try:
-                    mutations.extend(await self._generate_mutations(idea, prompt["task_description"], code, client, model))
+                    mutations.extend(
+                        await self._generate_mutations(
+                            idea,
+                            prompt["task_description"],
+                            code,
+                            client,
+                            model,
+                            state=state,
+                        )
+                    )
                 except asyncio.TimeoutError:
                     await tracer.log(3, "tree_search", "变异生成超时，已跳过", level="warn")
                 except Exception as exc:
@@ -498,7 +522,16 @@ class IdeaScoringModule(BaseModule):
         context["all_ideas_raw"] = all_ideas
         return context
 
-    async def _generate_mutations(self, idea: dict, task_description: str, code: str, client, model):
+    async def _generate_mutations(
+        self,
+        idea: dict,
+        task_description: str,
+        code: str,
+        client,
+        model,
+        *,
+        state: TaskStateMachine | None = None,
+    ):
         mutation_prompt = f"""You have this research idea:
 {json.dumps(idea, indent=2, ensure_ascii=False)}
 
@@ -538,6 +571,7 @@ Be realistic on ratings. Make mutations meaningfully different from the original
             model,
             system_message="You are a creative AI researcher generating research idea variants.",
             temperature=0.8,
+            state=state,
         )
 
         result = extract_json_between_markers(text)

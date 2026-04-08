@@ -89,14 +89,16 @@ class ExperimentDesignModule(BaseModule):
             baseline_results=json.dumps(baseline_results, indent=2),
         )
 
-        text, _ = await get_response_from_llm_async(
-            prompt + "\n\nPlease output your experiment plan as a JSON with the following format:\n"
-            '```json\n{"experiments": [{"run_num": 1, "description": "...", '
-            '"changes": "what to modify in experiment.py", "expected_outcome": "..."}], '
-            '"total_runs_planned": 3}\n```',
-            client, model,
-            system_message="You are an ambitious AI PhD student planning experiments.",
-            temperature=0.7,
+        text, _ = await state.run_interruptible(
+            get_response_from_llm_async(
+                prompt + "\n\nPlease output your experiment plan as a JSON with the following format:\n"
+                '```json\n{"experiments": [{"run_num": 1, "description": "...", '
+                '"changes": "what to modify in experiment.py", "expected_outcome": "..."}], '
+                '"total_runs_planned": 3}\n```',
+                client, model,
+                system_message="You are an ambitious AI PhD student planning experiments.",
+                temperature=0.7,
+            )
         )
 
         plan_data = extract_json_between_markers(text) or {"experiments": [], "total_runs_planned": 1}
@@ -143,6 +145,7 @@ class ExperimentDesignModule(BaseModule):
                     cwd=project_dir,
                     edit_format="diff",
                     timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
+                    state=state,
                 )
                 if result.ok:
                     await tracer.log(5, "implement_experiments", "Aider 完成实验代码修改")

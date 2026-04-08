@@ -55,8 +55,43 @@ def _is_valid_code(filepath: str) -> bool:
 
 
 class CodeGenModule(BaseModule):
-    async def _run_subprocess(self, *args, **kwargs):
-        return await asyncio.to_thread(subprocess.run, *args, **kwargs)
+    async def _run_subprocess(self, command, *, state: TaskStateMachine | None = None, **kwargs):
+        cwd = kwargs.get("cwd")
+        timeout = kwargs.get("timeout")
+        env = kwargs.get("env")
+        capture_output = kwargs.get("capture_output", False)
+        text = kwargs.get("text", False)
+
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=cwd,
+            env=env,
+            stdout=asyncio.subprocess.PIPE if capture_output else None,
+            stderr=asyncio.subprocess.PIPE if capture_output else None,
+        )
+        try:
+            communicate = process.communicate()
+            if timeout is not None:
+                communicate = asyncio.wait_for(communicate, timeout=timeout)
+            if state:
+                stdout, stderr = await state.run_interruptible(communicate)
+            else:
+                stdout, stderr = await communicate
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+            raise
+
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=process.returncode or 0,
+            stdout=stdout.decode("utf-8", errors="replace") if capture_output and text and stdout else stdout,
+            stderr=stderr.decode("utf-8", errors="replace") if capture_output and text and stderr else stderr,
+        )
 
     module_id = 4
     name = "代码仓库生成"
@@ -249,6 +284,7 @@ class CodeGenModule(BaseModule):
                 capture_output=True,
                 text=True,
                 timeout=120,
+                state=state,
             )
             if result.returncode == 0:
                 await tracer.log(4, "run_baseline", "Baseline 运行成功")
@@ -269,8 +305,8 @@ class CodeGenModule(BaseModule):
         tracer.step_start()
         await tracer.log(4, "init_git", "初始化 git 仓库 (Aider 依赖)")
 
-        await self._run_subprocess(["git", "init"], cwd=project_dir, capture_output=True)
-        await self._run_subprocess(["git", "add", "."], cwd=project_dir, capture_output=True)
+        await self._run_subprocess(["git", "init"], cwd=project_dir, capture_output=True, state=state)
+        await self._run_subprocess(["git", "add", "."], cwd=project_dir, capture_output=True, state=state)
         await self._run_subprocess(
             ["git", "commit", "-m", "Initial baseline"],
             cwd=project_dir, capture_output=True,
@@ -278,6 +314,7 @@ class CodeGenModule(BaseModule):
                  "GIT_AUTHOR_EMAIL": "ai@scientist.local",
                  "GIT_COMMITTER_NAME": "AI-Scientist",
                  "GIT_COMMITTER_EMAIL": "ai@scientist.local"},
+            state=state,
         )
 
         await tracer.log(4, "init_git", "Git 仓库初始化完成")
@@ -416,6 +453,7 @@ Write the COMPLETE experiment.py file now. Do not leave any TODO or placeholder.
                 cwd=project_dir,
                 edit_format="whole",
                 timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
+                state=state,
             )
             output = result.output or result.detail
             if result.ok:
@@ -428,7 +466,14 @@ Write the COMPLETE experiment.py file now. Do not leave any TODO or placeholder.
             await tracer.log(4, "aider", f"Aider 调用失败: {e}", level="warn")
             return False
 
-    async def _fallback_generate(self, project_dir, idea, tracer, ai_scientist_dir=None):
+    async def _fallback_generate(
+        self,
+        project_dir,
+        idea,
+        tracer,
+        ai_scientist_dir=None,
+        state: TaskStateMachine | None = None,
+    ):
         """降级方案：直接用 async LLM 生成完整 experiment.py"""
         prompt = f"""Generate a complete Python experiment script for the following research idea.
 
@@ -455,6 +500,7 @@ Output ONLY the Python code, no markdown formatting."""
                 system="You are an expert ML engineer. Write clean, complete, runnable Python code.",
                 temperature=0.3,
                 max_tokens=6000,
+                state=state,
             )
 
             await tracer.log(4, "fallback_llm", f"LLM 返回 {len(text)} 字符, tokens: {tokens}")

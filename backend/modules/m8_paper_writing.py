@@ -145,7 +145,7 @@ class PaperWritingModule(BaseModule):
         tracer.step_start()
         await tracer.log(8, "stage_a_outline", "Stage A: 生成论文大纲")
 
-        outline = await self._generate_outline(paper_context, idea_title)
+        outline = await self._generate_outline(paper_context, idea_title, state)
         await tracer.log(8, "stage_a_outline", f"大纲生成完成 ({len(outline)} chars)")
 
         # ══════════════════════════════════════════════
@@ -163,7 +163,7 @@ class PaperWritingModule(BaseModule):
             await tracer.log(8, f"stage_b_{section_name.lower()}", f"Stage B: 撰写 {section_name}")
 
             section_latex = await self._write_section(
-                section_name, guide, outline, sections_latex, paper_context
+                section_name, guide, outline, sections_latex, paper_context, state
             )
             sections_latex[section_name] = section_latex
 
@@ -177,7 +177,9 @@ class PaperWritingModule(BaseModule):
         tracer.step_start()
         await tracer.log(8, "stage_c_coherence", "Stage C: 跨节一致性检查")
 
+        state.check_control()
         sections_latex = await self._coherence_pass(sections_latex, idea_title)
+        state.check_control()
         await tracer.log(8, "stage_c_coherence", "一致性检查完成")
 
         # ══════════════════════════════════════════════
@@ -187,7 +189,7 @@ class PaperWritingModule(BaseModule):
         await tracer.log(8, "stage_d_citations", "Stage D: 引用 grounding (Semantic Scholar)")
 
         bib_entries, sections_latex = await self._ground_citations(
-            sections_latex, idea_title, tracer
+            sections_latex, idea_title, tracer, state
         )
         await tracer.log(8, "stage_d_citations", f"引用完成: {len(bib_entries)} 篇真实引用")
 
@@ -198,11 +200,13 @@ class PaperWritingModule(BaseModule):
             if state.is_aborted:
                 break
 
+            await state.wait_if_paused()
+
             tracer.step_start()
             await tracer.log(8, f"stage_e_audit_{audit_round+1}",
                              f"Stage E: 质量审计 第{audit_round+1}/2轮")
 
-            sections_latex, issues = await self._quality_audit(sections_latex, audit_round)
+            sections_latex, issues = await self._quality_audit(sections_latex, audit_round, state)
             await tracer.log(8, f"stage_e_audit_{audit_round+1}",
                              f"审计完成, 修复 {len(issues)} 个问题")
 
@@ -226,7 +230,7 @@ class PaperWritingModule(BaseModule):
             f.write("\n\n".join(bib_entries))
 
         # 编译 PDF
-        pdf_path = await self._compile_latex(paper_dir, tracer)
+        pdf_path = await self._compile_latex(paper_dir, tracer, state)
 
         total_words = sum(len(s.split()) for s in sections_latex.values())
         await tracer.log(8, "assemble",
@@ -316,7 +320,7 @@ class PaperWritingModule(BaseModule):
 
         return "\n".join(parts)
 
-    async def _generate_outline(self, paper_context: str, title: str) -> str:
+    async def _generate_outline(self, paper_context: str, title: str, state: TaskStateMachine) -> str:
         """Stage A: 生成详细论文大纲"""
         prompt = f"""You are an expert academic writer. Generate a detailed outline for a research paper.
 
@@ -338,12 +342,13 @@ Output the outline in plain text, section by section. Be specific — reference 
             system="You are a senior researcher writing a paper outline. Be thorough and specific.",
             max_tokens=4000,
             temperature=0.5,
+            state=state,
         )
         return outline
 
     async def _write_section(
         self, section_name: str, guide: dict, outline: str,
-        prior_sections: dict, paper_context: str,
+        prior_sections: dict, paper_context: str, state: TaskStateMachine,
     ) -> str:
         """Stage B: 撰写单个节"""
         # 构建前文 context
@@ -386,6 +391,7 @@ Target length: {guide['word_target']}
             system="You are a top-tier ML researcher writing for a prestigious venue (NeurIPS/ICML/ICLR). Write detailed, substantive content. Avoid filler phrases.",
             max_tokens=6000,
             temperature=0.4,
+            state=state,
         )
 
         # 清理
@@ -433,6 +439,7 @@ Do NOT remove or merge content. Keep all existing content."""
                 system="You are a LaTeX editor. Fix only the specified section. Preserve all content.",
                 max_tokens=6000,
                 temperature=0.2,
+                state=state,
             )
 
             result = result.strip()
@@ -452,7 +459,7 @@ Do NOT remove or merge content. Keep all existing content."""
         return updated
 
     async def _ground_citations(
-        self, sections: dict, title: str, tracer: Tracer,
+        self, sections: dict, title: str, tracer: Tracer, state: TaskStateMachine,
     ) -> tuple[list[str], dict]:
         """Stage D: 引用 grounding — 搜索真实论文并插入 BibTeX"""
         bib_entries = []
@@ -476,7 +483,7 @@ Do NOT remove or merge content. Keep all existing content."""
                 query = f"{title} {query}"
 
             try:
-                papers = await asyncio.to_thread(search_for_papers, query, 3)
+                papers = await state.run_interruptible(asyncio.to_thread(search_for_papers, query, 3))
                 if papers and len(papers) > 0:
                     paper = papers[0]
                     # 构建 BibTeX
@@ -526,7 +533,7 @@ Do NOT remove or merge content. Keep all existing content."""
 
         return bib_entries, sections
 
-    async def _quality_audit(self, sections: dict, round_num: int) -> tuple[dict, list]:
+    async def _quality_audit(self, sections: dict, round_num: int, state: TaskStateMachine) -> tuple[dict, list]:
         """Stage E: 质量审计 — 逐节检查并修复"""
         all_issues = []
 
@@ -601,6 +608,7 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
                 system="You are a LaTeX editor. Make minimal fixes. Do not remove content.",
                 max_tokens=6000,
                 temperature=0.2,
+                state=state,
             )
 
             result = result.strip()
@@ -998,7 +1006,7 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
             flags=re.DOTALL,
         )
 
-    async def _compile_latex(self, paper_dir: str, tracer: Tracer) -> str | None:
+    async def _compile_latex(self, paper_dir: str, tracer: Tracer, state: TaskStateMachine) -> str | None:
         """编译 LaTeX → PDF"""
         commands = [
             ["pdflatex", "-interaction=nonstopmode", "paper.tex"],
@@ -1008,11 +1016,17 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
         ]
         for cmd in commands:
             try:
-                await asyncio.to_thread(
-                    subprocess.run, cmd, cwd=paper_dir,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    encoding="utf-8", errors="replace",  # Windows 兼容
-                    timeout=30,
+                await state.run_interruptible(
+                    asyncio.to_thread(
+                        subprocess.run,
+                        cmd,
+                        cwd=paper_dir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                    )
                 )
             except Exception:
                 pass

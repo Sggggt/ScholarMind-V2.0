@@ -65,31 +65,61 @@ function patchReactNativeZeroconf() {
 
   updateFileIfChanged(buildGradlePath, (source) => {
     let next = source;
+    const marker =
+      "def safeExtGet(prop, fallback) {\n    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback\n}\n";
+    const resolveJniFileBlock =
+      "def resolveJniFile(fileName) {\n" +
+      "    def overrideDir = System.getenv('ZEROCONF_NDK_DIR')\n" +
+      "    if (overrideDir) {\n" +
+      "        return new File(overrideDir, fileName)\n" +
+      "    }\n" +
+      '    return file("src/main/jni/${fileName}")\n' +
+      "}\n";
+    const resolveJniPathBlock =
+      "def resolveJniPath(fileName) {\n" +
+      "    return resolveJniFile(fileName).absolutePath.replace('\\\\', '/')\n" +
+      "}\n";
+    const overrideBuildDirBlock =
+      "def overrideBuildDir = System.getenv('ZEROCONF_BUILD_DIR')\n" +
+      "if (overrideBuildDir) {\n" +
+      "    buildDir = file(overrideBuildDir)\n" +
+      "}\n";
+
+    next = next.replace(
+      /def resolveJniPath\(fileName\) \{\r?\n\s*return resolveJniFile\(fileName\)\.absolutePath\.replace\('\\\\', '\/'\)\r?\n\}\r?\n*/g,
+      ""
+    );
 
     if (!next.includes("def resolveJniFile(fileName)")) {
-      const marker =
-        "def safeExtGet(prop, fallback) {\n    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback\n}\n";
       const injected =
         `${marker}\n` +
-        "def resolveJniFile(fileName) {\n" +
-        "    def overrideDir = System.getenv('ZEROCONF_NDK_DIR')\n" +
-        "    if (overrideDir) {\n" +
-        "        return new File(overrideDir, fileName)\n" +
-        "    }\n" +
-        '    return file("src/main/jni/${fileName}")\n' +
-        "}\n\n" +
-        "def overrideBuildDir = System.getenv('ZEROCONF_BUILD_DIR')\n" +
-        "if (overrideBuildDir) {\n" +
-        "    buildDir = file(overrideBuildDir)\n" +
-        "}\n";
+        `${resolveJniFileBlock}\n` +
+        `${resolveJniPathBlock}\n` +
+        overrideBuildDirBlock;
       next = next.replace(marker, injected);
     }
 
+    if (next.includes("def resolveJniFile(fileName)")) {
+      const normalizedBlock = `${resolveJniFileBlock}\n${resolveJniPathBlock}\n`;
+      next = next.replace(resolveJniFileBlock, normalizedBlock);
+    }
+
+    if (!next.includes("def resolveJniPath(fileName)")) {
+      next = next.replace(resolveJniFileBlock, `${resolveJniFileBlock}\n${resolveJniPathBlock}\n`);
+    }
+
+    if (!next.includes("def overrideBuildDir = System.getenv('ZEROCONF_BUILD_DIR')")) {
+      next = next.replace(
+        `${resolveJniFileBlock}\n${resolveJniPathBlock}\n`,
+        `${resolveJniFileBlock}\n${resolveJniPathBlock}\n${overrideBuildDirBlock}\n`
+      );
+    }
+
     next = next.replace(
-      'arguments "NDK_APPLICATION_MK:=src/main/jni/Application.mk"',
-      `arguments "NDK_APPLICATION_MK:=\${resolveJniFile('Application.mk').absolutePath}"`
+      /arguments\s+"NDK_APPLICATION_MK:=.+Application\.mk.*"/,
+      `arguments "NDK_APPLICATION_MK:=\${resolveJniPath('Application.mk')}"`
     );
-    next = next.replace('path "src/main/jni/Android.mk"', 'path resolveJniFile("Android.mk")');
+    next = next.replace(/path\s+.+Android\.mk.*$/, 'path file(resolveJniPath("Android.mk"))');
 
     return next;
   });

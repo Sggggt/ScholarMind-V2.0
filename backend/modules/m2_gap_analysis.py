@@ -20,8 +20,15 @@ class GapAnalysisModule(BaseModule):
     module_id = 2
     name = "研究空白识别"
 
-    async def _run_with_timeout(self, awaitable, *, timeout: int | None = None):
-        return await asyncio.wait_for(awaitable, timeout=timeout or config.PAPERQA_TIMEOUT)
+    async def _run_with_timeout(
+        self,
+        awaitable,
+        *,
+        timeout: int | None = None,
+        state: TaskStateMachine | None = None,
+    ):
+        request = asyncio.wait_for(awaitable, timeout=timeout or config.PAPERQA_TIMEOUT)
+        return await (state.run_interruptible(request) if state else request)
 
     def _paperqa_llm_model(self) -> str:
         model = get_openai_model()
@@ -41,10 +48,11 @@ class GapAnalysisModule(BaseModule):
         domain_suffix = f", {domain}" if domain else ""
         return f"ScholarMind Local Review, {topic[:80]}{domain_suffix}, 2026"
 
-    async def _build_docs(self):
+    async def _build_docs(self, state: TaskStateMachine | None = None):
         from paperqa import Docs
 
-        return await asyncio.wait_for(asyncio.to_thread(Docs), timeout=config.PAPERQA_TIMEOUT)
+        request = asyncio.wait_for(asyncio.to_thread(Docs), timeout=config.PAPERQA_TIMEOUT)
+        return await (state.run_interruptible(request) if state else request)
 
     async def execute(self, context: dict, tracer: Tracer, state: TaskStateMachine) -> dict:
         topic = context["topic"]
@@ -55,7 +63,8 @@ class GapAnalysisModule(BaseModule):
 
         tracer.step_start()
         await tracer.log(2, "build_index", "用 PaperQA2 建立文献知识库")
-        pqa_answers = await self._query_with_paperqa(topic, domain, literature_review, research_sources, tracer)
+        pqa_answers = await self._query_with_paperqa(topic, domain, literature_review, research_sources, tracer, state)
+        state.check_control()
         await tracer.log(2, "build_index", f"PaperQA2 返回 {len(pqa_answers)} 条 grounded 回答")
 
         tracer.step_start()
@@ -95,7 +104,7 @@ Return JSON:
   "summary": "Overall summary of research gaps (200 words)"
 }}"""
 
-        gaps_data, _ = await call_llm_json(gap_prompt, max_tokens=4096)
+        gaps_data, _ = await call_llm_json(gap_prompt, max_tokens=4096, state=state)
         gaps = gaps_data.get("gaps", [])
         await tracer.log(2, "identify_gaps", f"识别出 {len(gaps)} 个研究空白")
 
@@ -124,7 +133,7 @@ Return JSON array:
 ```
 Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."""
 
-        seed_text, _ = await call_llm(seed_prompt, max_tokens=3000, temperature=0.7)
+        seed_text, _ = await call_llm(seed_prompt, max_tokens=3000, temperature=0.7, state=state)
         seed_ideas = extract_json_between_markers(seed_text)
         if seed_ideas is None:
             seed_ideas = []
@@ -176,7 +185,7 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
         context["prompt_json"] = prompt_json
         return context
 
-    async def _query_with_paperqa(self, topic, domain, literature_review, sources, tracer):
+    async def _query_with_paperqa(self, topic, domain, literature_review, sources, tracer, state: TaskStateMachine):
         answers: list[dict[str, str]] = []
 
         try:
@@ -201,7 +210,8 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
                 "paperqa",
                 f"初始化 PaperQA2 (llm={paperqa_llm_model}, embedding={paperqa_embedding_model})",
             )
-            docs = await self._build_docs()
+            await state.wait_if_paused()
+            docs = await self._build_docs(state)
             await tracer.log(2, "paperqa", "PaperQA2 初始化完成")
 
             if literature_review and len(literature_review) > 200:
@@ -212,13 +222,15 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
 
                 try:
                     await tracer.log(2, "paperqa", "开始写入文献综述到 PaperQA2 索引")
+                    await state.wait_if_paused()
                     await self._run_with_timeout(
                         docs.aadd(
                             review_path,
                             citation=self._paperqa_local_citation(topic, domain),
                             docname="scholarmind_local_review",
                             settings=settings,
-                        )
+                        ),
+                        state=state,
                     )
                     await tracer.log(2, "paperqa", "文献综述已建立索引")
                 except asyncio.TimeoutError:
@@ -236,7 +248,11 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
             for query in queries:
                 try:
                     await tracer.log(2, "paperqa", f"开始查询: {query[:60]}...")
-                    response = await self._run_with_timeout(docs.aquery(query, settings=settings))
+                    await state.wait_if_paused()
+                    response = await self._run_with_timeout(
+                        docs.aquery(query, settings=settings),
+                        state=state,
+                    )
                     if response and hasattr(response, "answer") and response.answer:
                         answers.append({"query": query, "answer": response.answer})
                         await tracer.log(2, "paperqa", f"查询成功: {query[:50]}...")
@@ -264,7 +280,10 @@ Be realistic on ratings (1-10). Make sure ideas are concrete and implementable."
 
             for sq in search_queries:
                 try:
-                    papers = await asyncio.wait_for(asyncio.to_thread(search_for_papers, sq, 5), timeout=20)
+                    await state.wait_if_paused()
+                    papers = await state.run_interruptible(
+                        asyncio.wait_for(asyncio.to_thread(search_for_papers, sq, 5), timeout=20)
+                    )
                     if papers:
                         paper_summaries = []
                         for paper in papers:

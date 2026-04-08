@@ -23,8 +23,12 @@ function asArray<T = unknown>(value: unknown) {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
-function readString(value: unknown, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
+function readString(value: unknown, fallback: unknown = '') {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return typeof fallback === 'string' ? fallback : '';
 }
 
 function readNumber(value: unknown, fallback = 0) {
