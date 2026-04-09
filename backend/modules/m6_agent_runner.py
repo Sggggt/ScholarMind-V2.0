@@ -18,6 +18,7 @@ from subprocess import TimeoutExpired
 
 import config
 from modules.aider_runner import check_aider_available, run_aider_prompt
+from modules.async_subprocess import run_subprocess
 from modules.base import BaseModule
 from modules.ssh_runner import ssh_runner
 from modules.experiment_sim import generate_realistic_results, generate_experiment_figures, results_to_final_info
@@ -422,34 +423,22 @@ Implement the next experiment or respond with 'ALL_COMPLETED'."""
         if os.path.exists(src):
             shutil.copy(src, dst)
 
-        process = await asyncio.create_subprocess_exec(
-            "python",
-            "experiment.py",
-            f"--out_dir=run_{run_num}",
+        completed = await run_subprocess(
+            ["python", "experiment.py", f"--out_dir=run_{run_num}"],
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            timeout=timeout,
+            state=state,
         )
-        try:
-            _, stderr = await state.run_interruptible(
-                asyncio.wait_for(process.communicate(), timeout=timeout)
-            )
-        except BaseException:
-            if process.returncode is None:
-                process.kill()
-                try:
-                    await process.wait()
-                except Exception:
-                    pass
-            raise
 
-        stderr_output = stderr.decode("utf-8", errors="replace") if stderr else ""
-        if process.returncode != 0:
+        stderr_output = completed.stderr.decode("utf-8", errors="replace") if completed.stderr else ""
+        if completed.returncode != 0:
             if len(stderr_output) > MAX_STDERR_OUTPUT:
                 stderr_output = "..." + stderr_output[-MAX_STDERR_OUTPUT:]
             if os.path.exists(os.path.join(cwd, f"run_{run_num}")):
                 shutil.rmtree(os.path.join(cwd, f"run_{run_num}"))
-            return process.returncode or 1, f"Run failed: {stderr_output}", {}
+            return completed.returncode or 1, f"Run failed: {stderr_output}", {}
 
         info_path = os.path.join(cwd, f"run_{run_num}", "final_info.json")
         metrics = {}
@@ -472,21 +461,12 @@ Implement the next experiment or respond with 'ALL_COMPLETED'."""
         if not os.path.exists(plot_path):
             return
 
-        process = await asyncio.create_subprocess_exec(
-            "python",
-            "plot.py",
+        await run_subprocess(
+            ["python", "plot.py"],
             cwd=os.path.abspath(folder_name),
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
+            timeout=timeout,
+            state=state,
         )
-        try:
-            await state.run_interruptible(asyncio.wait_for(process.communicate(), timeout=timeout))
-        except BaseException:
-            if process.returncode is None:
-                process.kill()
-                try:
-                    await process.wait()
-                except Exception:
-                    pass
-            raise
 

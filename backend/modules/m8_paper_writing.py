@@ -178,7 +178,7 @@ class PaperWritingModule(BaseModule):
         await tracer.log(8, "stage_c_coherence", "Stage C: 跨节一致性检查")
 
         state.check_control()
-        sections_latex = await self._coherence_pass(sections_latex, idea_title)
+        sections_latex = await self._coherence_pass(sections_latex, idea_title, state)
         state.check_control()
         await tracer.log(8, "stage_c_coherence", "一致性检查完成")
 
@@ -404,7 +404,7 @@ Target length: {guide['word_target']}
 
         return section_latex
 
-    async def _coherence_pass(self, sections: dict, title: str) -> dict:
+    async def _coherence_pass(self, sections: dict, title: str, state: TaskStateMachine) -> dict:
         """Stage C: 跨节一致性检查 — 逐节修正，不合并"""
         updated = {}
         all_section_names = list(sections.keys())
@@ -624,6 +624,10 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 
     def _assemble_paper(self, title: str, sections: dict, bib_entries: list) -> str:
         """组装完整 LaTeX 文档"""
+        bibliography_block = ""
+        if bib_entries:
+            bibliography_block = "\n\\bibliographystyle{plainnat}\n\\bibliography{references}\n"
+
         return f"""\\documentclass[11pt]{{article}}
 \\usepackage[utf8]{{inputenc}}
 \\usepackage{{amsmath,amssymb,amsfonts}}
@@ -657,9 +661,7 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 {sections.get("Experiments", "")}
 
 {sections.get("Conclusion", "")}
-
-\\bibliographystyle{{plainnat}}
-\\bibliography{{references}}
+{bibliography_block}
 
 \\end{{document}}
 """
@@ -759,6 +761,11 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
 
     def _normalize_inline_markdown(self, latex: str) -> str:
         latex = re.sub(
+            r"\[([^\[\]\n]+)\]\((https?://[^)\s]+)\)",
+            lambda match: match.group(1).strip(),
+            latex,
+        )
+        latex = re.sub(
             r"\*\*([^*\n]+)\*\*",
             lambda match: rf"\textbf{{{match.group(1).strip()}}}",
             latex,
@@ -768,6 +775,28 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
             lambda match: rf"\texttt{{{self._escape_texttt_content(match.group(1).strip())}}}",
             latex,
         )
+        return latex
+
+    def _normalize_abstract_block(self, latex: str) -> str:
+        abstract_match = re.search(
+            r"\\section\{Abstract\}\s*(?:\\label\{[^{}]*\}\s*)?(?P<body>.*?)(?=\\section\{|\\end\{document\})",
+            latex,
+            flags=re.DOTALL,
+        )
+        if not abstract_match:
+            return latex
+
+        body = abstract_match.group("body").strip()
+        normalized_abstract = f"\\begin{{abstract}}\n{body}\n\\end{{abstract}}\n\n"
+        return latex[:abstract_match.start()] + normalized_abstract + latex[abstract_match.end():]
+
+    def _clean_latex_artifacts(self, latex: str) -> str:
+        latex = re.sub(r"(?<!\\)~(?=[,.;:!?])", "", latex)
+        latex = re.sub(r"\s+([,.;:!?])", r"\1", latex)
+        latex = re.sub(r"\(\s*\)", "", latex)
+        latex = re.sub(r"\[\s*\]", "", latex)
+        latex = re.sub(r"[ \t]{2,}", " ", latex)
+        latex = re.sub(r"\n{3,}", "\n\n", latex)
         return latex
 
     def _convert_markdown_lists(self, latex: str) -> str:
@@ -931,6 +960,8 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
         normalized = self._add_labels_to_sections_and_figures(normalized)
         normalized = self._replace_missing_graphics(normalized, paper_dir)
         normalized = self._escape_problematic_identifiers(normalized)
+        normalized = self._normalize_abstract_block(normalized)
+        normalized = self._clean_latex_artifacts(normalized)
 
         # 修复 definition/theorem 环境问题 - 如果内容有问题，移除环境标记
         normalized = re.sub(

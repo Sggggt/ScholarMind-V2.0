@@ -1,6 +1,7 @@
 from __future__ import annotations
 """FastAPI application entrypoint."""
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -122,4 +123,9 @@ if STATIC_DIR:
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host=config.HOST, port=config.PORT, reload=True)
+    uvicorn.run(
+        "main:app",
+        host=config.HOST,
+        port=config.PORT,
+        reload=os.name != "nt",
+    )

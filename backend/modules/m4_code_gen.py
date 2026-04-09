@@ -14,9 +14,9 @@ import asyncio
 import json
 import os
 import shutil
-import subprocess
 
 import config
+from modules.async_subprocess import run_subprocess
 from modules.aider_runner import check_aider_available, run_aider_prompt
 from modules.base import BaseModule
 from modules.experiment_guard import (
@@ -61,36 +61,15 @@ class CodeGenModule(BaseModule):
         env = kwargs.get("env")
         capture_output = kwargs.get("capture_output", False)
         text = kwargs.get("text", False)
-
-        process = await asyncio.create_subprocess_exec(
-            *command,
+        return await run_subprocess(
+            command,
             cwd=cwd,
             env=env,
             stdout=asyncio.subprocess.PIPE if capture_output else None,
             stderr=asyncio.subprocess.PIPE if capture_output else None,
-        )
-        try:
-            communicate = process.communicate()
-            if timeout is not None:
-                communicate = asyncio.wait_for(communicate, timeout=timeout)
-            if state:
-                stdout, stderr = await state.run_interruptible(communicate)
-            else:
-                stdout, stderr = await communicate
-        except BaseException:
-            if process.returncode is None:
-                process.kill()
-                try:
-                    await process.wait()
-                except Exception:
-                    pass
-            raise
-
-        return subprocess.CompletedProcess(
-            args=command,
-            returncode=process.returncode or 0,
-            stdout=stdout.decode("utf-8", errors="replace") if capture_output and text and stdout else stdout,
-            stderr=stderr.decode("utf-8", errors="replace") if capture_output and text and stderr else stderr,
+            timeout=timeout,
+            text=text,
+            state=state,
         )
 
     module_id = 4
