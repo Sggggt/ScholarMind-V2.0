@@ -12,6 +12,7 @@ import {
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { TaskControlBar } from "@/components/task-control-bar";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import {
@@ -220,6 +221,8 @@ export default function ModuleDetailScreen() {
             <MaterialIcons name="refresh" size={20} color={colors.foreground} />
           </TouchableOpacity>
         </View>
+
+        <TaskControlBar task={task} />
 
         <View style={[styles.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.eyebrow, { color: colors.muted }]}>{safeModuleId}</Text>

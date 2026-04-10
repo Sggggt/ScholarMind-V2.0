@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
             identity = DeviceIdentity.load_or_create()
             mdns_publisher = MdnsServicePublisher(identity)
             mdns_publisher.configure_port(config.PORT)
-            mdns_publisher.start()
+            await mdns_publisher.start_async()
             print(
                 f"[mDNS] 服务发现已启用 (_scholarmind._tcp.local.) "
                 f"设备ID: {identity.device_id[:8]} 名称: {identity.name}"
@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
     # Stop mDNS service
     if mdns_publisher:
         try:
-            mdns_publisher.stop()
+            await mdns_publisher.stop_async()
             print("[mDNS] 服务发现已停止")
         except Exception as e:
             print(f"[mDNS] 停止服务时出错: {e}")
@@ -123,9 +123,17 @@ if STATIC_DIR:
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host=config.HOST,
-        port=config.PORT,
-        reload=os.name != "nt",
-    )
+    if os.name == "nt":
+        uvicorn.run(
+            app,
+            host=config.HOST,
+            port=config.PORT,
+            reload=False,
+        )
+    else:
+        uvicorn.run(
+            "main:app",
+            host=config.HOST,
+            port=config.PORT,
+            reload=True,
+        )

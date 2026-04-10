@@ -1,11 +1,14 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
 set "ROOT_DIR=%~dp0"
 set "BACKEND_DIR=%ROOT_DIR%backend"
 set "FRONTEND_DIR=%ROOT_DIR%react-client"
 set "MOBILE_DIR=%ROOT_DIR%mobile"
 set "BACKEND_START_SCRIPT=%BACKEND_DIR%\start_backend.bat"
+set "FRONTEND_LOG_DIR=%ROOT_DIR%tmp"
+set "FRONTEND_LOG=%FRONTEND_LOG_DIR%\frontend-dev.log"
+set "FRONTEND_URL=http://localhost:5173"
 
 cls
 echo ========================================
@@ -37,11 +40,24 @@ timeout /t 5 /nobreak > nul
 REM ============================================
 REM 2/3 - Start Desktop Client
 REM ============================================
-echo [2/3] Starting Desktop Client...
-start "ScholarMind Desktop" cmd /k "title ScholarMind Desktop && chcp 65001>nul && cd /d ""%FRONTEND_DIR%"" && npm run dev"
+if not exist "%FRONTEND_LOG_DIR%" mkdir "%FRONTEND_LOG_DIR%" >nul 2>nul
+type nul > "%FRONTEND_LOG%"
+
+echo [2/3] Starting Desktop Client in hidden window...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$frontendDir = [System.IO.Path]::GetFullPath('%FRONTEND_DIR%'); $logPath = [System.IO.Path]::GetFullPath('%FRONTEND_LOG%'); $command = 'Set-Location -LiteralPath ''' + $frontendDir + '''; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; & npm.cmd run dev *>> ''' + $logPath + ''''; Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $command) -WorkingDirectory $frontendDir -WindowStyle Hidden"
 
 REM Wait for frontend to start
-timeout /t 3 /nobreak > nul
+echo Waiting for desktop client to become ready...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$url = '%FRONTEND_URL%'; $deadline = (Get-Date).AddSeconds(30); while ((Get-Date) -lt $deadline) { try { Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { Start-Sleep -Seconds 1 } }; exit 1"
+if %ERRORLEVEL% EQU 0 (
+    echo Opening browser...
+    start "" "%FRONTEND_URL%"
+) else (
+    echo [WARNING] Desktop Client did not respond within 30 seconds.
+    echo [WARNING] Check frontend log: %FRONTEND_LOG%
+    echo Opening browser anyway...
+    start "" "%FRONTEND_URL%"
+)
 
 REM ============================================
 REM 3/3 - Start Cloudflare Tunnel
@@ -83,7 +99,7 @@ echo.
 echo [RUNNING SERVICES]
 echo.
 echo   Backend API:     http://localhost:8000
-echo   Desktop Client:  http://localhost:5173
+echo   Desktop Client:  %FRONTEND_URL%
 echo.
 echo [MOBILE ACCESS]
 echo.
@@ -96,6 +112,7 @@ echo.
 echo [ADDITIONAL]
 echo.
 echo   Mobile Client:   Run 'start_mobile.bat'
+echo   Frontend Log:    %FRONTEND_LOG%
 echo.
 echo   Press any key to close this window...
 echo   (Services will continue running)

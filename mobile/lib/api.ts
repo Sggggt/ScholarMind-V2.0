@@ -301,6 +301,10 @@ export async function abortTaskApi(id: string): Promise<Task> {
   return apiFetch<Task>(`/api/tasks/${id}/abort`, { method: "POST" });
 }
 
+export async function restartTaskApi(id: string): Promise<Task> {
+  return apiFetch<Task>(`/api/tasks/${id}/restart`, { method: "POST" });
+}
+
 export async function deleteTaskApi(id: string): Promise<void> {
   await apiFetch<{ ok: boolean }>(`/api/tasks/${id}`, { method: "DELETE" });
 }

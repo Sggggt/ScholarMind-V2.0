@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
+const defaultWorkRoot = path.join(process.env.SystemDrive ?? "C:", "smab");
 
 function ensureDir(target) {
   if (path.resolve(target) === path.parse(path.resolve(target)).root) {
@@ -353,15 +354,15 @@ function runAndroid() {
     process.exit(result.status ?? 1);
   }
 
-  const workRoot = process.env.SCHOLARMIND_ANDROID_WORK_ROOT ?? path.join(os.tmpdir(), "scholarmind-android");
-  const projectLink = process.env.SCHOLARMIND_ANDROID_PROJECT_LINK ?? path.join(workRoot, "project-link");
-  const jniLink = process.env.SCHOLARMIND_ANDROID_JNI_LINK ?? path.join(workRoot, "jni-link");
+  const workRoot = process.env.SCHOLARMIND_ANDROID_WORK_ROOT ?? defaultWorkRoot;
+  const projectLink = process.env.SCHOLARMIND_ANDROID_PROJECT_LINK ?? path.join(workRoot, "p");
+  const jniLink = process.env.SCHOLARMIND_ANDROID_JNI_LINK ?? path.join(workRoot, "j");
   const buildDir =
     process.env.SCHOLARMIND_ANDROID_ZEROCONF_BUILD_DIR ??
-    path.join(workRoot, `build-${variantName.toLowerCase()}`);
-  const tempDir = process.env.SCHOLARMIND_ANDROID_TEMP_DIR ?? os.tmpdir();
-  const homeDir = process.env.SCHOLARMIND_ANDROID_HOME_DIR ?? path.join(workRoot, "home");
-  const gradleDir = process.env.SCHOLARMIND_ANDROID_GRADLE_HOME ?? path.join(workRoot, "gradle-cache");
+    path.join(workRoot, `b-${variantName.toLowerCase()}`);
+  const tempDir = process.env.SCHOLARMIND_ANDROID_TEMP_DIR ?? path.join(workRoot, "t");
+  const homeDir = process.env.SCHOLARMIND_ANDROID_HOME_DIR ?? path.join(workRoot, "h");
+  const gradleDir = process.env.SCHOLARMIND_ANDROID_GRADLE_HOME ?? path.join(workRoot, "g");
 
   ensureDir(path.dirname(projectLink));
   fs.rmSync(buildDir, { recursive: true, force: true });

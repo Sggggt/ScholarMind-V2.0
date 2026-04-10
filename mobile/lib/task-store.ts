@@ -174,6 +174,7 @@ export interface TaskContextValue {
   pauseTask: (id: string) => Promise<void>;
   resumeTask: (id: string) => Promise<void>;
   abortTask: (id: string) => Promise<void>;
+  restartTask: (id: string) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   fetchIdeas: (taskId: string) => Promise<void>;
   continueIdeas: (taskId: string) => Promise<void>;

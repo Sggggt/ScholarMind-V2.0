@@ -14,6 +14,7 @@ import {
   fetchTasksApi,
   getBackendUrl,
   pauseTaskApi,
+  restartTaskApi,
   resumeTaskApi,
   selectIdeaApi,
 } from "./api";
@@ -386,6 +387,22 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_CURRENT_TASK", payload: task });
   }, []);
 
+  const restartTask = useCallback(
+    async (id: string) => {
+      const task = await restartTaskApi(id);
+
+      if (state.currentTask?.id === id) {
+        dispatch({ type: "CLEAR_DETAIL_STATE" });
+        dispatch({ type: "OPEN_TASK_CONTEXT", payload: id });
+      }
+
+      dispatch({ type: "UPSERT_TASK", payload: task });
+      dispatch({ type: "SET_CURRENT_TASK", payload: task });
+      await loadTaskBundle(id, { background: true });
+    },
+    [loadTaskBundle, state.currentTask?.id]
+  );
+
   const deleteTask = useCallback(
     async (id: string) => {
       if (syncRef.current?.taskId === id) {
@@ -428,6 +445,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         pauseTask,
         resumeTask,
         abortTask,
+        restartTask,
         deleteTask,
         fetchIdeas,
         continueIdeas,

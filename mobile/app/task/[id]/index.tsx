@@ -12,6 +12,7 @@ import {
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { TaskControlBar } from "@/components/task-control-bar";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import {
@@ -323,11 +324,12 @@ export default function TaskDetailScreen() {
             ) : null}
           </View>
 
-          {(task.status === "running" || task.status === "paused") && (
+          <TaskControlBar task={task} style={styles.actionRow} />
+          {false && task && (
             <View style={styles.actionRow}>
-              {task.status === "running" ? (
+              {task!.status === "running" ? (
                 <TouchableOpacity
-                  onPress={() => void pauseTask(task.id)}
+                  onPress={() => void pauseTask(task!.id)}
                   style={[styles.secondaryAction, { borderColor: colors.border }]}
                 >
                   <MaterialIcons name="pause" size={18} color={colors.foreground} />
@@ -335,7 +337,7 @@ export default function TaskDetailScreen() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  onPress={() => void resumeTask(task.id)}
+                  onPress={() => void resumeTask(task!.id)}
                   style={[styles.primaryAction, { backgroundColor: colors.primary }]}
                 >
                   <MaterialIcons name="play-arrow" size={18} color="#ffffff" />

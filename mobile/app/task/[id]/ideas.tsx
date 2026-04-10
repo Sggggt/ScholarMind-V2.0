@@ -11,6 +11,7 @@ import {
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { TaskControlBar } from "@/components/task-control-bar";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useTaskContext } from "@/lib/task-store";
@@ -30,6 +31,7 @@ export default function IdeasScreen() {
   const { state, continueIdeas, fetchIdeas, selectIdea } = useTaskContext();
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [continuing, setContinuing] = useState(false);
+  const task = state.currentTask?.id === id ? state.currentTask : null;
 
   const headerDescription = useMemo(() => {
     if (state.ideas.status === "generating") {
@@ -84,6 +86,8 @@ export default function IdeasScreen() {
         <Text style={[styles.eyebrow, { color: colors.muted }]}>想法选择（M3）</Text>
         <Text style={[styles.title, { color: colors.primary }]}>选择研究方向</Text>
         <Text style={[styles.description, { color: colors.foreground }]}>{headerDescription}</Text>
+
+        <TaskControlBar task={task} />
 
         {state.ideas.ideas.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>

@@ -118,7 +118,7 @@ def _dedupe_addresses(items: Iterable[ConnectionAddress]) -> list[ConnectionAddr
     return deduped
 
 
-def _discover_lan_hosts() -> list[str]:
+def discover_lan_hosts() -> list[str]:
     candidates: set[str] = set()
 
     explicit_host = (config.HOST or "").strip().lower()
@@ -185,7 +185,7 @@ def build_connection_info(request: Request | None = None, mobile_connection_coun
         address
         for address in (
             _make_address("lan", _build_base_url("http", host, config.PORT), "lan_scan")
-            for host in _discover_lan_hosts()
+            for host in discover_lan_hosts()
         )
         if address is not None
     )

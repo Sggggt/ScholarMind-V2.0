@@ -10,6 +10,7 @@ import {
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { router, useLocalSearchParams } from "expo-router";
 import { ScreenContainer } from "@/components/screen-container";
+import { TaskControlBar } from "@/components/task-control-bar";
 import { Fonts } from "@/constants/theme";
 import { useColors } from "@/hooks/use-colors";
 import { useTaskContext } from "@/lib/task-store";
@@ -49,6 +50,7 @@ export default function LogsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { state, loadTaskBundle } = useTaskContext();
   const [level, setLevel] = useState<"all" | "info" | "warn" | "error">("all");
+  const task = state.currentTask?.id === id ? state.currentTask : null;
 
   const filteredLogs = useMemo(() => {
     return level === "all" ? state.logs : state.logs.filter((item) => item.level === level);
@@ -90,6 +92,10 @@ export default function LogsScreen() {
             </TouchableOpacity>
           );
         })}
+      </View>
+
+      <View style={styles.controlWrap}>
+        <TaskControlBar task={task} />
       </View>
 
       <FlatList
@@ -152,6 +158,10 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingBottom: 10,
+  },
+  controlWrap: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
   filterChip: {
     borderWidth: 1,
