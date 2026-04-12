@@ -1,0 +1,86 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV ANDROID_HOME=/opt/android-sdk
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PNPM_HOME=/root/.local/share/pnpm
+ENV PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/cmake/3.22.1/bin:/root/.local/share/pnpm:/usr/lib/jvm/java-21-openjdk-amd64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV CI=1
+ENV EXPO_NO_TELEMETRY=1
+ENV GRADLE_OPTS=-Dorg.gradle.daemon=false
+ENV NODE_ENV=production
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      openjdk-21-jdk \
+      python3 \
+      python3-pip \
+      unzip \
+      xz-utils \
+      build-essential \
+      ninja-build \
+      rsync \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g pnpm@9.12.0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools" \
+    && curl -fsSL -o /tmp/repository2-1.xml https://dl.google.com/android/repository/repository2-1.xml \
+    && export CMDLINE_ZIP="$(python3 -c "import re; from pathlib import Path; xml = Path('/tmp/repository2-1.xml').read_text(encoding='utf-8', errors='ignore'); items = re.findall(r'<remotePackage path=\"cmdline-tools;latest\">.*?<archive>.*?<complete>.*?<url>(commandlinetools-linux-[^<]+\\.zip)</url>', xml, re.S); print(items[-1])")" \
+    && curl -fsSL -o /tmp/cmdline-tools.zip "https://dl.google.com/android/repository/${CMDLINE_ZIP}" \
+    && mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools/latest" \
+    && unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools \
+    && mv /tmp/cmdline-tools/cmdline-tools/* "${ANDROID_SDK_ROOT}/cmdline-tools/latest/" \
+    && rm -rf /tmp/cmdline-tools /tmp/cmdline-tools.zip /tmp/repository2-1.xml \
+    && yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" --licenses >/dev/null \
+    && sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+      "platform-tools" \
+      "platforms;android-36" \
+      "build-tools;36.0.0" \
+      "ndk;27.1.12297006" \
+      "cmake;3.22.1"
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml .npmrc* ./
+RUN pnpm install --frozen-lockfile
+
+COPY . .
+
+RUN cat <<'EOF' >/usr/local/bin/build-apk
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUT_DIR="${APK_OUT_DIR:-/out}"
+WORK_DIR="/tmp/mobile-build"
+
+rm -rf "${WORK_DIR}"
+mkdir -p "${WORK_DIR}" "${OUT_DIR}"
+
+rsync -a --delete --exclude node_modules --exclude android --exclude .expo --exclude tmp /app/ "${WORK_DIR}/"
+
+cd "${WORK_DIR}"
+pnpm install --frozen-lockfile
+pnpm exec expo prebuild -p android --clean
+
+cd android
+./gradlew --no-daemon app:assembleRelease
+
+APK_PATH="${WORK_DIR}/android/app/build/outputs/apk/release/app-release.apk"
+cp "${APK_PATH}" "${OUT_DIR}/scholarmind-mobile-release.apk"
+cp "${APK_PATH}" /app/app-release.apk
+
+echo "APK exported to ${OUT_DIR}/scholarmind-mobile-release.apk"
+EOF
+
+RUN chmod +x /usr/local/bin/build-apk
+
+ENTRYPOINT ["/usr/local/bin/build-apk"]

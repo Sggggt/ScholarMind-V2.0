@@ -185,7 +185,7 @@ async def _get_task_custom_code_dir(task_id: str, db: AsyncSession) -> Optional[
     if task and task.config:
         work_dir = task.config.get("work_dir")
         if work_dir:
-            custom_dir = (Path(work_dir) / task_id / "code").resolve()
+            custom_dir = (config.resolve_task_work_dir(str(work_dir)) / task_id / "code").resolve()
             if custom_dir.exists():
                 return custom_dir
     return None
@@ -991,9 +991,9 @@ async def recompile_paper_pdf(task_id: str):
         stat = pdf_file.stat()
         # 验证 PDF 头部
         with open(pdf_file, "rb") as f:
-            header = f.read(5)
+            header = f.read(8)
 
-        if header == b"%PDF" and stat.st_size > 5000:
+        if header.startswith(b"%PDF") and stat.st_size > 5000:
             return {"ok": True, "message": f"PDF 编译成功 ({round(stat.st_size / 1024, 1)} KB)"}
         else:
             pdf_file.unlink()

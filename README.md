@@ -100,6 +100,55 @@ ScholarMind/
 
 ## 快速开始
 
+### Docker 启动后端与桌面端（强烈推荐）
+
+如果你不想在宿主机配置 Python 虚拟环境和前端 Node 环境，可以直接使用 Docker：
+
+```powershell
+Copy-Item .\backend\.env.example .\backend\.env
+docker compose up --build backend web
+```
+
+访问地址：
+
+- Backend: `http://localhost:8000`
+- Web: `http://localhost:5173`
+
+如果镜像已经构建过，也可以直接启动：
+
+```powershell
+docker compose up backend web
+```
+
+### Docker 寻找自定义目录规则
+
+`task.config.work_dir` 现在同时兼容传统虚拟环境用户和 Docker 用户：
+
+- 原生/venv 用户：继续直接使用宿主机真实路径
+- Docker 用户：后端会自动把“项目父目录下的宿主机路径”映射到容器路径
+
+当前项目根目录是：
+
+```text
+.\ScholarMind
+```
+
+如果你的自定义目录是：
+
+```text
+.\Test_Dir
+```
+
+这类路径和项目同属于 `.\HOST_WORKDIR_ROOT`，Docker 会自动映射，不需要前端额外配置，也不需要手工修改数据库中的 `work_dir`。
+
+只有当自定义目录不在项目父目录下，例如跑到别的盘符或完全不同的目录树时，才需要额外设置：
+
+```powershell
+$env:HOST_WORKDIR_ROOT='D:\ResearchProjects'
+$env:CONTAINER_WORKDIR_ROOT='/external-workdir'
+docker compose up -d backend web
+```
+
 ### 1. 启动后端
 
 ```powershell

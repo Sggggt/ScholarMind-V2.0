@@ -59,6 +59,17 @@ export default function WritingPage() {
     [activeWritingSectionId, writingSections],
   );
 
+  const resolvedPaperUrl = useMemo(() => {
+    if (!paperUrl) {
+      return null;
+    }
+    if (paperUrl.startsWith('http') || paperUrl.startsWith('/api/') || paperUrl.startsWith('/files/')) {
+      return paperUrl;
+    }
+    const apiBase = import.meta.env.VITE_API_BASE ?? '';
+    return `${apiBase}${paperUrl}`;
+  }, [paperUrl]);
+
   const copyToClipboard = async () => {
     if (!activeSection?.content) {
       return;
@@ -110,7 +121,7 @@ export default function WritingPage() {
           {paperUrl ? (
             <a
               className="button-primary"
-              href={paperUrl.startsWith('http') ? paperUrl : `${import.meta.env.VITE_API_BASE ?? ''}${paperUrl}`}
+              href={resolvedPaperUrl ?? paperUrl}
               target="_blank"
               rel="noopener noreferrer"
               style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', cursor: 'pointer' }}

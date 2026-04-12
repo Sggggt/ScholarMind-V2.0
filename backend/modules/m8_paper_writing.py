@@ -1067,9 +1067,9 @@ Output ONLY the corrected {section_name} section. Keep the section header."""
             # 检查 PDF 是否有效（至少 5KB 且有正确的 PDF 头）
             try:
                 with open(pdf_path, "rb") as f:
-                    header = f.read(5)
+                    header = f.read(8)
                     size = os.path.getsize(pdf_path)
-                if header == b"%PDF" and size > 5000:
+                if header.startswith(b"%PDF") and size > 5000:
                     await tracer.log(8, "compile_pdf", "PDF 编译成功")
                     return pdf_path
                 else:

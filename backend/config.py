@@ -2,14 +2,16 @@ from __future__ import annotations
 """Global runtime configuration."""
 
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from dotenv import load_dotenv, set_key
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
 
-load_dotenv(ENV_FILE, override=True)
+# Let the process environment win over backend/.env so Docker/CI can inject
+# container-specific values such as AIDER_PYTHON without being overwritten.
+load_dotenv(ENV_FILE, override=False)
 
 # Paths
 REPOS_DIR = BASE_DIR / "repos"
@@ -29,6 +31,9 @@ DEFAULT_LOCAL_LLM_MODEL = "local-gguf"
 DEFAULT_LOCAL_LLM_CONTEXT_SIZE = 4096
 DEFAULT_LOCAL_LLM_GPU_LAYERS = 0
 DEFAULT_AIDER_VENV_NAME = ".venv-aider-py311"
+DEFAULT_CONTAINER_WORKDIR_ROOT = "/external-workdir"
+DEFAULT_DOCKER_SHARED_WORKDIR_ROOT = "/host-project-root"
+DEFAULT_DOCKER_SHARED_WORKDIR_MARKER = "Project"
 LOCAL_GGUF_PROVIDER = "local-gguf"
 
 
@@ -91,6 +96,84 @@ def _normalize_path(value: str) -> str:
     return str(Path(normalized).expanduser())
 
 
+def _looks_like_windows_path(value: str) -> bool:
+    normalized = (value or "").strip().replace("/", "\\")
+    return (
+        len(normalized) >= 2 and normalized[1] == ":"
+    ) or normalized.startswith("\\\\")
+
+
+def _try_map_host_workdir(value: str) -> Path | None:
+    raw_value = (value or "").strip()
+    host_root = HOST_WORKDIR_ROOT.strip()
+    if not raw_value or not host_root or not CONTAINER_WORKDIR_ROOT.strip():
+        return None
+
+    try:
+        if _looks_like_windows_path(raw_value) or _looks_like_windows_path(host_root):
+            relative = PureWindowsPath(raw_value).relative_to(PureWindowsPath(host_root))
+        else:
+            relative = Path(raw_value).expanduser().resolve().relative_to(
+                Path(host_root).expanduser().resolve()
+            )
+    except (TypeError, ValueError, OSError):
+        return None
+
+    return (Path(CONTAINER_WORKDIR_ROOT).expanduser() / Path(*relative.parts)).resolve()
+
+
+def _is_running_in_docker() -> bool:
+    return Path("/.dockerenv").exists() or _read_bool("RUNNING_IN_DOCKER", False)
+
+
+def _try_map_docker_shared_workdir(value: str) -> Path | None:
+    raw_value = (value or "").strip()
+    if not raw_value or not _is_running_in_docker():
+        return None
+
+    if not _looks_like_windows_path(raw_value):
+        return None
+
+    marker = DOCKER_SHARED_WORKDIR_MARKER.strip().strip("\\/")
+    container_root = DOCKER_SHARED_WORKDIR_ROOT.strip()
+    if not marker or not container_root:
+        return None
+
+    windows_path = PureWindowsPath(raw_value)
+    normalized_parts = [part.rstrip("\\") for part in windows_path.parts]
+    marker_index = -1
+    for index, part in enumerate(normalized_parts):
+        if part.lower() == marker.lower():
+            marker_index = index
+            break
+
+    if marker_index < 0:
+        return None
+
+    relative_parts = [part for part in normalized_parts[marker_index + 1:] if part]
+    return (Path(container_root).expanduser() / Path(*relative_parts)).resolve()
+
+
+def resolve_task_work_dir(value: str) -> Path:
+    raw_value = (value or "").strip()
+    if not raw_value:
+        return Path(".").resolve()
+
+    direct_path = Path(raw_value).expanduser()
+    if direct_path.exists():
+        return direct_path.resolve()
+
+    mapped_path = _try_map_host_workdir(raw_value)
+    if mapped_path is not None:
+        return mapped_path
+
+    shared_mapped_path = _try_map_docker_shared_workdir(raw_value)
+    if shared_mapped_path is not None:
+        return shared_mapped_path
+
+    return direct_path.resolve(strict=False)
+
+
 def default_aider_python_path() -> str:
     venv_dir = BASE_DIR / DEFAULT_AIDER_VENV_NAME
     if os.name == "nt":
@@ -131,6 +214,10 @@ def refresh_runtime_config() -> None:
     global LOCAL_LLM_GPU_LAYERS
     global AIDER_PYTHON
     global AIDER_EXE
+    global HOST_WORKDIR_ROOT
+    global CONTAINER_WORKDIR_ROOT
+    global DOCKER_SHARED_WORKDIR_ROOT
+    global DOCKER_SHARED_WORKDIR_MARKER
     global SSH_HOST
     global SSH_PORT
     global SSH_USER
@@ -188,6 +275,16 @@ def refresh_runtime_config() -> None:
     )
     AIDER_PYTHON = _normalize_path(_read_str("AIDER_PYTHON", ""))
     AIDER_EXE = _normalize_path(_read_str("AIDER_EXE", ""))
+    HOST_WORKDIR_ROOT = _read_str("HOST_WORKDIR_ROOT", "")
+    CONTAINER_WORKDIR_ROOT = _read_str("CONTAINER_WORKDIR_ROOT", DEFAULT_CONTAINER_WORKDIR_ROOT)
+    DOCKER_SHARED_WORKDIR_ROOT = _read_str(
+        "DOCKER_SHARED_WORKDIR_ROOT",
+        DEFAULT_DOCKER_SHARED_WORKDIR_ROOT,
+    )
+    DOCKER_SHARED_WORKDIR_MARKER = _read_str(
+        "DOCKER_SHARED_WORKDIR_MARKER",
+        DEFAULT_DOCKER_SHARED_WORKDIR_MARKER,
+    )
 
     SSH_HOST = _read_str("SSH_HOST", "")
     SSH_PORT = _read_int("SSH_PORT", 22)

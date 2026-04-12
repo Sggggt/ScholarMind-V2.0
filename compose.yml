@@ -1,0 +1,70 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    working_dir: /app
+    env_file:
+      - ./backend/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      AIDER_PYTHON: /opt/.venv-aider-py311/bin/python
+      DOCKER_SHARED_WORKDIR_ROOT: /host-project-root
+      DOCKER_SHARED_WORKDIR_MARKER: Project
+      HOST_WORKDIR_ROOT: ${HOST_WORKDIR_ROOT:-}
+      CONTAINER_WORKDIR_ROOT: ${CONTAINER_WORKDIR_ROOT:-/external-workdir}
+      MDNS_ENABLED: "false"
+      ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8081,http://127.0.0.1:8081
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ..:/host-project-root
+      - "${HOST_WORKDIR_ROOT:-./tmp/docker-custom-workdir}:${CONTAINER_WORKDIR_ROOT:-/external-workdir}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    command: python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  web:
+    build:
+      context: ./react-client
+    working_dir: /app
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VITE_API_BASE: /api
+      VITE_PROXY_TARGET: http://backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./react-client:/app
+      - react_client_node_modules:/app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+
+  mobile-apk:
+    profiles: ["mobile"]
+    build:
+      context: ./mobile
+      dockerfile: Dockerfile.apk
+    environment:
+      APK_OUT_DIR: /out
+      NODE_ENV: production
+    volumes:
+      - ./tmp/mobile-apk-out:/out
+    command: []
+
+volumes:
+  react_client_node_modules:

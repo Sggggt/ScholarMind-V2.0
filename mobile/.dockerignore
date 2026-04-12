@@ -1,0 +1,13 @@
+node_modules
+.expo
+.idea
+android
+android-work
+gradle-cache
+home
+tmp
+dist
+coverage
+*.log
+.window_dump*.xml
+BUILD_APK.skill.md

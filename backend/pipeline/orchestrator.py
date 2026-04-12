@@ -126,7 +126,7 @@ class PipelineOrchestrator:
         custom_work_dir = task.config.get("work_dir") if task.config else None
         code_dir = None
         if custom_work_dir:
-            code_dir = Path(custom_work_dir) / self.task_id / "code"
+            code_dir = config.resolve_task_work_dir(str(custom_work_dir)) / self.task_id / "code"
             code_dir.mkdir(parents=True, exist_ok=True)
 
         context = {

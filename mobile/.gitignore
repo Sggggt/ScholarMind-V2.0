@@ -43,6 +43,7 @@ app-example
 /android
 /gradle-cache
 /android-work
+/home
 
 # IDE
 .vscode/
