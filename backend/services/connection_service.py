@@ -118,7 +118,22 @@ def _dedupe_addresses(items: Iterable[ConnectionAddress]) -> list[ConnectionAddr
     return deduped
 
 
+def _parse_configured_lan_hosts() -> list[str]:
+    configured_hosts: list[str] = []
+    for raw_host in (config.HOST_LAN_IPS or "").split(","):
+        host = raw_host.strip().lower()
+        if not host:
+            continue
+        if _is_private_ipv4(host) or host.endswith(".local"):
+            configured_hosts.append(host)
+    return configured_hosts
+
+
 def discover_lan_hosts() -> list[str]:
+    configured_hosts = _parse_configured_lan_hosts()
+    if configured_hosts:
+        return sorted(set(configured_hosts))
+
     candidates: set[str] = set()
 
     explicit_host = (config.HOST or "").strip().lower()

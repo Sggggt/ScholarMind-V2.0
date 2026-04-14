@@ -1,6 +1,6 @@
 /** mDNS/Bonjour service browser for discovering ScholarMind backends. */
 
-import { Platform } from "react-native";
+import { DeviceEventEmitter, NativeModules, Platform } from "react-native";
 
 const SERVICE_NAME = "scholarmind";
 const SERVICE_PROTOCOL = "tcp";
@@ -9,6 +9,73 @@ const FULL_SERVICE_TYPE = `_${SERVICE_NAME}._${SERVICE_PROTOCOL}.${SERVICE_DOMAI
 
 type MdnsBrowserEvent = "start" | "stop" | "found" | "remove" | "error";
 type MdnsListener = (payload?: unknown) => void;
+
+type ZeroconfImplType = "NSD" | "DNSSD";
+
+interface NativeZeroconfModule {
+  scan(type: string, protocol: string, domain: string, implType?: ZeroconfImplType): void;
+  stop(implType?: ZeroconfImplType): void;
+}
+
+type DeviceSubscription = { remove(): void };
+
+class NativeZeroconfAdapter {
+  private readonly nativeModule: NativeZeroconfModule;
+  private subscriptions: DeviceSubscription[] = [];
+  private readonly listeners: Record<string, Set<(payload?: unknown) => void>> = {
+    start: new Set(),
+    stop: new Set(),
+    found: new Set(),
+    resolved: new Set(),
+    remove: new Set(),
+    error: new Set(),
+  };
+
+  constructor(nativeModule: NativeZeroconfModule) {
+    this.nativeModule = nativeModule;
+    this.addDeviceListeners();
+  }
+
+  on(event: string, listener: (payload?: unknown) => void) {
+    this.listeners[event]?.add(listener);
+  }
+
+  off(event: string, listener: (payload?: unknown) => void) {
+    this.listeners[event]?.delete(listener);
+  }
+
+  scan(type: string, protocol: string, domain: string, implType: ZeroconfImplType = "NSD") {
+    this.nativeModule.scan(type, protocol, domain, implType);
+  }
+
+  stop(implType: ZeroconfImplType = "NSD") {
+    this.nativeModule.stop(implType);
+  }
+
+  removeDeviceListeners() {
+    for (const subscription of this.subscriptions) {
+      subscription.remove();
+    }
+    this.subscriptions = [];
+  }
+
+  private addDeviceListeners() {
+    this.subscriptions = [
+      DeviceEventEmitter.addListener("RNZeroconfStart", () => this.emit("start")),
+      DeviceEventEmitter.addListener("RNZeroconfStop", () => this.emit("stop")),
+      DeviceEventEmitter.addListener("RNZeroconfError", (error) => this.emit("error", error)),
+      DeviceEventEmitter.addListener("RNZeroconfFound", (service) => this.emit("found", service?.name)),
+      DeviceEventEmitter.addListener("RNZeroconfResolved", (service) => this.emit("resolved", service)),
+      DeviceEventEmitter.addListener("RNZeroconfRemove", (service) => this.emit("remove", service?.name)),
+    ];
+  }
+
+  private emit(event: string, payload?: unknown) {
+    for (const listener of this.listeners[event] ?? []) {
+      listener(payload);
+    }
+  }
+}
 
 /**
  * Represents a discovered mDNS service.
@@ -57,11 +124,14 @@ class MdnsBrowser {
 
   constructor() {
     try {
-      const ZeroconfModule = require("react-native-zeroconf");
-      this.zeroconf = new ZeroconfModule.default();
+      const nativeModule = NativeModules?.RNZeroconf as NativeZeroconfModule | undefined;
+      if (!nativeModule) {
+        throw new Error("RNZeroconf native module is unavailable");
+      }
+      this.zeroconf = new NativeZeroconfAdapter(nativeModule);
       this.setupListeners();
     } catch (e) {
-      console.warn("[mDNS] react-native-zeroconf not available:", e);
+      console.warn("[mDNS] RNZeroconf not available:", e);
     }
   }
 

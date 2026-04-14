@@ -218,6 +218,7 @@ def refresh_runtime_config() -> None:
     global CONTAINER_WORKDIR_ROOT
     global DOCKER_SHARED_WORKDIR_ROOT
     global DOCKER_SHARED_WORKDIR_MARKER
+    global HOST_LAN_IPS
     global SSH_HOST
     global SSH_PORT
     global SSH_USER
@@ -285,6 +286,7 @@ def refresh_runtime_config() -> None:
         "DOCKER_SHARED_WORKDIR_MARKER",
         DEFAULT_DOCKER_SHARED_WORKDIR_MARKER,
     )
+    HOST_LAN_IPS = _read_str("HOST_LAN_IPS", "")
 
     SSH_HOST = _read_str("SSH_HOST", "")
     SSH_PORT = _read_int("SSH_PORT", 22)
