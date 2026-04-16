@@ -9,6 +9,7 @@ from api.schemas import WSMessage, module_int_to_id
 from api.ws import manager
 from db.database import async_session
 from db.models import Task, TaskOutput, TraceLog
+from services.redis_service import delete_cache, set_json
 
 MODULE_NAMES = {
     1: "文献调研",
@@ -54,6 +55,20 @@ class Tracer:
                 return 0.0, "M1"
             return float(task.progress or 0.0), module_int_to_id(task.current_module or 1)
 
+    async def _refresh_task_cache(self) -> None:
+        """Update Redis cache for this task (heavy — only call at key points)."""
+        from api.routes import _task_to_response
+
+        async with async_session() as db:
+            task = await db.get(Task, self.task_id)
+            if task:
+                data = _task_to_response(task)
+                await set_json(f"task:{self.task_id}", data, ttl=120)
+
+    async def _invalidate_task_cache(self) -> None:
+        """Lightweight cache invalidation — delete stale entries so next GET refetches."""
+        await delete_cache(f"task:{self.task_id}", f"task:{self.task_id}:logs")
+
     async def log(
         self,
         module: int,
@@ -98,6 +113,8 @@ class Tracer:
                 data={"current_module": current_module},
             )
         )
+        # Only invalidate (delete) — do NOT open extra DB session to rewrite cache.
+        await delete_cache(f"task:{self.task_id}:logs")
 
     async def log_error(self, module: int, step: str, error: str):
         await self.log(module, step, error, level="error")
@@ -114,6 +131,7 @@ class Tracer:
                 data={"current_module": current_module},
             )
         )
+        await self._invalidate_task_cache()
 
     async def save_output(
         self,
@@ -152,6 +170,8 @@ class Tracer:
                 },
             )
         )
+        # save_output is infrequent — full cache refresh is acceptable here.
+        await self._refresh_task_cache()
 
     async def request_review(self, module: int, content: dict):
         async with async_session() as db:
@@ -187,3 +207,5 @@ class Tracer:
                 data={"current_module": current_module},
             )
         )
+        await self._refresh_task_cache()
+        await delete_cache("tasks:list:all")

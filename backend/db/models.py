@@ -40,6 +40,7 @@ class Task(Base):
     logs: Mapped[List["TraceLog"]] = relationship(back_populates="task", cascade="all, delete-orphan")
     outputs: Mapped[List["TaskOutput"]] = relationship(back_populates="task", cascade="all, delete-orphan")
     chat_sessions: Mapped[List["ChatSession"]] = relationship(back_populates="task")
+    agent_runs: Mapped[List["AgentRun"]] = relationship(back_populates="task", cascade="all, delete-orphan")
 
 
 class TraceLog(Base):
@@ -114,3 +115,65 @@ class ChatMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     session: Mapped["ChatSession"] = relationship(back_populates="messages")
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(12), ForeignKey("tasks.id"), index=True)
+    cycle_key: Mapped[str] = mapped_column(String(64), default="", index=True)
+    cycle_revision: Mapped[int] = mapped_column(Integer, default=1)
+    phase: Mapped[str] = mapped_column(String(32), default="m4")
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    project_dir: Mapped[str] = mapped_column(Text, default="")
+    active_root_agent_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    root_decision: Mapped[dict] = mapped_column(JSON, default=dict)
+    latest_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    task: Mapped["Task"] = relationship(back_populates="agent_runs")
+    agent_tasks: Mapped[List["AgentTask"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+    agent_events: Mapped[List["AgentEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+
+
+class AgentTask(Base):
+    __tablename__ = "agent_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("agent_runs.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(12), ForeignKey("tasks.id"), index=True)
+    agent_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    parent_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("agent_tasks.id"), nullable=True)
+    role: Mapped[str] = mapped_column(String(40), default="")
+    phase: Mapped[str] = mapped_column(String(32), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    ownership: Mapped[dict] = mapped_column(JSON, default=dict)
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    artifact_refs: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_fingerprint: Mapped[str] = mapped_column(Text, default="")
+    last_message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="agent_tasks")
+    parent: Mapped[Optional["AgentTask"]] = relationship(remote_side="AgentTask.id")
+
+
+class AgentEvent(Base):
+    __tablename__ = "agent_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(Integer, ForeignKey("agent_runs.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(12), ForeignKey("tasks.id"), index=True)
+    agent_task_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("agent_tasks.id"), nullable=True)
+    module: Mapped[int] = mapped_column(Integer, default=0)
+    phase: Mapped[str] = mapped_column(String(32), default="")
+    kind: Mapped[str] = mapped_column(String(32), default="event")
+    level: Mapped[str] = mapped_column(String(10), default="info")
+    message: Mapped[str] = mapped_column(Text, default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="agent_events")

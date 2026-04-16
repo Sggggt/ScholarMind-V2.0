@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import subprocess
 import threading
 import time
@@ -33,6 +35,19 @@ def _decode_output(value: bytes | None, *, text: bool) -> bytes | str | None:
     return value.decode("utf-8", errors="replace")
 
 
+def _kill_process_tree(process: subprocess.Popen[bytes]) -> None:
+    """Kill the entire process group to ensure child processes are also terminated."""
+    try:
+        pgid = os.getpgid(process.pid)
+        if pgid > 0:
+            os.killpg(pgid, signal.SIGKILL)
+            return
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    with suppress(Exception):
+        process.kill()
+
+
 def _run_subprocess_sync(
     command: Sequence[str],
     *,
@@ -51,24 +66,25 @@ def _run_subprocess_sync(
         env=env,
         stdout=stdout,
         stderr=stderr,
+        start_new_session=True,
     )
     proc_holder["proc"] = process
     deadline = None if timeout is None else time.monotonic() + timeout
 
     while True:
         if cancel_event.is_set():
+            _kill_process_tree(process)
             with suppress(Exception):
-                process.kill()
-            stdout_data, stderr_data = process.communicate()
+                process.wait()
             raise _ThreadedSubprocessCancelled()
 
         wait_timeout = _POLL_INTERVAL
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                _kill_process_tree(process)
                 with suppress(Exception):
-                    process.kill()
-                process.communicate()
+                    process.wait()
                 raise asyncio.TimeoutError()
             wait_timeout = min(wait_timeout, remaining)
 
@@ -124,8 +140,7 @@ async def _run_subprocess_threaded(
         cancel_event.set()
         process = proc_holder.get("proc")
         if process and process.poll() is None:
-            with suppress(Exception):
-                process.kill()
+            _kill_process_tree(process)
         with suppress(asyncio.CancelledError, _ThreadedSubprocessCancelled, Exception):
             await asyncio.wait_for(worker, timeout=5)
         raise
@@ -152,6 +167,7 @@ async def run_subprocess(
             env=env,
             stdout=normalized_stdout,
             stderr=normalized_stderr,
+            start_new_session=True,
         )
     except NotImplementedError:
         return await _run_subprocess_threaded(
@@ -167,15 +183,24 @@ async def run_subprocess(
 
     try:
         communicate = process.communicate()
-        if timeout is not None:
-            communicate = asyncio.wait_for(communicate, timeout=timeout)
         if state:
-            stdout_data, stderr_data = await state.run_interruptible(communicate)
+            deadline = None
+            if timeout is not None:
+                deadline = asyncio.get_event_loop().time() + timeout
+            stdout_data, stderr_data = await state.run_interruptible(communicate, deadline=deadline)
+        elif timeout is not None:
+            communicate = asyncio.wait_for(communicate, timeout=timeout)
+            stdout_data, stderr_data = await communicate
         else:
             stdout_data, stderr_data = await communicate
     except BaseException:
         if process.returncode is None:
-            process.kill()
+            try:
+                pgid = os.getpgid(process.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                with suppress(Exception):
+                    process.kill()
             with suppress(Exception):
                 await process.wait()
         raise

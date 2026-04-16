@@ -15,21 +15,89 @@ const runModuleLabels: Record<string, string> = {
   M9: 'M9 评审验证',
 };
 
+/**
+ * Map tracer step identifiers to natural language summaries for the sidebar.
+ * Only these descriptions appear in the sidebar; the log stream keeps raw output.
+ */
+const stepToSidebarLabel: Record<string, string> = {
+  // M1
+  configure: '正在配置文献调研参数',
+  deep_research: '正在进行深度文献检索',
+  write_report: '正在撰写文献综述报告',
+  fallback_search: '正在使用本地检索生成综述',
+  // M2
+  build_index: '正在建立文献知识库',
+  identify_gaps: '正在识别研究空白',
+  generate_seeds: '正在生成种子研究方向',
+  prepare_template: '正在准备项目模板',
+  paperqa: '正在通过文献库获取依据',
+  // M3
+  generate_ideas: '正在生成研究想法',
+  tree_search: '正在探索想法变体',
+  novelty_check: '正在验证想法新颖性',
+  resume: '正在恢复想法生成',
+  // M4
+  setup_project: '正在创建项目目录',
+  setup_env: '正在准备运行环境',
+  local_env: '正在准备运行环境',
+  local_env_create: '正在创建虚拟环境',
+  local_env_pip: '正在升级 pip',
+  local_env_requirements: '正在安装依赖',
+  run_baseline: '正在运行基线实验',
+  init_git: '正在初始化代码仓库',
+  implement_idea: '正在生成研究代码',
+  copy_template: '正在加载代码模板',
+  validate_code: '正在验证代码质量',
+  requirements: '正在生成依赖清单',
+  detect_existing: '正在检测已有代码',
+  replace_mode: '正在替换研究方案',
+  load_baseline: '正在加载基线结果',
+  aider: '正在通过 Aider 修改代码',
+  llm_gen: '正在通过 LLM 生成代码',
+  llm_gen_fallback: '正在使用备用模板生成代码',
+  fallback_gen: '正在使用降级方案生成代码',
+  fallback_llm: '正在通过 LLM 生成代码',
+  fallback_template: '正在使用模板生成代码',
+  fallback_minimal: '正在生成最小可运行代码',
+  fallback_llm_error: 'LLM 生成失败',
+  // M5
+  design_experiment: '正在设计实验方案',
+  // M6
+  run_experiment: '正在运行实验',
+  ssh_setup: '正在配置远程环境',
+  local_run: '正在本地运行实验',
+  collect_results: '正在收集实验结果',
+  // M7
+  analyze_results: '正在分析实验结果',
+  // M8
+  write_paper: '正在撰写论文',
+  // M9
+  review_paper: '正在评审论文',
+  // Generic
+  start: '正在启动',
+  done: '已完成',
+  retry: '正在重试',
+  max_retries: '已达最大重试次数',
+  review: '等待人工审阅',
+  paused: '已暂停',
+  aborted: '已终止',
+  cancelled: '已取消',
+  pipeline_error: '流程执行出错',
+  no_ideas: '未能生成想法',
+  skip_optional: '正在跳过可选步骤',
+};
+
 const genericProgressSteps = new Set(['start', 'done', 'retry', 'max_retries', 'review', 'pipeline_error']);
 
 function summarizeRunningStage(title: string, module: BackendModuleProgress) {
-  const sanitizedStep = sanitizeDisplayText(module.step);
-  const sanitizedMessage = sanitizeDisplayText(module.message, `${title}正在执行。`);
+  const step = (module.step || '').trim();
 
-  if (!sanitizedStep) {
-    return sanitizedMessage;
+  if (step && stepToSidebarLabel[step]) {
+    return stepToSidebarLabel[step];
   }
 
-  if (genericProgressSteps.has(sanitizedStep) || /^[a-z0-9_:-]+$/i.test(sanitizedStep)) {
-    return sanitizedMessage;
-  }
-
-  return sanitizedStep;
+  // Fallback: generic natural language per status
+  return `${title}正在执行`;
 }
 
 function normalizeModuleStatus(status?: string): WorkflowStatus {

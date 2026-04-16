@@ -76,6 +76,15 @@ class RuntimeSettingsRequest(BaseModel):
     local_model_alias: str = Field("local-gguf", description="Alias exposed by the local model server")
     local_context_size: int = Field(4096, description="Default local model context window")
     local_gpu_layers: int = Field(0, description="Advanced runtime hint for local engines that expose GPU layer control")
+    ssh_enabled: bool = Field(True, description="Whether M6 may use configured SSH execution")
+    ssh_host: str = Field("", description="SSH host used by M6 remote execution")
+    ssh_port: int = Field(22, description="SSH port used by M6 remote execution")
+    ssh_user: str = Field("", description="SSH username used by M6 remote execution")
+    ssh_key_path: str = Field("", description="Optional private key path for SSH authentication")
+    ssh_password: str = Field("", description="Optional SSH password")
+    ssh_work_dir: str = Field("/tmp/scholarmind", description="Remote working directory for uploaded projects")
+    ssh_conda_env: str = Field("", description="Optional remote conda environment activated before running experiments")
+    llm_simulation_enabled: bool = Field(True, description="Whether M6 may append LLM-simulated experiment data")
     public_base_url: str = Field("", description="Optional public/tunnel base URL used by mobile clients")
 
 
@@ -92,6 +101,15 @@ class RuntimeSettingsResponse(BaseModel):
     local_model_alias: str
     local_context_size: int
     local_gpu_layers: int
+    ssh_enabled: bool
+    ssh_host: str
+    ssh_port: int
+    ssh_user: str
+    ssh_key_path: str
+    ssh_password: str
+    ssh_work_dir: str
+    ssh_conda_env: str
+    llm_simulation_enabled: bool
     public_base_url: str
     env_path: str
 
@@ -149,6 +167,12 @@ class TaskResponse(BaseModel):
     updated_at: str
     completed_at: Optional[str] = None
     output_url: Optional[str] = None
+    runtime_provider: str = ""
+    runtime_model: str = ""
+    active_cycle: Optional[dict] = None
+    root_agent: Optional[dict] = None
+    child_agents: list[dict] = []
+    recent_summary: Optional[dict] = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -221,7 +245,7 @@ class TaskOutputResponse(BaseModel):
 
 class WSMessage(BaseModel):
     type: str
-    task_id: str
+    task_id: str = ""
     module: str = "M1"
     step: str = ""
     percent: float = 0

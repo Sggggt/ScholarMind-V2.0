@@ -22,6 +22,8 @@ from modules.m8_paper_writing import PaperWritingModule
 from modules.m9_review import ReviewModule
 from pipeline.state import TaskStateMachine, TaskAborted, TaskPaused
 from pipeline.tracer import Tracer
+from services.redis_service import delete_cache
+from services.agent_runtime import AgentRuntime
 
 import config
 
@@ -89,7 +91,18 @@ class PipelineOrchestrator:
         except json.JSONDecodeError:
             return default
 
-    def _find_project_dir(self, workspace: Path) -> Path | None:
+    def _find_project_dir(self, workspace: Path, code_root: Path | None = None) -> Path | None:
+        if code_root and code_root.exists():
+            if (code_root / "experiment.py").exists():
+                return code_root
+
+            candidates = sorted(path for path in code_root.iterdir() if path.is_dir())
+            preferred = [path for path in candidates if (path / "experiment.py").exists()]
+            if preferred:
+                return preferred[0]
+            if candidates:
+                return candidates[0]
+
         project_root = workspace / "project"
         if not project_root.exists():
             return None
@@ -125,8 +138,10 @@ class PipelineOrchestrator:
         # 从任务配置中获取自定义代码目录（前端设置的本地文件夹）
         custom_work_dir = task.config.get("work_dir") if task.config else None
         code_dir = None
+        code_root = None
         if custom_work_dir:
-            code_dir = config.resolve_task_work_dir(str(custom_work_dir)) / self.task_id / "code"
+            code_root = config.resolve_task_work_dir(str(custom_work_dir)) / self.task_id / "code"
+            code_dir = code_root
             code_dir.mkdir(parents=True, exist_ok=True)
 
         context = {
@@ -195,7 +210,7 @@ class PipelineOrchestrator:
         if self.start_module <= 4:
             return context
 
-        project_dir = self._find_project_dir(workspace)
+        project_dir = self._find_project_dir(workspace, code_root=code_root)
         if project_dir:
             context["project_dir"] = str(project_dir)
             context["code_dir"] = str(project_dir)
@@ -278,6 +293,9 @@ class PipelineOrchestrator:
         await self.tracer.log(module_number, "start", f"开始{mod.name}")
         self.tracer.step_start()
 
+        # Invalidate task list cache so list_tasks sees the new module
+        await delete_cache("tasks:list:all", f"task:{self.task_id}")
+
         context = await mod.execute(context, self.tracer, self.state)
 
         self.state.check_control()
@@ -297,6 +315,69 @@ class PipelineOrchestrator:
             mod = self.modules[module_number - 1]
             context = await self._execute_module(mod, module_number, context)
         return context
+
+    async def _run_agent_cycle_modules(self, context: dict, start_module: int, end_module: int) -> dict:
+        runtime = AgentRuntime(self.task_id)
+        context["agent_runtime"] = runtime
+        current_start = start_module
+        max_retries = context.get("config", {}).get(
+            "max_retries", config.DEFAULT_EXPERIMENT_RETRIES
+        )
+        module_plan = (
+            (4, "m4", "Coordinator is bootstrapping the code, environment, and baseline workers."),
+            (5, "m5", "Coordinator is reviewing M4 outputs and deciding whether code changes are required."),
+            (6, "m6", "Coordinator is dispatching experiment execution, repair, and summary workers."),
+        )
+
+        while True:
+            for module_number, phase, root_message in module_plan:
+                if module_number < current_start or module_number > end_module:
+                    continue
+                await runtime.begin_phase(
+                    module=module_number,
+                    phase=phase,
+                    project_dir=context.get("project_dir", context.get("code_dir", "")),
+                    root_message=root_message,
+                    root_payload={"start_module": current_start},
+                )
+                mod = self.modules[module_number - 1]
+                context = await self._execute_module(mod, module_number, context)
+
+            decision = context.pop("agent_cycle_decision", None)
+            if not isinstance(decision, dict) or decision.get("action") != "rollback_m4":
+                await runtime.mark_cycle_complete(
+                    status="completed",
+                    phase="m6",
+                    module=6,
+                    message="M4-M6 multi-agent cycle completed and handed off to M7.",
+                )
+                return context
+
+            retry_count = await self.state.increment_retry()
+            if retry_count >= max_retries:
+                await runtime.update_root_decision(
+                    module=6,
+                    phase="m6",
+                    message=f"Rollback to M4 was requested but max retries {max_retries} has been reached.",
+                    payload={"decision": decision, "retry_count": retry_count},
+                )
+                await runtime.mark_cycle_complete(
+                    status="failed",
+                    phase="m6",
+                    module=6,
+                    message="Multi-agent cycle stopped after reaching max retries.",
+                )
+                return context
+
+            reason = str(decision.get("reason") or "M6 requested a rollback to M4.")
+            await self.tracer.log(
+                6,
+                "agent_rollback",
+                f"Agent coordinator requested an in-place rollback to M4 (retry {retry_count}/{max_retries}): {reason}",
+                level="warn",
+            )
+            await runtime.rollback(module=6, phase="m6", reason=reason)
+            current_start = 4
 
     async def run(self):
         await self.state.set_status("running")
@@ -324,7 +405,7 @@ class PipelineOrchestrator:
 
             # M4-M6: 代码生成、实验设计、Agent运行
             if 4 <= self.start_module <= 6:
-                context = await self._run_linear_modules(context, self.start_module, 6)
+                context = await self._run_agent_cycle_modules(context, self.start_module, 6)
 
             max_retries = context.get("config", {}).get(
                 "max_retries", config.DEFAULT_EXPERIMENT_RETRIES
@@ -373,9 +454,12 @@ class PipelineOrchestrator:
             await self.tracer.log(0, "paused", "任务已暂停")
             await self.state.set_status("paused")
         except asyncio.CancelledError:
-            # CancelledError means the orchestrator task was force-cancelled (abort)
-            await self.tracer.log(0, "cancelled", "任务被强制取消")
-            await self.state.set_status("aborted")
+            if self.state.is_aborted:
+                await self.tracer.log(0, "cancelled", "任务被强制取消")
+                await self.state.set_status("aborted")
+            else:
+                await self.tracer.log(0, "interrupted", "任务执行被服务中断，等待恢复", level="warn")
+            raise
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
             await self.tracer.log_error(0, "pipeline_error", error_msg)

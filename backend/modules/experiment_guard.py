@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import ast
+import json
 import re
 
 from modules.llm_client import call_llm
@@ -75,7 +76,6 @@ class ExperimentValidationResult:
             parts.append(f"missing output fields: {', '.join(self.missing_output_fields)}")
         return "; ".join(parts) if parts else "ok"
 
-
 def _strip_code_fences(text: str) -> str:
     code = text.strip()
     if "```python" in code:
@@ -137,7 +137,15 @@ def _aliases_for_metric(metric: str) -> tuple[str, ...]:
     )
 
 
+def _ensure_str(value) -> str:
+    if isinstance(value, dict):
+        import json as _json
+        return _json.dumps(value, ensure_ascii=False)
+    return str(value) if value is not None else ""
+
+
 def validate_experiment_code(code: str, idea_title: str, idea_experiment: str) -> ExperimentValidationResult:
+    idea_experiment = _ensure_str(idea_experiment)
     lowered = (code or "").lower()
     required_keywords = _extract_required_keywords(idea_title, idea_experiment)
     required_metrics = _extract_metric_names(idea_experiment)
@@ -215,7 +223,8 @@ Hard requirements:
 8. Explicitly compute and save these metrics in final_info.json: {required_metrics or ['accuracy', 'f1', 'precision']}.
 9. If the plan mentions evaluation sets such as consistent/conflict/no-consensus, implement them explicitly.
 10. Use deterministic behavior from numpy.random.seed(args.seed).
-11. Return only Python code, no markdown fences.
+11. Define every helper you call in this file. Do not leave placeholder calls to undefined functions.
+12. Return only Python code, no markdown fences.
 """
 
     text, _ = await call_llm(

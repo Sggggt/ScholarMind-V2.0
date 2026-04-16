@@ -25,3 +25,4 @@ paper-qa==2026.3.18
 ddgs==9.6.1
 
 zeroconf>=0.132.0
+redis>=5.0,<6.0

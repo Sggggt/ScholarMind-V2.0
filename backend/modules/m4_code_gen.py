@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import shutil
+import sys
 
 import config
 from modules.async_subprocess import run_subprocess
@@ -25,6 +26,7 @@ from modules.experiment_guard import (
     validate_experiment_code,
     validate_experiment_file,
 )
+from modules.local_env_setup import ensure_local_experiment_env
 from modules.llm_client import call_llm
 from modules.ai_scientist_bridge import (
     create_client_zhipu,
@@ -54,6 +56,66 @@ def _is_valid_code(filepath: str) -> bool:
         return False
 
 
+THIRD_PARTY_REQUIREMENT_MAP = {
+    "matplotlib": "matplotlib",
+    "mpl_toolkits": "matplotlib",
+    "numpy": "numpy",
+    "pandas": "pandas",
+    "scipy": "scipy",
+    "sklearn": "scikit-learn",
+    "seaborn": "seaborn",
+    "torch": "torch",
+    "torchvision": "torchvision",
+    "torchaudio": "torchaudio",
+    "transformers": "transformers",
+    "datasets": "datasets",
+    "xgboost": "xgboost",
+    "lightgbm": "lightgbm",
+    "catboost": "catboost",
+    "shap": "shap",
+    "cv2": "opencv-python",
+    "PIL": "pillow",
+    "yaml": "pyyaml",
+    "statsmodels": "statsmodels",
+    "networkx": "networkx",
+    "sympy": "sympy",
+}
+
+
+def _extract_import_roots(filepath: str) -> set[str]:
+    if not os.path.exists(filepath):
+        return set()
+    try:
+        with open(filepath, "r", encoding="utf-8") as handle:
+            tree = ast.parse(handle.read(), filename=filepath)
+    except (SyntaxError, UnicodeDecodeError, ValueError, OSError):
+        return set()
+
+    imports: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.level or not node.module:
+                continue
+            imports.add(node.module.split(".")[0])
+    return imports
+
+
+def _infer_requirement_packages(filepaths: list[str]) -> list[str]:
+    stdlib_modules = set(getattr(sys, "stdlib_module_names", ()))
+    packages: set[str] = set()
+    for filepath in filepaths:
+        for root in _extract_import_roots(filepath):
+            if root in stdlib_modules:
+                continue
+            package = THIRD_PARTY_REQUIREMENT_MAP.get(root)
+            if package:
+                packages.add(package)
+    return sorted(packages)
+
+
 class CodeGenModule(BaseModule):
     async def _run_subprocess(self, command, *, state: TaskStateMachine | None = None, **kwargs):
         cwd = kwargs.get("cwd")
@@ -79,6 +141,7 @@ class CodeGenModule(BaseModule):
         best_idea = context.get("best_idea", {})
         topic = context["topic"]
         workspace = context["workspace"]
+        runtime = context.get("agent_runtime")
         # 使用自定义代码目录（如果设置了的话）
         custom_code_dir = context.get("code_dir")
         ai_scientist_dir = context.get("ai_scientist_dir", os.path.join(workspace, "ai_scientist_workspace"))
@@ -105,6 +168,14 @@ class CodeGenModule(BaseModule):
         has_valid_code = has_existing_repo and _is_valid_code(exp_path)
 
         if has_existing_repo:
+            if runtime:
+                await runtime.skip_worker(
+                    role="dataset-worker",
+                    module=4,
+                    phase="m4",
+                    message="Dataset worker skipped dedicated dataset staging because M4 is operating on an existing repository.",
+                    summary={"reason": "existing_repository"},
+                )
             await tracer.log(4, "detect_existing", f"检测到现有代码仓库: {project_dir}")
 
             # 检查现有代码是否有效
@@ -116,6 +187,14 @@ class CodeGenModule(BaseModule):
                 has_existing_repo = False
 
             if is_replacing_idea:
+                if runtime:
+                    await runtime.start_worker(
+                        role="code-worker",
+                        module=4,
+                        phase="m4",
+                        message="Code worker is updating the existing repository for the selected replacement idea.",
+                        ownership={"files": ["experiment.py", "plot.py", "requirements.txt"]},
+                    )
                 # ── 模式 A: 在现有代码基础上修改 (替换 Idea) ──
                 await tracer.log(4, "replace_mode", "替换 Idea 模式：在现有代码仓库基础上修改")
 
@@ -129,7 +208,7 @@ class CodeGenModule(BaseModule):
 
                 # 直接用 Aider 修改代码
                 success = await self._implement_with_aider(
-                    project_dir, raw_idea, baseline_results, tracer, state
+                    project_dir, raw_idea, baseline_results, tracer, state, context.get("task_id", "")
                 )
 
                 if success:
@@ -189,6 +268,9 @@ class CodeGenModule(BaseModule):
                     f.write(f"Experiment: {idea_experiment}\n\n")
                     f.write(f"Previous notes:\n{existing_notes}\n")
 
+                requirements_path = self._write_minimal_requirements(project_dir)
+                await tracer.log(4, "requirements", f"Generated minimal requirements: {requirements_path}")
+
                 # 统计生成的文件
                 code_files = []
                 for root, dirs, files in os.walk(project_dir):
@@ -216,6 +298,31 @@ class CodeGenModule(BaseModule):
                 context["code_files"] = code_files
                 context["baseline_results"] = baseline_results
                 context["run_command"] = "python experiment.py --out_dir=run_1"
+                if runtime:
+                    await runtime.complete_worker(
+                        role="code-worker",
+                        module=4,
+                        phase="m4",
+                        message="Code worker finished updating the repository for the replacement idea.",
+                        summary={
+                            "project_dir": project_dir,
+                            "file_count": len(code_files),
+                            "has_baseline": bool(baseline_results),
+                            "replacement_mode": True,
+                        },
+                        artifact_refs={"project_dir": project_dir, "requirements": requirements_path},
+                    )
+                    await runtime.record_summary(
+                        module=4,
+                        phase="m4",
+                        message="M4 bootstrap completed in replacement mode.",
+                        summary={
+                            "replacement_mode": True,
+                            "project_dir": project_dir,
+                            "has_baseline": bool(baseline_results),
+                        },
+                        artifact_refs={"project_dir": project_dir},
+                    )
 
                 return context
 
@@ -249,16 +356,76 @@ class CodeGenModule(BaseModule):
 
         await tracer.log(4, "setup_project", "项目目录创建完成")
 
+        # ── Step 1.5: 生成 requirements.txt 并创建虚拟环境 ──
+        if runtime:
+            await runtime.skip_worker(
+                role="dataset-worker",
+                module=4,
+                phase="m4",
+                message="Dataset worker skipped dedicated dataset staging because M4 uses the built-in baseline template bootstrap.",
+                summary={"reason": "baseline_template_bootstrap"},
+            )
+        self._write_minimal_requirements(project_dir)
+        await tracer.log(4, "setup_env", "已生成 requirements.txt，准备虚拟环境")
+
+        if runtime:
+            await runtime.start_worker(
+                role="env-worker",
+                module=4,
+                phase="m4",
+                message="Environment worker is preparing the local baseline environment.",
+                ownership={"files": ["requirements.txt", ".venv-experiment"]},
+            )
+        baseline_python = "python"
+        try:
+            local_env = await ensure_local_experiment_env(
+                project_dir,
+                tracer=tracer,
+                state=state,
+                module=4,
+                timeout=1800,
+            )
+            baseline_python = local_env.python_executable
+            if runtime:
+                await runtime.complete_worker(
+                    role="env-worker",
+                    module=4,
+                    phase="m4",
+                    message="Environment worker prepared the baseline environment.",
+                    summary={"python_executable": baseline_python},
+                    artifact_refs={"python_executable": baseline_python},
+                )
+            await tracer.log(4, "setup_env", f"虚拟环境就绪: {baseline_python}")
+        except Exception as e:
+            if runtime:
+                await runtime.fail_worker(
+                    role="env-worker",
+                    module=4,
+                    phase="m4",
+                    message=f"Environment worker failed to create the local baseline environment and fell back to system Python: {e}",
+                    error_fingerprint=str(e),
+                    summary={"fallback_python": "python"},
+                )
+            await tracer.log(4, "setup_env", f"虚拟环境创建失败，降级使用系统 Python: {e}", level="warn")
+
         # ── Step 2: 运行 baseline 实验 (run_0) ──
         tracer.step_start()
         await tracer.log(4, "run_baseline", "运行 baseline 实验 (run_0)")
 
+        if runtime:
+            await runtime.start_worker(
+                role="baseline-worker",
+                module=4,
+                phase="m4",
+                message="Baseline worker is executing run_0.",
+                ownership={"command": "python experiment.py --out_dir=run_0"},
+            )
         run_0_dir = os.path.join(project_dir, "run_0")
         os.makedirs(run_0_dir, exist_ok=True)
 
         try:
             result = await self._run_subprocess(
-                ["python", "experiment.py", "--out_dir=run_0"],
+                [baseline_python, "experiment.py", "--out_dir=run_0"],
                 cwd=project_dir,
                 capture_output=True,
                 text=True,
@@ -266,8 +433,26 @@ class CodeGenModule(BaseModule):
                 state=state,
             )
             if result.returncode == 0:
+                if runtime:
+                    await runtime.complete_worker(
+                        role="baseline-worker",
+                        module=4,
+                        phase="m4",
+                        message="Baseline worker completed run_0 successfully.",
+                        summary={"returncode": 0},
+                        artifact_refs={"run_dir": run_0_dir},
+                    )
                 await tracer.log(4, "run_baseline", "Baseline 运行成功")
             else:
+                if runtime:
+                    await runtime.fail_worker(
+                        role="baseline-worker",
+                        module=4,
+                        phase="m4",
+                        message="Baseline worker failed to produce a successful run_0 result.",
+                        error_fingerprint=(result.stderr or "")[:240],
+                        summary={"returncode": result.returncode},
+                    )
                 await tracer.log(4, "run_baseline",
                                  f"Baseline 运行失败: {result.stderr[:500]}", level="warn")
         except Exception as e:
@@ -304,6 +489,14 @@ class CodeGenModule(BaseModule):
 
         # 先确保模板文件存在
         template_src = os.path.join(ai_scientist_dir, "experiment.py")
+        if runtime:
+            await runtime.start_worker(
+                role="code-worker",
+                module=4,
+                phase="m4",
+                message="Code worker is generating the project repository and experiment implementation.",
+                ownership={"files": ["experiment.py", "plot.py", "notes.txt", "requirements.txt"]},
+            )
         if os.path.exists(template_src):
             # 复制模板到项目目录
             shutil.copy2(template_src, exp_path)
@@ -344,6 +537,9 @@ class CodeGenModule(BaseModule):
             raise RuntimeError(f"M4 experiment gate failed: {final_validation.summary()}")
         await tracer.log(4, "validate_code", "experiment.py 通过静态门禁")
 
+        requirements_path = self._write_minimal_requirements(project_dir)
+        await tracer.log(4, "requirements", f"Generated minimal requirements: {requirements_path}")
+
         # ── 统计生成的文件 ──
         code_files = []
         for root, dirs, files in os.walk(project_dir):
@@ -379,11 +575,36 @@ class CodeGenModule(BaseModule):
         context["code_files"] = code_files
         context["baseline_results"] = baseline_results
         context["run_command"] = "python experiment.py --out_dir=run_1"
+        if runtime:
+            await runtime.complete_worker(
+                role="code-worker",
+                module=4,
+                phase="m4",
+                message="Code worker finished generating the repository and baseline-ready experiment files.",
+                summary={
+                    "project_dir": project_dir,
+                    "file_count": len(code_files),
+                    "has_baseline": bool(baseline_results),
+                },
+                artifact_refs={"project_dir": project_dir, "requirements": requirements_path},
+            )
+            await runtime.record_summary(
+                module=4,
+                phase="m4",
+                message="M4 coordinator finished the bootstrap cycle.",
+                summary={
+                    "project_dir": project_dir,
+                    "file_count": len(code_files),
+                    "has_baseline": bool(baseline_results),
+                    "baseline_metrics": baseline_results,
+                },
+                artifact_refs={"project_dir": project_dir, "baseline_run_dir": run_0_dir},
+            )
 
         return context
 
     async def _implement_with_aider(
-        self, project_dir, idea, baseline_results, tracer, state,
+        self, project_dir, idea, baseline_results, tracer, state, task_id: str = "",
     ) -> bool:
         """使用 Aider 修改 experiment.py (AI-Scientist 的方式)"""
         availability = await check_aider_available()
@@ -433,6 +654,11 @@ Write the COMPLETE experiment.py file now. Do not leave any TODO or placeholder.
                 edit_format="whole",
                 timeout=max(config.AI_SCIENTIST_TIMEOUT, 300),
                 state=state,
+                tracer=tracer,
+                task_id=task_id,
+                module=4,
+                phase="m4",
+                agent_role="code-worker",
             )
             output = result.output or result.detail
             if result.ok:
@@ -551,6 +777,29 @@ if __name__ == "__main__":
         with open(exp_path, "w", encoding="utf-8") as f:
             f.write(minimal_template)
         await tracer.log(4, "fallback_minimal", "使用最小可运行模板")
+
+    def _write_minimal_requirements(self, project_dir: str) -> str:
+        filepaths = [
+            os.path.join(project_dir, "experiment.py"),
+            os.path.join(project_dir, "plot.py"),
+        ]
+        packages = _infer_requirement_packages(filepaths)
+        requirements_path = os.path.join(project_dir, "requirements.txt")
+
+        lines = [
+            "# Minimal dependencies inferred by M4 from experiment.py and plot.py",
+            "# Review this file if your experiment uses dynamic or optional imports.",
+            "",
+        ]
+        if packages:
+            lines.extend(packages)
+        else:
+            lines.append("# No third-party packages inferred.")
+
+        with open(requirements_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+
+        return requirements_path
 
     def _generate_plot_template(self) -> str:
         """生成 plot.py 模板 (AI-Scientist 格式)"""

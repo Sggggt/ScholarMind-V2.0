@@ -67,6 +67,9 @@ class TaskStateMachine:
                 )
             )
             await db.commit()
+        # Invalidate Redis cache so next GET returns fresh data
+        from services.redis_service import delete_cache
+        await delete_cache(f"task:{self.task_id}")
 
     async def increment_retry(self) -> int:
         async with async_session() as db:
@@ -107,11 +110,15 @@ class TaskStateMachine:
         *,
         cancel_on_pause: bool = True,
         poll_interval: float = 0.5,
+        deadline: float | None = None,
     ):
         """Await a long-running operation while polling pause/abort state.
 
         When `cancel_on_pause` is True, a pause request cancels the in-flight awaitable
         and unwinds to the orchestrator immediately.
+
+        When `deadline` is set (monotonic timestamp), the awaitable is cancelled
+        if it hasn't completed by that time.
         """
         task = asyncio.create_task(awaitable)
 
@@ -130,8 +137,22 @@ class TaskStateMachine:
                     raise TaskPaused()
 
                 try:
-                    return await asyncio.wait_for(asyncio.shield(task), timeout=poll_interval)
+                    wait = poll_interval
+                    if deadline is not None:
+                        remaining = deadline - asyncio.get_event_loop().time()
+                        if remaining <= 0:
+                            task.cancel()
+                            with suppress(asyncio.CancelledError, Exception):
+                                await task
+                            raise asyncio.TimeoutError()
+                        wait = min(wait, remaining)
+                    return await asyncio.wait_for(asyncio.shield(task), timeout=wait)
                 except asyncio.TimeoutError:
+                    if deadline is not None and asyncio.get_event_loop().time() >= deadline:
+                        task.cancel()
+                        with suppress(asyncio.CancelledError, Exception):
+                            await task
+                        raise
                     continue
         except BaseException:
             if not task.done():

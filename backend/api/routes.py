@@ -34,16 +34,20 @@ from db.database import get_db
 from db.models import ChatMessage, ChatSession, Task, TraceLog
 from services.conversation_service import create_chat_session, process_user_message
 from services.connection_service import build_connection_info
+from services.redis_service import delete_cache, get_json, set_json
+from services.agent_runtime import get_task_agent_snapshot
 from services.task_service import (
     abort_task_execution,
     create_task_and_start,
     delete_task_with_dependencies,
+    ensure_running_task_orchestrator,
     get_running_orchestrator,
     pause_task_execution,
     recover_review_execution,
     restart_task_execution,
     resume_task_execution,
 )
+from runtime_config import resolve_runtime_settings
 
 router = APIRouter(prefix="/api")
 
@@ -56,9 +60,10 @@ def _serialize_datetime(value: datetime | None) -> str:
     return value.isoformat()
 
 
-def _task_to_response(task: Task) -> dict:
+def _task_to_response(task: Task, *, agent_snapshot: dict | None = None) -> dict:
     current_mod = task.current_module or 0
     modules = []
+    runtime_settings = resolve_runtime_settings(task.config if isinstance(task.config, dict) else None)
 
     for i in range(1, 10):
         if i < current_mod:
@@ -104,7 +109,18 @@ def _task_to_response(task: Task) -> dict:
         "updated_at": _serialize_datetime(task.updated_at),
         "completed_at": None,
         "output_url": None,
+        "runtime_provider": str(runtime_settings.get("llm_provider", "")).strip(),
+        "runtime_model": str(runtime_settings.get("openai_model", "")).strip(),
+        "active_cycle": agent_snapshot.get("active_cycle") if isinstance(agent_snapshot, dict) else None,
+        "root_agent": agent_snapshot.get("root_agent") if isinstance(agent_snapshot, dict) else None,
+        "child_agents": agent_snapshot.get("child_agents", []) if isinstance(agent_snapshot, dict) else [],
+        "recent_summary": agent_snapshot.get("recent_summary") if isinstance(agent_snapshot, dict) else None,
     }
+
+
+async def _task_to_response_async(task: Task) -> dict:
+    snapshot = await get_task_agent_snapshot(task.id)
+    return _task_to_response(task, agent_snapshot=snapshot)
 
 
 def _log_to_response(log: TraceLog) -> dict:
@@ -208,6 +224,51 @@ def _resolve_workspace_path(task_id: str, relative_path: str, require_exists: bo
     return workspace, target
 
 
+def _select_custom_repo_root(custom_code_dir: Path, workspace: Path) -> Optional[Path]:
+    ignored_dirs = {".git", "__pycache__", ".venv", ".venv-experiment", "venv", "env"}
+
+    info_path = workspace / "m4_code_gen_info.json"
+    if info_path.exists():
+        project_dir = ""
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+            project_dir = str(info.get("project_dir") or "").strip()
+        except (OSError, ValueError, TypeError):
+            project_dir = ""
+
+        if project_dir:
+            direct_candidate = Path(project_dir)
+            if direct_candidate.exists() and direct_candidate.is_dir():
+                return direct_candidate
+
+            project_name = project_dir.replace("\\", "/").rstrip("/").split("/")[-1]
+            if project_name:
+                named_candidate = (custom_code_dir / project_name).resolve()
+                if named_candidate.exists() and named_candidate.is_dir():
+                    return named_candidate
+
+    candidate_dirs = [
+        child
+        for child in sorted(custom_code_dir.iterdir())
+        if child.is_dir() and not child.name.startswith(".") and child.name not in ignored_dirs
+    ]
+
+    experiment_dirs = [child for child in candidate_dirs if (child / "experiment.py").exists()]
+    if experiment_dirs:
+        return experiment_dirs[0]
+
+    return candidate_dirs[0] if candidate_dirs else None
+
+
+def _resolve_repo_root(task_id: str, custom_code_dir: Optional[Path]) -> Optional[Path]:
+    workspace = _get_task_workspace(task_id)
+    if custom_code_dir:
+        selected = _select_custom_repo_root(custom_code_dir, workspace)
+        if selected:
+            return selected
+    return _find_repo_root(workspace)
+
+
 def _detect_content_type(path: Path) -> str:
     if path.suffix == ".json":
         return "application/json"
@@ -269,7 +330,7 @@ async def create_task(req: TaskCreateRequest, db: AsyncSession = Depends(get_db)
         config=req.config,
         title=req.topic[:50],
     )
-    return _task_to_response(task)
+    return await _task_to_response_async(task)
 
 
 @router.get("/chat/sessions")
@@ -404,20 +465,43 @@ async def list_tasks(
     status: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    cache_key = f"tasks:list:{status or 'all'}"
+    cached = await get_json(cache_key)
+    if cached is not None and not any(task.get("status") == "running" for task in cached if isinstance(task, dict)):
+        return cached
+
     stmt = select(Task).order_by(Task.created_at.desc())
     if status:
         stmt = stmt.where(Task.status == status)
     result = await db.execute(stmt)
     tasks = result.scalars().all()
-    return [_task_to_response(task) for task in tasks]
+
+    recovered_running = False
+    for task in tasks:
+        recovered_running = await ensure_running_task_orchestrator(task) or recovered_running
+
+    data = [await _task_to_response_async(task) for task in tasks]
+    await set_json(cache_key, data, ttl=120)
+    return data
 
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    cache_key = f"task:{task_id}"
+    cached = await get_json(cache_key)
+    if cached is not None and cached.get("status") != "running":
+        return cached
+
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(404, "任务不存在")
-    return _task_to_response(task)
+
+    if await ensure_running_task_orchestrator(task):
+        await delete_cache("tasks:list:all")
+
+    data = await _task_to_response_async(task)
+    await set_json(cache_key, data, ttl=120)
+    return data
 
 
 @router.post("/tasks/{task_id}/pause")
@@ -428,7 +512,7 @@ async def pause_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if task.status != "running":
         raise HTTPException(400, f"当前状态 {task.status} 无法暂停")
     task = await pause_task_execution(db, task)
-    return _task_to_response(task)
+    return await _task_to_response_async(task)
 
 
 @router.post("/tasks/{task_id}/resume")
@@ -439,7 +523,7 @@ async def resume_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if task.status != "paused":
         raise HTTPException(400, f"当前状态 {task.status} 无法恢复")
     task = await resume_task_execution(db, task)
-    return _task_to_response(task)
+    return await _task_to_response_async(task)
 
 
 @router.post("/tasks/{task_id}/abort")
@@ -448,7 +532,7 @@ async def abort_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(404, "任务不存在")
     task = await abort_task_execution(db, task)
-    return _task_to_response(task)
+    return await _task_to_response_async(task)
 
 
 @router.post("/tasks/{task_id}/restart")
@@ -457,7 +541,7 @@ async def restart_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(404, "浠诲姟涓嶅瓨鍦?")
     task = await restart_task_execution(db, task, start_module=task.current_module or 1)
-    return _task_to_response(task)
+    return await _task_to_response_async(task)
 
 
 @router.post("/tasks/{task_id}/reset-module")
@@ -476,7 +560,7 @@ async def reset_task_module(
         raise HTTPException(400, str(exc)) from exc
 
     task = await restart_task_execution(db, task, start_module=module_number)
-    return _task_to_response(task)
+    return await _task_to_response_async(task)
 
 
 # ── 增量式 Idea 管理 API ──
@@ -579,11 +663,6 @@ async def select_idea_and_proceed(
             selection_path = workspace / "idea_selection.json"
             with open(selection_path, "w", encoding="utf-8") as f:
                 json.dump(selection_info, f, ensure_ascii=False, indent=2)
-
-        # 中断当前正在运行的进程（如果在 M3-M9 任何阶段）
-        orchestrator = get_running_orchestrator(task_id)
-        if orchestrator:
-            orchestrator.abort()
 
         # 重新启动任务，从 M4 开始
         task = await restart_task_execution(db, task, start_module=4)
@@ -722,6 +801,11 @@ async def get_logs(
     limit: int = Query(200, le=500),
     db: AsyncSession = Depends(get_db),
 ):
+    cache_key = f"task:{task_id}:logs"
+    cached = await get_json(cache_key)
+    if cached is not None and module is None and level is None:
+        return cached
+
     stmt = (
         select(TraceLog)
         .where(TraceLog.task_id == task_id)
@@ -734,7 +818,12 @@ async def get_logs(
         stmt = stmt.where(TraceLog.level == level)
     result = await db.execute(stmt)
     logs = result.scalars().all()
-    return [_log_to_response(log) for log in logs]
+    data = [_log_to_response(log) for log in logs]
+
+    if module is None and level is None:
+        await set_json(cache_key, data, ttl=60)
+
+    return data
 
 
 @router.get("/tasks/{task_id}/output")
@@ -831,17 +920,8 @@ async def get_artifact_content(task_id: str, path: str = Query(...)):
 
 @router.get("/tasks/{task_id}/repo/tree")
 async def get_repo_tree(task_id: str, db: AsyncSession = Depends(get_db)):
-    # 先尝试从自定义代码目录查找
     custom_code_dir = await _get_task_custom_code_dir(task_id, db)
-    if custom_code_dir:
-        # 在自定义目录中查找项目文件夹
-        for child in sorted(custom_code_dir.iterdir()):
-            if child.is_dir():
-                return [_build_repo_tree(child, child)]
-
-    # 回退到默认 workspace
-    workspace = _get_task_workspace(task_id)
-    repo_root = _find_repo_root(workspace)
+    repo_root = _resolve_repo_root(task_id, custom_code_dir)
     if not repo_root:
         return []
     return [_build_repo_tree(repo_root, repo_root)]
@@ -849,23 +929,10 @@ async def get_repo_tree(task_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/tasks/{task_id}/repo/file")
 async def get_repo_file(task_id: str, path: str = Query(...), db: AsyncSession = Depends(get_db)):
-    # 先尝试从自定义代码目录查找
     custom_code_dir = await _get_task_custom_code_dir(task_id, db)
-    repo_root = None
-
-    if custom_code_dir:
-        # 在自定义目录中查找项目文件夹
-        for child in sorted(custom_code_dir.iterdir()):
-            if child.is_dir():
-                repo_root = child
-                break
-
+    repo_root = _resolve_repo_root(task_id, custom_code_dir)
     if not repo_root:
-        # 回退到默认 workspace
-        workspace = _get_task_workspace(task_id)
-        repo_root = _find_repo_root(workspace)
-        if not repo_root:
-            raise HTTPException(404, "代码仓库尚未生成")
+        raise HTTPException(404, "代码仓库尚未生成")
 
     normalized_path = path.strip().lstrip("/")
     target_path = (repo_root / normalized_path).resolve()
@@ -1011,7 +1078,10 @@ async def ssh_status():
 
     return {
         "enabled": ssh_runner.is_available(),
+        "configured": bool(config.SSH_HOST and config.SSH_USER),
+        "runtime_enabled": getattr(config, "SSH_RUNTIME_ENABLED", True),
         "host": config.SSH_HOST or None,
+        "port": config.SSH_PORT or None,
         "user": config.SSH_USER or None,
         "work_dir": config.SSH_WORK_DIR,
     }

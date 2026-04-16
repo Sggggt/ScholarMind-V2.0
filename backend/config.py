@@ -30,6 +30,7 @@ DEFAULT_LOCAL_LLM_SERVER_URL = "http://127.0.0.1:1234/v1"
 DEFAULT_LOCAL_LLM_MODEL = "local-gguf"
 DEFAULT_LOCAL_LLM_CONTEXT_SIZE = 4096
 DEFAULT_LOCAL_LLM_GPU_LAYERS = 0
+DEFAULT_AIDE_VENV_NAME = ".venv-aide-py311"
 DEFAULT_AIDER_VENV_NAME = ".venv-aider-py311"
 DEFAULT_CONTAINER_WORKDIR_ROOT = "/external-workdir"
 DEFAULT_DOCKER_SHARED_WORKDIR_ROOT = "/host-project-root"
@@ -66,6 +67,14 @@ def _coerce_int(value: object, fallback: int) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return fallback
+
+
+def _coerce_bool(value: object, fallback: bool) -> bool:
+    if value is None:
+        return fallback
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _infer_local_model_alias(path: str, fallback: str = "") -> str:
@@ -181,6 +190,13 @@ def default_aider_python_path() -> str:
     return str(venv_dir / "bin" / "python")
 
 
+def default_aide_python_path() -> str:
+    venv_dir = BASE_DIR / DEFAULT_AIDE_VENV_NAME
+    if os.name == "nt":
+        return str(venv_dir / "Scripts" / "python.exe")
+    return str(venv_dir / "bin" / "python")
+
+
 def is_local_gguf_provider(provider: str | None = None) -> bool:
     return (provider or LLM_PROVIDER).strip().lower() == LOCAL_GGUF_PROVIDER
 
@@ -212,6 +228,7 @@ def refresh_runtime_config() -> None:
     global LOCAL_LLM_MODEL_ALIAS
     global LOCAL_LLM_CONTEXT_SIZE
     global LOCAL_LLM_GPU_LAYERS
+    global AIDE_PYTHON
     global AIDER_PYTHON
     global AIDER_EXE
     global HOST_WORKDIR_ROOT
@@ -226,11 +243,14 @@ def refresh_runtime_config() -> None:
     global SSH_PASSWORD
     global SSH_WORK_DIR
     global SSH_CONDA_ENV
+    global SSH_RUNTIME_ENABLED
     global SSH_ENABLED
     global DATABASE_URL
+    global REDIS_URL
     global SANDBOX_ENABLED
     global SANDBOX_IMAGE
     global SANDBOX_TIMEOUT
+    global LLM_SIMULATION_ENABLED
     global PUBLIC_BASE_URL
     global NGROK_API_URL
     global AI_SCIENTIST_TIMEOUT
@@ -274,6 +294,7 @@ def refresh_runtime_config() -> None:
         _read_str("LOCAL_LLM_SERVER_URL", local_server_fallback),
         local_server_fallback,
     )
+    AIDE_PYTHON = _normalize_path(_read_str("AIDE_PYTHON", ""))
     AIDER_PYTHON = _normalize_path(_read_str("AIDER_PYTHON", ""))
     AIDER_EXE = _normalize_path(_read_str("AIDER_EXE", ""))
     HOST_WORKDIR_ROOT = _read_str("HOST_WORKDIR_ROOT", "")
@@ -295,9 +316,11 @@ def refresh_runtime_config() -> None:
     SSH_PASSWORD = _read_str("SSH_PASSWORD", "")
     SSH_WORK_DIR = _read_str("SSH_WORK_DIR", "/tmp/scholarmind")
     SSH_CONDA_ENV = _read_str("SSH_CONDA_ENV", "")
-    SSH_ENABLED = bool(SSH_HOST and SSH_USER)
+    SSH_RUNTIME_ENABLED = _read_bool("SSH_RUNTIME_ENABLED", True)
+    SSH_ENABLED = bool(SSH_HOST and SSH_USER and SSH_RUNTIME_ENABLED)
 
     DATABASE_URL = _read_str("DATABASE_URL", f"sqlite+aiosqlite:///{BASE_DIR / 'research.db'}")
+    REDIS_URL = _read_str("REDIS_URL", "")
     PUBLIC_BASE_URL = _normalize_base_url(_read_str("PUBLIC_BASE_URL", ""), "")
     NGROK_API_URL = _normalize_base_url(
         _read_str("NGROK_API_URL", "http://127.0.0.1:4040/api/tunnels"),
@@ -307,6 +330,7 @@ def refresh_runtime_config() -> None:
     SANDBOX_ENABLED = _read_bool("SANDBOX_ENABLED", False)
     SANDBOX_IMAGE = _read_str("SANDBOX_IMAGE", "research-sandbox:latest")
     SANDBOX_TIMEOUT = _read_int("SANDBOX_TIMEOUT", 600)
+    LLM_SIMULATION_ENABLED = _read_bool("LLM_SIMULATION_ENABLED", True)
     AI_SCIENTIST_TIMEOUT = _read_int("AI_SCIENTIST_TIMEOUT", 120)
     PAPERQA_TIMEOUT = _read_int("PAPERQA_TIMEOUT", 45)
 
@@ -321,7 +345,7 @@ def refresh_runtime_config() -> None:
     MDNS_ENABLED = _read_bool("MDNS_ENABLED", True)
 
 
-def get_runtime_settings() -> dict[str, str | int]:
+def get_runtime_settings() -> dict[str, str | int | bool]:
     """Return the runtime model/provider settings exposed to the frontend."""
     return {
         "llm_provider": LLM_PROVIDER,
@@ -336,6 +360,15 @@ def get_runtime_settings() -> dict[str, str | int]:
         "local_model_alias": LOCAL_LLM_MODEL_ALIAS or OPENAI_MODEL,
         "local_context_size": LOCAL_LLM_CONTEXT_SIZE,
         "local_gpu_layers": LOCAL_LLM_GPU_LAYERS,
+        "ssh_enabled": SSH_RUNTIME_ENABLED,
+        "ssh_host": SSH_HOST,
+        "ssh_port": SSH_PORT,
+        "ssh_user": SSH_USER,
+        "ssh_key_path": SSH_KEY_PATH,
+        "ssh_password": SSH_PASSWORD,
+        "ssh_work_dir": SSH_WORK_DIR,
+        "ssh_conda_env": SSH_CONDA_ENV,
+        "llm_simulation_enabled": LLM_SIMULATION_ENABLED,
         "public_base_url": PUBLIC_BASE_URL,
         "env_path": str(ENV_FILE),
     }
@@ -351,7 +384,7 @@ def _get_search_api_key() -> str:
     return ""
 
 
-def save_runtime_settings(settings: dict[str, str | int]) -> dict[str, str | int]:
+def save_runtime_settings(settings: dict[str, str | int | bool]) -> dict[str, str | int | bool]:
     """Persist runtime settings into backend/.env and apply them immediately."""
     provider = str(settings.get("llm_provider", LLM_PROVIDER)).strip().lower() or "openai"
     search_provider = str(settings.get("search_provider", SEARCH_PROVIDER)).strip().lower() or DEFAULT_SEARCH_PROVIDER
@@ -394,6 +427,17 @@ def save_runtime_settings(settings: dict[str, str | int]) -> dict[str, str | int
         "LOCAL_LLM_MODEL_ALIAS": local_model_alias,
         "LOCAL_LLM_CONTEXT_SIZE": str(max(local_context_size, 512)),
         "LOCAL_LLM_GPU_LAYERS": str(max(local_gpu_layers, 0)),
+        "SSH_RUNTIME_ENABLED": "true" if _coerce_bool(settings.get("ssh_enabled"), SSH_RUNTIME_ENABLED) else "false",
+        "SSH_HOST": str(settings.get("ssh_host", SSH_HOST)).strip(),
+        "SSH_PORT": str(max(_coerce_int(settings.get("ssh_port"), SSH_PORT), 1)),
+        "SSH_USER": str(settings.get("ssh_user", SSH_USER)).strip(),
+        "SSH_KEY_PATH": str(settings.get("ssh_key_path", SSH_KEY_PATH)).strip(),
+        "SSH_PASSWORD": str(settings.get("ssh_password", SSH_PASSWORD)).strip(),
+        "SSH_WORK_DIR": str(settings.get("ssh_work_dir", SSH_WORK_DIR)).strip() or "/tmp/scholarmind",
+        "SSH_CONDA_ENV": str(settings.get("ssh_conda_env", SSH_CONDA_ENV)).strip(),
+        "LLM_SIMULATION_ENABLED": "true"
+        if _coerce_bool(settings.get("llm_simulation_enabled"), LLM_SIMULATION_ENABLED)
+        else "false",
         "PUBLIC_BASE_URL": _normalize_base_url(
             str(settings.get("public_base_url", PUBLIC_BASE_URL)).strip(),
             "",

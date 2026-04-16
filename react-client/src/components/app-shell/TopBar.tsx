@@ -1,8 +1,9 @@
-import { History, Radio, RefreshCw, Settings2, Smartphone, Workflow } from 'lucide-react';
+import { Cpu, History, Radio, RefreshCw, Settings2, Smartphone, WifiOff, Workflow } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { clearApiCache, getConnectionInfo } from '../../services/api';
+import { clearApiCache, getRuntimeSettings } from '../../services/api';
 import { routeMeta } from '../../data/routeData';
+import type { BackendRuntimeSettingsResponse } from '../../types/backend';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
 const statusLabelMap: Record<string, string> = {
@@ -22,6 +23,8 @@ export default function TopBar() {
   const currentTaskId = useWorkspaceStore((state) => state.currentTaskId);
   const currentStage = useWorkspaceStore((state) => state.currentStage);
   const isWebSocketConnected = useWorkspaceStore((state) => state.isWebSocketConnected);
+  const isOfflineMode = useWorkspaceStore((state) => state.isOfflineMode);
+  const mobileConnectionCount = useWorkspaceStore((state) => state.mobileConnectionCount);
   const initializeWorkspaceData = useWorkspaceStore((state) => state.initializeWorkspaceData);
   const refreshCurrentTask = useWorkspaceStore((state) => state.refreshCurrentTask);
   const refreshLogs = useWorkspaceStore((state) => state.refreshLogs);
@@ -29,27 +32,33 @@ export default function TopBar() {
   const route = routeMeta.find((item) => item.path === location.pathname);
   const currentStageRoute = routeMeta.find((item) => item.id === currentStage);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [mobileConnectionCount, setMobileConnectionCount] = useState(0);
+  const [modelLabel, setModelLabel] = useState('');
+  const activeModelLabel = currentTask?.runtime_model?.trim() || modelLabel;
 
   useEffect(() => {
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
 
-    const fetchConnectionInfo = async () => {
-      try {
-        const info = await getConnectionInfo();
-        setMobileConnectionCount(info.mobile_connection_count ?? 0);
-      } catch {
-        setMobileConnectionCount(0);
-      }
+    void getRuntimeSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setModelLabel(settings.model.trim());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModelLabel('');
+        }
+      });
+
+    const handleRuntimeUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<BackendRuntimeSettingsResponse>).detail;
+      setModelLabel(detail?.model?.trim() ?? '');
     };
 
-    fetchConnectionInfo();
-    intervalId = setInterval(fetchConnectionInfo, 5000);
-
+    window.addEventListener('scholarmind:runtime-settings-updated', handleRuntimeUpdated as EventListener);
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      cancelled = true;
+      window.removeEventListener('scholarmind:runtime-settings-updated', handleRuntimeUpdated as EventListener);
     };
   }, []);
 
@@ -63,6 +72,8 @@ export default function TopBar() {
 
     try {
       await initializeWorkspaceData();
+      const runtimeSettings = await getRuntimeSettings();
+      setModelLabel(runtimeSettings.model.trim());
 
       if (currentTaskId) {
         await Promise.all([refreshCurrentTask(), refreshLogs(currentTaskId)]);
@@ -120,6 +131,18 @@ export default function TopBar() {
           <div className="current-indicator mobile-connected">
             <Smartphone size={14} />
             <span>手机已连接 ({mobileConnectionCount})</span>
+          </div>
+        )}
+        {isOfflineMode && (
+          <div className="current-indicator offline-indicator">
+            <WifiOff size={14} />
+            <span>离线模式</span>
+          </div>
+        )}
+        {activeModelLabel && (
+          <div className="current-indicator" title={`当前模型: ${activeModelLabel}`}>
+            <Cpu size={14} />
+            <span>{activeModelLabel}</span>
           </div>
         )}
         <div className="current-indicator">

@@ -49,6 +49,9 @@ class ConnectionManager:
         if self._heartbeat_task is None:
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
+        # Broadcast connection count update
+        await self._broadcast_connection_update()
+
     def disconnect(self, websocket: WebSocket, task_id: Optional[str] = None):
         if task_id and task_id in self._task_connections:
             conns = self._task_connections[task_id]
@@ -58,6 +61,8 @@ class ConnectionManager:
             self._global_connections.remove(websocket)
         self._mobile_connections.discard(websocket)
         self._last_pong.pop(websocket, None)
+        # Schedule connection update broadcast (fire-and-forget)
+        asyncio.ensure_future(self._broadcast_connection_update())
 
     def get_mobile_connection_count(self) -> int:
         """获取移动端连接数"""
@@ -146,6 +151,24 @@ class ConnectionManager:
                 await ws.send_text(payload)
             except Exception:
                 pass
+
+    async def _broadcast_connection_update(self) -> None:
+        """Broadcast mobile connection count to all global connections."""
+        count = self.get_mobile_connection_count()
+        msg = WSMessage(
+            type="connection_update",
+            message="",
+            data={"mobile_connection_count": count},
+        )
+        payload = msg.model_dump_json()
+        dead = []
+        for ws in self._global_connections:
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
 
 
 manager = ConnectionManager()

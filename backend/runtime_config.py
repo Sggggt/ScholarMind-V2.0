@@ -22,6 +22,7 @@ def capture_current_runtime_settings() -> dict[str, Any]:
         "openai_api_key": config.OPENAI_API_KEY,
         "openai_base_url": config.OPENAI_BASE_URL,
         "openai_model": config.OPENAI_MODEL,
+        "aide_python": getattr(config, "AIDE_PYTHON", ""),
         "aider_python": getattr(config, "AIDER_PYTHON", ""),
         "aider_exe": getattr(config, "AIDER_EXE", ""),
         "anthropic_api_key": config.ANTHROPIC_API_KEY,
@@ -39,6 +40,15 @@ def capture_current_runtime_settings() -> dict[str, Any]:
         "local_model_alias": getattr(config, "LOCAL_LLM_MODEL_ALIAS", ""),
         "local_context_size": getattr(config, "LOCAL_LLM_CONTEXT_SIZE", 4096),
         "local_gpu_layers": getattr(config, "LOCAL_LLM_GPU_LAYERS", 0),
+        "ssh_enabled": getattr(config, "SSH_RUNTIME_ENABLED", True),
+        "ssh_host": getattr(config, "SSH_HOST", ""),
+        "ssh_port": getattr(config, "SSH_PORT", 22),
+        "ssh_user": getattr(config, "SSH_USER", ""),
+        "ssh_key_path": getattr(config, "SSH_KEY_PATH", ""),
+        "ssh_password": getattr(config, "SSH_PASSWORD", ""),
+        "ssh_work_dir": getattr(config, "SSH_WORK_DIR", "/tmp/scholarmind"),
+        "ssh_conda_env": getattr(config, "SSH_CONDA_ENV", ""),
+        "llm_simulation_enabled": getattr(config, "LLM_SIMULATION_ENABLED", True),
     }
 
 
@@ -98,6 +108,10 @@ def get_openai_model() -> str:
     return str(current_runtime_settings().get("openai_model", config.OPENAI_MODEL)).strip()
 
 
+def get_aide_python() -> str:
+    return str(current_runtime_settings().get("aide_python", getattr(config, "AIDE_PYTHON", ""))).strip()
+
+
 def get_aider_python() -> str:
     return str(current_runtime_settings().get("aider_python", getattr(config, "AIDER_PYTHON", ""))).strip()
 
@@ -132,3 +146,49 @@ def get_gpt_api_key() -> str:
 
 def get_gpt_api_base() -> str:
     return str(current_runtime_settings().get("gpt_api_base", config.GPT_API_BASE)).rstrip("/")
+
+
+def get_ssh_enabled() -> bool:
+    return bool(current_runtime_settings().get("ssh_enabled", getattr(config, "SSH_RUNTIME_ENABLED", True)))
+
+
+def get_ssh_host() -> str:
+    return str(current_runtime_settings().get("ssh_host", getattr(config, "SSH_HOST", ""))).strip()
+
+
+def get_ssh_port() -> int:
+    try:
+        return int(current_runtime_settings().get("ssh_port", getattr(config, "SSH_PORT", 22)))
+    except (TypeError, ValueError):
+        return int(getattr(config, "SSH_PORT", 22))
+
+
+def get_ssh_user() -> str:
+    return str(current_runtime_settings().get("ssh_user", getattr(config, "SSH_USER", ""))).strip()
+
+
+def get_ssh_key_path() -> str:
+    return str(current_runtime_settings().get("ssh_key_path", getattr(config, "SSH_KEY_PATH", ""))).strip()
+
+
+def get_ssh_password() -> str:
+    return str(current_runtime_settings().get("ssh_password", getattr(config, "SSH_PASSWORD", "")))
+
+
+def get_ssh_work_dir() -> str:
+    return str(
+        current_runtime_settings().get("ssh_work_dir", getattr(config, "SSH_WORK_DIR", "/tmp/scholarmind"))
+    ).strip()
+
+
+def get_ssh_conda_env() -> str:
+    return str(current_runtime_settings().get("ssh_conda_env", getattr(config, "SSH_CONDA_ENV", ""))).strip()
+
+
+def get_llm_simulation_enabled() -> bool:
+    return bool(
+        current_runtime_settings().get(
+            "llm_simulation_enabled",
+            getattr(config, "LLM_SIMULATION_ENABLED", True),
+        )
+    )

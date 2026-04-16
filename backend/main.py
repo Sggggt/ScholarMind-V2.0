@@ -67,6 +67,13 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Close Redis connection
+    try:
+        from services.redis_service import close_redis
+        await close_redis()
+    except Exception as e:
+        print(f"[Redis] 关闭连接时出错: {e}")
+
     # Stop mDNS service
     if mdns_publisher:
         try:

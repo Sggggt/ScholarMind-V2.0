@@ -50,6 +50,7 @@ import {
   sendChatMessage,
 } from '../services/api';
 import { buildTaskConfigOverrides, buildTaskDescription } from '../services/preferences';
+import { clearPersistedState, loadPersistedState, persistState } from '../services/offlineCache';
 import { toDisplayErrorMessage } from '../utils/errorMessage';
 
 interface WorkspaceState {
@@ -60,6 +61,8 @@ interface WorkspaceState {
   isTaskLoading: boolean;
   isLogsLoading: boolean;
   isWebSocketConnected: boolean;
+  isOfflineMode: boolean;
+  mobileConnectionCount: number;
   taskError: string | null;
   toastMessage: string | null;
   transitionState: TransitionState | null;
@@ -89,6 +92,7 @@ interface WorkspaceState {
   showTransition: (state: TransitionState, label: string) => void;
   clearTransition: () => void;
   setWebSocketStatus: (connected: boolean) => void;
+  setMobileConnectionCount: (count: number) => void;
   initializeWorkspaceData: () => Promise<void>;
   refreshTask: (taskId: string, options?: { background?: boolean }) => Promise<void>;
   refreshCurrentTask: (options?: { background?: boolean }) => Promise<void>;
@@ -119,6 +123,21 @@ let transitionTimer: number | null = null;
 let sessionListRequestSeq = 0;
 let sessionSelectionRequestSeq = 0;
 let sessionCreationRequestSeq = 0;
+let persistTimer: number | null = null;
+
+function resetPersistTimer() {
+  if (persistTimer !== null) {
+    window.clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+}
+
+function schedulePersist(state: WorkspaceState) {
+  resetPersistTimer();
+  persistTimer = window.setTimeout(() => {
+    persistState(state.sessions, state.tasksById, state.chatMessagesBySession);
+  }, 2000);
+}
 
 function resetToastTimer() {
   if (toastTimer !== null) {
@@ -328,10 +347,33 @@ function applyTaskView(state: WorkspaceState, task: BackendTaskResponse) {
 
 function mergeTaskWithWsMessage(task: BackendTaskResponse, message: BackendWsMessage): BackendTaskResponse {
   const nowIso = new Date().toISOString();
+  const agentPatch =
+    message.data && typeof message.data === 'object'
+      ? {
+          active_cycle: (message.data.active_cycle as Record<string, unknown> | undefined) ?? task.active_cycle ?? null,
+          root_agent: (message.data.root_agent as Record<string, unknown> | undefined) ?? task.root_agent ?? null,
+          child_agents: Array.isArray(message.data.child_agents) ? (message.data.child_agents as Array<Record<string, unknown>>) : task.child_agents ?? [],
+          recent_summary: (message.data.recent_summary as Record<string, unknown> | undefined) ?? task.recent_summary ?? null,
+        }
+      : {
+          active_cycle: task.active_cycle ?? null,
+          root_agent: task.root_agent ?? null,
+          child_agents: task.child_agents ?? [],
+          recent_summary: task.recent_summary ?? null,
+        };
+
+  if (message.type === 'agent_tree' || message.type === 'agent_event' || message.type === 'agent_summary') {
+    return {
+      ...task,
+      ...agentPatch,
+      updated_at: nowIso,
+    };
+  }
 
   if (message.type === 'completed') {
     return {
       ...task,
+      ...agentPatch,
       status: 'completed',
       updated_at: nowIso,
       completed_at: nowIso,
@@ -347,6 +389,7 @@ function mergeTaskWithWsMessage(task: BackendTaskResponse, message: BackendWsMes
   if (message.type === 'need_review') {
     return {
       ...task,
+      ...agentPatch,
       status: 'review',
       updated_at: nowIso,
     };
@@ -355,6 +398,7 @@ function mergeTaskWithWsMessage(task: BackendTaskResponse, message: BackendWsMes
   if (message.type === 'error') {
     return {
       ...task,
+      ...agentPatch,
       status: 'failed',
       updated_at: nowIso,
       modules: task.modules.map((module) =>
@@ -383,6 +427,7 @@ function mergeTaskWithWsMessage(task: BackendTaskResponse, message: BackendWsMes
 
   return {
     ...task,
+    ...agentPatch,
     status: 'running',
     current_module: targetModuleId,
     updated_at: nowIso,
@@ -432,6 +477,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   isTaskLoading: false,
   isLogsLoading: false,
   isWebSocketConnected: false,
+  isOfflineMode: false,
+  mobileConnectionCount: 0,
   taskError: null,
   toastMessage: null,
   transitionState: null,
@@ -495,6 +542,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ transitionState: null, transitionLabel: '' });
   },
   setWebSocketStatus: (connected) => set({ isWebSocketConnected: connected }),
+  setMobileConnectionCount: (count) => set({ mobileConnectionCount: count }),
   initializeWorkspaceData: async () => {
     if (get().isInitializing) {
       return;
@@ -515,7 +563,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({
         sessions,
         currentSessionId: fallbackSessionId,
+        isOfflineMode: false,
       });
+
+      // Clear persisted state since backend is healthy
+      clearPersistedState();
 
       if (fallbackSessionId) {
         await get().selectSession(fallbackSessionId);
@@ -527,6 +579,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       }
     } catch (error) {
       if (requestId === sessionListRequestSeq) {
+        // Try to recover from localStorage
+        const persisted = loadPersistedState();
+        if (persisted && (persisted.sessions as unknown[]).length > 0) {
+          const sessions = persisted.sessions as RecentSession[];
+          const fallbackSessionId = pickDefaultSessionId(sessions, get().currentSessionId);
+          const tasksById = persisted.tasksById as Record<string, BackendTaskResponse>;
+          const chatMessagesBySession = persisted.chatMessagesBySession as Record<string, ChatMessage[]>;
+
+          set({
+            sessions,
+            tasksById,
+            chatMessagesBySession,
+            currentSessionId: fallbackSessionId,
+            chatMessages: fallbackSessionId ? chatMessagesBySession[fallbackSessionId] ?? draftChatMessages : draftChatMessages,
+            isOfflineMode: true,
+            isInitializing: false,
+            taskError: '后端服务不可用，显示缓存数据',
+          });
+          return;
+        }
+
         set({
           taskError: getErrorMessage(error),
         });
@@ -791,6 +864,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     await get().addChatMessage(topic);
   },
   handleWsMessage: (message) => {
+    // Handle global message types
+    if (message.type === 'task_created' && message.data?.task) {
+      const task = message.data.task as BackendTaskResponse;
+      set((state) => ({
+        tasksById: { ...state.tasksById, [task.id]: task },
+      }));
+      return;
+    }
+
+    if (message.type === 'task_deleted') {
+      set((state) => ({
+        ...removeTaskHistoryState(state, message.task_id),
+      }));
+      return;
+    }
+
+    if (message.type === 'connection_update' && message.data?.mobile_connection_count != null) {
+      set({ mobileConnectionCount: message.data.mobile_connection_count as number });
+      return;
+    }
+
     let pendingTransition: { state: TransitionState; label: string } | null = null;
     clearTaskApiCache(message.task_id);
 
@@ -1181,3 +1275,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setActivePaper: (paperId) => set({ activePaperId: paperId }),
   setSelectedIdeas: (ideaIds) => set({ selectedIdeaIds: ideaIds }),
 }));
+
+// Auto-persist sessions + tasks + chatMessages to localStorage (debounced 2s)
+useWorkspaceStore.subscribe((state) => {
+  if (state.sessions.length > 0 || Object.keys(state.tasksById).length > 0) {
+    schedulePersist(state);
+  }
+});

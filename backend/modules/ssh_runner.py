@@ -11,6 +11,16 @@ from pathlib import Path
 from typing import Optional
 
 import config
+from runtime_config import (
+    get_ssh_conda_env,
+    get_ssh_enabled,
+    get_ssh_host,
+    get_ssh_key_path,
+    get_ssh_password,
+    get_ssh_port,
+    get_ssh_user,
+    get_ssh_work_dir,
+)
 
 
 class SSHRunner:
@@ -18,11 +28,11 @@ class SSHRunner:
 
     def __init__(self):
         self.conn = None
-        self.remote_work_dir = config.SSH_WORK_DIR
+        self.remote_work_dir = get_ssh_work_dir()
 
     def is_available(self) -> bool:
         """是否配置了 SSH"""
-        return config.SSH_ENABLED
+        return bool(get_ssh_host() and get_ssh_user() and get_ssh_enabled())
 
     def connect(self):
         """建立 SSH 连接"""
@@ -32,17 +42,19 @@ class SSHRunner:
         from fabric import Connection
 
         connect_kwargs = {}
-        if config.SSH_KEY_PATH:
-            key_path = os.path.expanduser(config.SSH_KEY_PATH)
+        key_path_value = get_ssh_key_path()
+        if key_path_value:
+            key_path = os.path.expanduser(key_path_value)
             if os.path.exists(key_path):
                 connect_kwargs["key_filename"] = key_path
-        if config.SSH_PASSWORD:
-            connect_kwargs["password"] = config.SSH_PASSWORD
+        password = get_ssh_password()
+        if password:
+            connect_kwargs["password"] = password
 
         self.conn = Connection(
-            host=config.SSH_HOST,
-            port=config.SSH_PORT,
-            user=config.SSH_USER,
+            host=get_ssh_host(),
+            port=get_ssh_port(),
+            user=get_ssh_user(),
             connect_kwargs=connect_kwargs,
         )
         return self.conn
@@ -56,7 +68,7 @@ class SSHRunner:
     async def setup_remote_env(self, task_id: str, requirements: list[str] = None):
         """在远程服务器上创建工作目录并安装依赖"""
         conn = self.connect()
-        remote_dir = f"{self.remote_work_dir}/{task_id}"
+        remote_dir = f"{get_ssh_work_dir()}/{task_id}"
 
         await asyncio.to_thread(conn.run, f"mkdir -p {remote_dir}", hide=True)
 
@@ -70,7 +82,8 @@ class SSHRunner:
         # 安装依赖
         if requirements:
             reqs = " ".join(requirements)
-            conda_prefix = f"conda activate {config.SSH_CONDA_ENV} && " if config.SSH_CONDA_ENV else ""
+            ssh_conda_env = get_ssh_conda_env()
+            conda_prefix = f"conda activate {ssh_conda_env} && " if ssh_conda_env else ""
             await asyncio.to_thread(
                 conn.run,
                 f"{conda_prefix}pip install {reqs} 2>/dev/null",
@@ -82,7 +95,7 @@ class SSHRunner:
     async def upload_code(self, local_dir: str, task_id: str):
         """上传实验代码到远程服务器"""
         conn = self.connect()
-        remote_dir = f"{self.remote_work_dir}/{task_id}"
+        remote_dir = f"{get_ssh_work_dir()}/{task_id}"
 
         await asyncio.to_thread(conn.run, f"mkdir -p {remote_dir}", hide=True)
 
@@ -110,8 +123,9 @@ class SSHRunner:
     ) -> dict:
         """在远程服务器执行实验"""
         conn = self.connect()
-        remote_dir = f"{self.remote_work_dir}/{task_id}"
-        conda_prefix = f"conda activate {config.SSH_CONDA_ENV} && " if config.SSH_CONDA_ENV else ""
+        remote_dir = f"{get_ssh_work_dir()}/{task_id}"
+        ssh_conda_env = get_ssh_conda_env()
+        conda_prefix = f"conda activate {ssh_conda_env} && " if ssh_conda_env else ""
 
         try:
             result = await asyncio.to_thread(
@@ -138,7 +152,7 @@ class SSHRunner:
     async def download_results(self, task_id: str, local_dir: str, run_name: str = "run_0"):
         """从远程服务器下载实验结果"""
         conn = self.connect()
-        remote_dir = f"{self.remote_work_dir}/{task_id}/{run_name}"
+        remote_dir = f"{get_ssh_work_dir()}/{task_id}/{run_name}"
         local_run_dir = os.path.join(local_dir, run_name)
         os.makedirs(local_run_dir, exist_ok=True)
 

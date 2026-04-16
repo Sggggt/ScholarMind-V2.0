@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { subscribeTaskWebSocket } from '../../services/websocket';
+import { subscribeGlobalWebSocket, subscribeTaskWebSocket } from '../../services/websocket';
 import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 
 export default function WorkspaceSync() {
@@ -9,14 +9,35 @@ export default function WorkspaceSync() {
   const refreshLogs = useWorkspaceStore((state) => state.refreshLogs);
   const handleWsMessage = useWorkspaceStore((state) => state.handleWsMessage);
   const setWebSocketStatus = useWorkspaceStore((state) => state.setWebSocketStatus);
+  const setMobileConnectionCount = useWorkspaceStore((state) => state.setMobileConnectionCount);
   const runStatus = useWorkspaceStore((state) => state.runStatus);
   const isWebSocketConnected = useWorkspaceStore((state) => state.isWebSocketConnected);
-  const refreshTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     void initializeWorkspaceData();
   }, [initializeWorkspaceData]);
 
+  // Subscribe to global WS for task_created, task_deleted, connection_update
+  useEffect(() => {
+    const unsubscribe = subscribeGlobalWebSocket({
+      onMessage: (message) => {
+        if (message.type === 'connection_update' && message.data?.mobile_connection_count != null) {
+          setMobileConnectionCount(message.data.mobile_connection_count as number);
+        } else if (message.type === 'task_created' || message.type === 'task_deleted') {
+          handleWsMessage(message);
+        }
+      },
+      onOpen: () => {},
+      onClose: () => {},
+      onError: () => {},
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [handleWsMessage, setMobileConnectionCount]);
+
+  // Subscribe to per-task WS for progress updates
   useEffect(() => {
     if (!currentTaskId) {
       setWebSocketStatus(false);
@@ -26,28 +47,13 @@ export default function WorkspaceSync() {
     void refreshCurrentTask({ background: true });
     void refreshLogs(currentTaskId);
 
-    const clearRefreshTimer = () => {
-      if (refreshTimerRef.current !== null) {
-        window.clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-    };
-
     const unsubscribe = subscribeTaskWebSocket(currentTaskId, {
       onMessage: (message) => {
         handleWsMessage(message);
         setWebSocketStatus(true);
-        clearRefreshTimer();
 
         if (message.type === 'completed') {
           void Promise.all([refreshCurrentTask({ background: true }), refreshLogs(currentTaskId)]);
-          return;
-        }
-
-        if (runStatus === 'running' || runStatus === 'idle' || runStatus === 'review') {
-          refreshTimerRef.current = window.setTimeout(() => {
-            void refreshCurrentTask({ background: true });
-          }, 1200);
         }
       },
       onOpen: () => setWebSocketStatus(true),
@@ -56,7 +62,6 @@ export default function WorkspaceSync() {
     });
 
     return () => {
-      clearRefreshTimer();
       setWebSocketStatus(false);
       unsubscribe();
     };
@@ -65,10 +70,10 @@ export default function WorkspaceSync() {
     handleWsMessage,
     refreshCurrentTask,
     refreshLogs,
-    runStatus,
     setWebSocketStatus,
   ]);
 
+  // Fallback polling (15s) when WS is disconnected and task is active
   useEffect(() => {
     if (!currentTaskId || isWebSocketConnected) {
       return undefined;
@@ -80,7 +85,7 @@ export default function WorkspaceSync() {
 
     const intervalId = window.setInterval(() => {
       void Promise.all([refreshCurrentTask({ background: true }), refreshLogs(currentTaskId)]);
-    }, 5000);
+    }, 15000);
 
     return () => {
       window.clearInterval(intervalId);

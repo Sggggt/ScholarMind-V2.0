@@ -99,6 +99,30 @@ WebSocket 路径: /ws (全局), /ws/{task_id} (任务级)
 
 // 心跳 ping (需回复 pong)
 { type: "ping", timestamp: number }
+
+// ── v2 新增：多代理运行时消息 ──
+
+// 代理树状态（整体结构更新）
+{ type: "agent_tree", task_id: string,
+  active_cycle: string,          // 当前代理周期标识
+  root_agent: {                  // 根代理（coordinator）
+    role: string, status: string, module: number, phase: string
+  },
+  child_agents: Array<{          // 子代理列表
+    role: string, status: string, module: number, phase: string
+  }>
+}
+
+// 代理事件（单条事件推送）
+{ type: "agent_event", task_id: string,
+  module: number, phase: string, kind: string,
+  message: string, payload: object, role: string
+}
+
+// 代理摘要（周期级摘要）
+{ type: "agent_summary", task_id: string,
+  cycle: string, summary: string, metrics: object
+}
 ```
 
 ### 1.5 数据模型（共享类型）
@@ -123,6 +147,15 @@ interface TaskResponse {
   updated_at: string;
   completed_at?: string | null;
   output_url?: string | null;
+  // ── v2 新增：多代理状态字段 ──
+  active_cycle?: string | null;
+  root_agent?: {
+    role: string; status: string; module: number; phase: string;
+  } | null;
+  child_agents?: Array<{
+    role: string; status: string; module: number; phase: string;
+  }> | null;
+  recent_summary?: string | null;
 }
 
 // 模块进度
@@ -136,6 +169,46 @@ interface ModuleProgress {
   finished_at?: string | null;
 }
 ```
+
+### 1.6 运行时配置 API（v2 新增）
+
+运行时动态配置允许在前端实时修改 API Key、模型、SSH 参数等，无需重启后端。
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `GET` | `/api/runtime-settings` | 获取当前运行时配置 |
+| `PUT` | `/api/runtime-settings` | 更新运行时配置 |
+
+**RuntimeSettings 字段**:
+```typescript
+interface RuntimeSettings {
+  openai_api_key?: string;
+  openai_base_url?: string;
+  openai_model?: string;
+  ssh_host?: string;
+  ssh_user?: string;
+  ssh_work_dir?: string;
+  brave_api_key?: string;
+  aider_python?: string;
+  aider_exe?: string;
+  // ... 其他运行时可调参数
+}
+```
+
+### 1.7 数据库扩展（v2 新增）
+
+Task 表新增字段：
+- `active_cycle`：当前代理周期标识
+- `root_agent`：根代理状态（JSON）
+- `child_agents`：子代理列表（JSON）
+- `recent_summary`：最近代理摘要
+
+新增 Agent 相关表：
+- `agent_runs`：代理运行记录
+- `agent_tasks`：代理任务分配
+- `agent_events`：代理事件日志
+
+支持多代理树结构（coordinator → worker 层级）。
 
 ---
 

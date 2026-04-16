@@ -1,13 +1,35 @@
 services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
   backend:
     build:
       context: ./backend
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
     working_dir: /app
+    depends_on:
+      redis:
+        condition: service_healthy
     env_file:
       - ./backend/.env
     environment:
       HOST: 0.0.0.0
       PORT: 8000
+      DATABASE_URL: sqlite+aiosqlite:////data/research.db
+      REDIS_URL: redis://redis:6379/0
+      PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+      PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
+      PIP_CACHE_DIR: /root/.cache/pip
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      AIDE_PYTHON: /opt/.venv-aide-py311/bin/python
       AIDER_PYTHON: /opt/.venv-aider-py311/bin/python
       DOCKER_SHARED_WORKDIR_ROOT: /host-project-root
       DOCKER_SHARED_WORKDIR_MARKER: Project
@@ -22,6 +44,8 @@ services:
       - ./backend:/app
       - ..:/host-project-root
       - "${HOST_WORKDIR_ROOT:-./tmp/docker-custom-workdir}:${CONTAINER_WORKDIR_ROOT:-/external-workdir}"
+      - backend_db:/data
+      - pip_cache:/root/.cache/pip
     healthcheck:
       test:
         [
@@ -34,7 +58,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-    command: python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -lc "if [ ! -f /data/research.db ] && [ -f /app/research.db ]; then cp /app/research.db /data/research.db; fi; exec env -u PIP_NO_CACHE_DIR python -m uvicorn main:app --host 0.0.0.0 --port 8000"
 
   web:
     build:
@@ -69,3 +93,5 @@ services:
 
 volumes:
   react_client_node_modules:
+  backend_db:
+  pip_cache:

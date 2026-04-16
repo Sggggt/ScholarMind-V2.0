@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from contextlib import suppress
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
 from db.models import ChatMessage, ChatSession, Task, TaskOutput, TraceLog
+from api.ws import manager
 from pipeline.orchestrator import PipelineOrchestrator
 from runtime_config import ensure_runtime_settings
+from services.redis_service import delete_cache
 
 
 _running: dict[str, PipelineOrchestrator] = {}
@@ -127,6 +130,24 @@ def _spawn_orchestrator(
     return orchestrator
 
 
+async def _abort_existing_orchestrator(task_id: str, timeout: float = 10.0) -> None:
+    orchestrator = get_running_orchestrator(task_id)
+    if not orchestrator:
+        return
+
+    orchestrator.abort()
+    task = orchestrator._task
+    if not task:
+        _running.pop(task_id, None)
+        return
+
+    with suppress(asyncio.CancelledError, Exception):
+        await asyncio.wait_for(task, timeout=timeout)
+
+    if _running.get(task_id) is orchestrator:
+        _running.pop(task_id, None)
+
+
 async def _ensure_task_runtime_settings(db: AsyncSession, task: Task) -> Task:
     normalized = ensure_runtime_settings(task.config if isinstance(task.config, dict) else {})
     if normalized != (task.config or {}):
@@ -157,6 +178,19 @@ async def create_task_and_start(
     await db.refresh(task)
 
     _spawn_orchestrator(task.id, start_module=1)
+    await delete_cache("tasks:list:all")
+
+    # Broadcast task_created to global WS channel
+    from api.schemas import WSMessage
+    from api.routes import _task_to_response
+    task_data = _task_to_response(task)
+    await manager.send(WSMessage(
+        type="task_created",
+        task_id=task.id,
+        message="",
+        data={"task": task_data},
+    ))
+
     return task
 
 
@@ -221,9 +255,7 @@ async def restart_task_execution(
     task = await _ensure_task_runtime_settings(db, task)
     normalized_module = _normalize_restart_module(task, start_module)
 
-    existing = get_running_orchestrator(task.id)
-    if existing:
-        existing.abort()
+    await _abort_existing_orchestrator(task.id)
 
     _cleanup_workspace_from_module(task.id, normalized_module)
 
@@ -285,6 +317,17 @@ async def recover_running_tasks() -> dict[str, int]:
     }
 
 
+async def ensure_running_task_orchestrator(task: Task) -> bool:
+    if task.status != "running":
+        return False
+    if get_running_orchestrator(task.id):
+        return False
+
+    start_module = _normalize_start_module(task)
+    _spawn_orchestrator(task.id, start_module=start_module)
+    return True
+
+
 async def recover_review_execution(
     db: AsyncSession,
     task: Task,
@@ -313,10 +356,7 @@ async def recover_review_execution(
 
 
 async def delete_task_with_dependencies(db: AsyncSession, task: Task) -> None:
-    existing = get_running_orchestrator(task.id)
-    if existing:
-        existing.abort()
-        _running.pop(task.id, None)
+    await _abort_existing_orchestrator(task.id)
 
     await db.execute(
         sql_delete(ChatMessage).where(
@@ -331,3 +371,13 @@ async def delete_task_with_dependencies(db: AsyncSession, task: Task) -> None:
 
     # Remove backend-managed task artifacts, but keep any user-selected local code directory.
     _safe_remove_path(config.WORKSPACE_DIR / task.id)
+
+    await delete_cache("tasks:list:all", f"task:{task.id}", f"task:{task.id}:logs")
+
+    # Broadcast task_deleted to global WS channel
+    from api.schemas import WSMessage
+    await manager.send(WSMessage(
+        type="task_deleted",
+        task_id=task.id,
+        message="",
+    ))

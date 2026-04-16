@@ -31,6 +31,12 @@ export interface BackendTaskResponse {
   updated_at: string;
   completed_at?: string | null;
   output_url?: string | null;
+  runtime_provider?: string;
+  runtime_model?: string;
+  active_cycle?: Record<string, unknown> | null;
+  root_agent?: Record<string, unknown> | null;
+  child_agents?: Array<Record<string, unknown>>;
+  recent_summary?: Record<string, unknown> | null;
 }
 
 export interface BackendTaskCreateRequest {
@@ -104,6 +110,15 @@ export interface BackendRuntimeSettingsRequest {
   local_model_alias: string;
   local_context_size: number;
   local_gpu_layers: number;
+  ssh_enabled: boolean;
+  ssh_host: string;
+  ssh_port: number;
+  ssh_user: string;
+  ssh_key_path: string;
+  ssh_password: string;
+  ssh_work_dir: string;
+  ssh_conda_env: string;
+  llm_simulation_enabled: boolean;
   public_base_url: string;
 }
 
@@ -208,7 +223,10 @@ export interface BackendReviewReportResponse {
 
 export interface BackendSshStatusResponse {
   enabled: boolean;
+  configured?: boolean;
+  runtime_enabled?: boolean;
   host?: string | null;
+  port?: number | null;
   user?: string | null;
   work_dir?: string | null;
 }
@@ -219,7 +237,7 @@ export interface BackendSshTestResponse {
 }
 
 export interface BackendWsMessage {
-  type: 'progress' | 'result' | 'need_review' | 'error' | 'completed';
+  type: 'progress' | 'result' | 'need_review' | 'error' | 'completed' | 'task_created' | 'task_deleted' | 'connection_update' | 'agent_tree' | 'agent_event' | 'agent_summary';
   task_id: string;
   module?: string;
   step?: string;

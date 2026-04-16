@@ -9,7 +9,14 @@ export interface TaskWebSocketHandlers {
   onError?: () => void;
 }
 
-function buildWsUrl(taskId: string) {
+export interface GlobalWebSocketHandlers {
+  onMessage: (message: BackendWsMessage) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+  onError?: () => void;
+}
+
+function buildTaskWsUrl(taskId: string) {
   const wsBase = resolveWsBase();
   if (wsBase) {
     return `${wsBase.replace(/\/$/, '')}/ws/${taskId}?client_type=desktop`;
@@ -25,6 +32,23 @@ function buildWsUrl(taskId: string) {
   // 相对路径情况：apiBase = '/api'，需要带上 /api 前缀才能被 Vite 代理转发
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}${apiBase}/ws/${taskId}?client_type=desktop`;
+}
+
+function buildGlobalWsUrl() {
+  const wsBase = resolveWsBase();
+  if (wsBase) {
+    return `${wsBase.replace(/\/$/, '')}/ws?client_type=desktop`;
+  }
+
+  const apiBase = getApiBase();
+
+  if (apiBase.startsWith('http://') || apiBase.startsWith('https://')) {
+    const wsBase = apiBase.replace(/^http/, 'ws');
+    return `${wsBase}/ws?client_type=desktop`;
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}${apiBase}/ws?client_type=desktop`;
 }
 
 export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHandlers) {
@@ -50,7 +74,7 @@ export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHa
 
   const connect = () => {
     clearReconnectTimer();
-    socket = new WebSocket(buildWsUrl(taskId));
+    socket = new WebSocket(buildTaskWsUrl(taskId));
 
     socket.onopen = () => {
       reconnectAttempts = 0;
@@ -83,6 +107,75 @@ export function subscribeTaskWebSocket(taskId: string, handlers: TaskWebSocketHa
       }
 
       const delay = Math.min(1000 * 2 ** reconnectAttempts, 8000);
+      reconnectAttempts += 1;
+      reconnectTimer = window.setTimeout(connect, delay);
+    };
+  };
+
+  connect();
+
+  return () => {
+    manualClose = true;
+    clearReconnectTimer();
+    socket?.close();
+  };
+}
+
+export function subscribeGlobalWebSocket(handlers: GlobalWebSocketHandlers) {
+  let socket: WebSocket | null = null;
+  let reconnectTimer: number | null = null;
+  let manualClose = false;
+  let reconnectAttempts = 0;
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimer !== null) {
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  };
+
+  const sendPong = () => {
+    try {
+      socket?.send(JSON.stringify({ type: "pong", timestamp: Date.now() / 1000 }));
+    } catch {
+      // ignore
+    }
+  };
+
+  const connect = () => {
+    clearReconnectTimer();
+    socket = new WebSocket(buildGlobalWsUrl());
+
+    socket.onopen = () => {
+      reconnectAttempts = 0;
+      handlers.onOpen?.();
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type === "ping") {
+          sendPong();
+          return;
+        }
+        handlers.onMessage(data as BackendWsMessage);
+      } catch {
+        handlers.onError?.();
+      }
+    };
+
+    socket.onerror = () => {
+      handlers.onError?.();
+    };
+
+    socket.onclose = () => {
+      handlers.onClose?.();
+
+      if (manualClose) {
+        return;
+      }
+
+      const delay = Math.min(1000 * 2 ** reconnectAttempts, 16000);
       reconnectAttempts += 1;
       reconnectTimer = window.setTimeout(connect, delay);
     };
